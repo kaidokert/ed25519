@@ -1,12 +1,12 @@
 # Requirements
 
-- A rust environment (cargo and rustc). You can use rustup for simple set-up.
+- A rust environment (cargo and rustc). You can use rustup for a simple set-up.
 
 # How to compile
 
 - For release : `make all`
-- To run code : `cargo run m [u]`
-- to test xADD, xDBL and ladder all work, defined in src/lib.rs. : do `cargo test --package x22519 --lib -- elliptic::tests::test_ladder --exact --nocapture`.
+- To run code : `cargo run --bin=[keygen|sign|verify] arg1 arg2 arg3`
+- Unfortunately I could not get sign and verify to work as of yet ... There are tests however in the file lib.rs which would be interesting to look at.
 
 # For cleanup
 

@@ -1,3 +1,9 @@
 target/
+release/
 .vscode
 todo.txt
+*.zip
+*.pk
+*.sk
+*.sig
+*.py
