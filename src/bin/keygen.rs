@@ -20,12 +20,6 @@ fn main() {
     let private_key = random_32_bytes.clone();
     let public_key = ed25519::hex::secret_to_public(private_key);
 
-    println!("Private key: {}", private_key.len());
-    // The public key : sha512 and keep 32 bytes of the private key
-    for i in 0..32 {
-        print!("{:02x}", private_key[i]);
-    }
-
     let sk_relative_path = filename.clone() + ".sk";
     let pk_relative_path = filename.clone() + ".pk";
 

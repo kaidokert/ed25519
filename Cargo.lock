@@ -63,6 +63,7 @@ name = "ed25519"
 version = "0.1.0"
 dependencies = [
  "bnum",
+ "digest",
  "lazy_static",
  "modinverse",
  "modpow",
