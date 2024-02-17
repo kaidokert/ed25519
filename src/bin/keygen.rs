@@ -5,14 +5,12 @@ use rand::Rng;
 fn main() {
     let args: Vec<String> = std::env::args().collect();
 
-    
     if args.len() < 2 || args.len() > 2 {
         eprintln!("Usage: {} prefix", args[0]);
         std::process::exit(1);
     }
 
     let filename = args[1].clone();
-
 
     let random_32_bytes = rand::thread_rng().gen::<[u8; 32]>();
 
@@ -28,9 +26,7 @@ fn main() {
     let pk_file = std::fs::File::create(pk_relative_path.clone());
 
     match sk_file {
-        Ok(mut s) => {
-            s.write_all(&private_key).unwrap()
-        },
+        Ok(mut s) => s.write_all(&private_key).unwrap(),
         Err(e) => {
             eprintln!("Error creating private key file: {}", e);
             std::process::exit(1);
@@ -40,7 +36,7 @@ fn main() {
     match pk_file {
         Ok(mut p) => {
             p.write_all(&public_key[0..32]).unwrap();
-        },
+        }
 
         Err(e) => {
             eprintln!("Error creating public key file: {}", e);

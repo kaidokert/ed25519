@@ -3,7 +3,6 @@ use std::io::Write;
 fn main() {
     let args: Vec<String> = std::env::args().collect();
 
-    
     if args.len() < 4 || args.len() > 4 {
         eprintln!("Usage: {} prefix datafile sigfile\n Note : the file prefix.sk must exist on the current directory", args[0]);
         std::process::exit(1);
@@ -29,19 +28,15 @@ fn main() {
     let data = std::fs::read(datafile).unwrap();
 
     let secret: [u8; 32] = sk.try_into().expect("secret key is not 32 bytes");
-    
+
     let sig = ed25519::ed25519::sign(secret, &data);
     let sign_file = std::fs::File::create(sigfile.clone());
 
     match sign_file {
-        Ok(mut s) => {
-            s.write_all(&sig).unwrap()
-        },
+        Ok(mut s) => s.write_all(&sig).unwrap(),
         Err(e) => {
             eprintln!("Error creating sigfile : {}", e);
             std::process::exit(1);
         }
     }
-
-
 }

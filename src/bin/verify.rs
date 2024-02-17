@@ -1,7 +1,6 @@
 fn main() {
     let args: Vec<String> = std::env::args().collect();
 
-    
     if args.len() < 4 || args.len() > 4 {
         eprintln!("Usage: {} pkfile datafile sigfile", args[0]);
         std::process::exit(1);
@@ -31,15 +30,15 @@ fn main() {
     let pk = std::fs::read(pk_relative_path).unwrap();
     let data = std::fs::read(datafile).unwrap();
     let signature = std::fs::read(sigfile).unwrap();
-    
-	let pk : [u8; 32] = pk.try_into().expect("public key is not 32 bytes");
-	let signature:[u8; 64] = signature.try_into().expect("signature is not 64 bytes");
+
+    let pk: [u8; 32] = pk.try_into().expect("public key is not 32 bytes");
+    let signature: [u8; 64] = signature.try_into().expect("signature is not 64 bytes");
 
     let verification = ed25519::ed25519::verify(pk, &data, signature);
 
-	if verification {
-		println!("ACCEPT");
-	} else {
-		println!("REJECT");
-	}
+    if verification {
+        println!("ACCEPT");
+    } else {
+        println!("REJECT");
+    }
 }

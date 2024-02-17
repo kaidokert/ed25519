@@ -59,7 +59,8 @@ pub mod hex {
 
     // Verified function.
     pub fn recover_x(y: &BigInt, sign: u8, p: BigInt, d: BigInt) -> Option<BigInt> {
-        let x2 = ((y * y - BigInt::from(1)) * modp_inv(&(&d * y * y + BigInt::from(1)), &p)).rem_euclid(&p);
+        let x2 = ((y * y - BigInt::from(1)) * modp_inv(&(&d * y * y + BigInt::from(1)), &p))
+            .rem_euclid(&p);
 
         if x2 == 0.into() {
             if sign > 0 {
@@ -97,8 +98,8 @@ pub mod hex {
     ) -> Option<(BigInt, BigInt, BigInt, BigInt)> {
         let mut k_list = k.clone();
 
-        let sign = k_list[k.len()-1] >> 7;
-        k_list[k.len()-1] &= 0b01111111;
+        let sign = k_list[k.len() - 1] >> 7;
+        k_list[k.len() - 1] &= 0b01111111;
 
         let y = decode_little_endian(&k_list);
 
@@ -130,7 +131,7 @@ pub mod hex {
         let mut y_bytes = y.to_le_bytes();
         let length = y_bytes.len();
 
-        y_bytes[length-1] |= (x.bit(0) as u8) << 7; // (x_bytes[x_bytes.len()-1] & 1) << 7;
+        y_bytes[length - 1] |= (x.bit(0) as u8) << 7; // (x_bytes[x_bytes.len()-1] & 1) << 7;
         y_bytes
     }
 
@@ -185,19 +186,25 @@ pub mod hex {
                 .expect("problem decompressing");
             dbg!(x, y, z, t);
             // Should find (38815646466658113194383306759739515082307681141926459231621296960732224964046, 11903303657706407974989296177215005343713679411332034699907763981919547054807, 1, 31275909032640112889229532081174740659065478602231738919115306243253221725764)
-        
+
             // Second test :
-            let public_bytes:[u8; 32] = [199, 190, 9, 46, 161, 6, 20, 21, 2, 22, 174, 144, 46, 149, 203, 174, 182, 63, 225, 133, 40, 152, 222, 115, 27, 151, 250, 182, 75, 244, 176, 232];
+            let public_bytes: [u8; 32] = [
+                199, 190, 9, 46, 161, 6, 20, 21, 2, 22, 174, 144, 46, 149, 203, 174, 182, 63, 225,
+                133, 40, 152, 222, 115, 27, 151, 250, 182, 75, 244, 176, 232,
+            ];
             let (x, y, z, t) = decompress_edward_point(public_bytes, P.clone(), D.clone())
                 .expect("problem decompressing");
             dbg!(x, y, z, t);
             // Should find (30075932235477025684340298072527288884134191593746418931107004766826760085331, 47353187403435240905172017119993343428085915786025168596961101668974187888327, 1, 33002513719147322511145294300392920129411559142076362960813597764447185691818)
-
         }
 
         #[test]
         fn test_recover_x() {
-            let y = BigInt::from_str_radix("47353187403435240905172017119993343428085915786025168596961101668974187888327", 10).expect("Processing failed");
+            let y = BigInt::from_str_radix(
+                "47353187403435240905172017119993343428085915786025168596961101668974187888327",
+                10,
+            )
+            .expect("Processing failed");
             let sign = 1;
 
             let x = recover_x(&y, sign, P.clone(), D.clone());
@@ -249,7 +256,8 @@ pub mod hex {
             // Result should give : [19, 76, 116, 90, 206, 6, 133, 104, 78, 255, 48, 104, 83, 38, 139, 110, 234, 130, 207, 168, 67, 118, 173, 117, 22, 221, 67, 129, 183, 189, 203, 217]
             // Note : this verifies both point_mul and point_add.
 
-            let pnt = decompress_edward_point(result.try_into().expect("huh???"), P.clone(), D.clone());
+            let pnt =
+                decompress_edward_point(result.try_into().expect("huh???"), P.clone(), D.clone());
             dbg!(pnt);
             // Should be : (2921902947839513732129352123028044305513164824253249408160321654968707072031, 40615822855403707190122639951556956756078752302420076973416157483871956651027, 1, 39114520904941220745896610849441045036820856887057083606978905520513821263531)
         }
@@ -331,6 +339,11 @@ pub mod ed25519 {
         q
     }
 
+    // Returns (X:Y:Z) representation in montgomery of the edward curve
+    pub fn point_mul_sec(s: BigInt, pp: Point, p: &BigInt, d: &BigInt) -> Point {
+        unimplemented!("Still not implemented")
+    }
+
     use sha2::{Digest, Sha512};
 
     fn sha512_modq(msg: &[u8], q: &BigInt) -> BigInt {
@@ -379,7 +392,7 @@ pub mod ed25519 {
             signature[i] = sbytes[i - 32];
         }
 
-        for i in (32+sbytes.len())..(64) {
+        for i in (32 + sbytes.len())..(64) {
             signature[i] = 0;
         }
 
@@ -443,7 +456,7 @@ pub mod ed25519 {
             dbg!(G.clone());
             // Should give : (15112221349535400772501151409588531511454012693041857206046113283949847762202, 46316835694926478169428394003475163141307993866256225615783033603165251855960, 1, 46827403850823179245072216630277197565144205554125654976674165829533817101731)
         }
-        
+
         #[test]
         fn test_sign() {
             // Test with the example from the RFC 8032
@@ -456,7 +469,7 @@ pub mod ed25519 {
 
             let result = sign(secret_bytes, &msg_bytes);
             for i in 0..32 {
-                print!("{:x}{:x}", result[2*i], result[2*i+1]);
+                print!("{:x}{:x}", result[2 * i], result[2 * i + 1]);
             }
             println!();
             // Must find : [41, 253, 238, 26, 217, 201, 193, 232, 235, 246, 100, 41, 219, 40, 97, 99, 89, 72, 44, 136, 132, 13, 107, 71, 82, 127, 103, 238, 58, 229, 58, 1, 206, 147, 235, 31, 24, 80, 133, 202, 28, 70, 80, 37, 83, 215, 81, 177, 3, 203, 198, 156, 153, 19, 166, 178, 45, 74, 96, 200, 24, 163, 73, 7]
@@ -475,7 +488,7 @@ pub mod ed25519 {
             let msg = msg.as_bytes();
 
             let result = sign(secret_bytes, &msg);
-            
+
             let verification = verify(
                 public.try_into().expect("Unexpected, should be 32 bytes"),
                 &msg,
