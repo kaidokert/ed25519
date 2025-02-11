@@ -1,20 +1,32 @@
+#![cfg_attr(not(feature = "std"), no_std)]
+
 extern crate lazy_static;
-extern crate num_bigint;
 extern crate sha2;
+
+mod num_bigint;
 
 pub mod hex {
 
+    use super::num_bigint;
     use num_bigint::BigInt;
-    use num_traits::{Euclid, Num, ToBytes};
 
     use lazy_static::lazy_static;
 
     lazy_static! {
         pub static ref P: BigInt = BigInt::from(2).pow(255) - BigInt::from(19);
         pub static ref A24: BigInt = BigInt::from(121666);
+/*
         pub static ref D: BigInt = (BigInt::from(-121665)
             * modp_inv(&BigInt::from(121666), &P.clone()))
         .rem_euclid(&P.clone());
+*/
+        pub static ref D: BigInt = {
+            let p = P.clone();
+            // Replace -121665 with (P - 121665) to avoid negatives
+            let numerator = &p - BigInt::from(121665); 
+            let inv_121666 = modp_inv(&A24, &p); // A24 is 121666, so reuse it
+            (numerator * inv_121666).rem_euclid(&p)
+        };        
     }
 
     // Extract the keys from the hex string
@@ -121,7 +133,7 @@ pub mod hex {
         }
     }
 
-    pub fn compress_edward_point(x: BigInt, y: BigInt, z: BigInt, p: BigInt) -> Vec<u8> {
+    pub fn compress_edward_point(x: BigInt, y: BigInt, z: BigInt, p: BigInt) -> [u8; 32] {
         // No need to worry about t. Only provide x y and z.
         let zinv = modp_inv(&z, &p);
         let x = (x * &zinv).rem_euclid(&p);
@@ -154,7 +166,7 @@ pub mod hex {
         (a, second_part)
     }
 
-    pub fn secret_to_public(secret: [u8; 32]) -> Vec<u8> {
+    pub fn secret_to_public(secret: [u8; 32]) -> [u8; 32] {
         use super::ed25519::{point_mul, G};
 
         let (a, _) = secret_expand(secret);
@@ -268,17 +280,26 @@ pub mod ed25519 {
 
     use lazy_static::lazy_static;
 
-    use num_bigint::BigInt;
-    use num_traits::{Euclid, Num};
+    use super::num_bigint;
+    use super::num_bigint::BigInt;
 
     pub type Point = (BigInt, BigInt, BigInt, BigInt);
 
     lazy_static! {
         pub static ref P: BigInt = BigInt::from(2).pow(255) - BigInt::from(19);
         pub static ref A24: BigInt = BigInt::from(121666);
+/*
         pub static ref D: BigInt = (BigInt::from(-121665)
             * super::hex::modp_inv(&BigInt::from(121666), &P.clone()))
         .rem_euclid(&P.clone());
+ */
+        pub static ref D: BigInt = {
+            let p = P.clone();
+            // Replace -121665 with (P - 121665) to avoid negatives
+            let numerator = &p - BigInt::from(121665); 
+            let inv_121666 = super::hex::modp_inv(&A24, &p); // A24 is 121666, so reuse it
+            (numerator * inv_121666).rem_euclid(&p)
+        };        
         pub static ref G_Y: BigInt = (BigInt::from(4)
             * super::hex::modp_inv(&BigInt::from(5), &P.clone()))
         .rem_euclid(&P.clone());
@@ -296,9 +317,14 @@ pub mod ed25519 {
     }
 
     pub fn point_equal(pp: Point, qq: Point, p: &BigInt) -> bool {
-        if (&pp.0 * &qq.2 - &qq.0 * &pp.2).rem_euclid(p) != BigInt::from(0) {
+        let term1= &pp.0 * &qq.2;
+        let term2 = &qq.0 * &pp.2;
+
+        let term3 = &pp.1 * &qq.2;
+        let term4 = &qq.1 * &pp.2;
+        if (&term1.mod_sub(&term2, p)).rem_euclid(p) != BigInt::from(0) {
             false
-        } else if (pp.1 * qq.2 - qq.1 * pp.2).rem_euclid(p) != BigInt::from(0) {
+        } else if (&term3.mod_sub(&term4, p)).rem_euclid(p) != BigInt::from(0) {
             false
         } else {
             true
@@ -306,15 +332,26 @@ pub mod ed25519 {
     }
 
     pub fn point_add(pp: Point, qq: Point, p: &BigInt, d: &BigInt) -> Point {
-        let a = ((&pp.1 - &pp.0) * (&qq.1 - &qq.0)).rem_euclid(p);
-        let b = ((pp.1 + pp.0) * (qq.1 + qq.0)).rem_euclid(p);
-        let c = (BigInt::from(2) * pp.3 * qq.3 * d).rem_euclid(p);
-        let d = (BigInt::from(2) * pp.2 * qq.2).rem_euclid(p);
+        // Compute a = ((pp.1 - pp.0) * (qq.1 - qq.0)) mod p
+        let term1 = pp.1.mod_sub(&pp.0, p);
+        let term2 = qq.1.mod_sub(&qq.0, p);
+        let a = (term1 * term2).rem_euclid(p);
 
-        let e = &b - &a;
-        let f = &d - &c;
-        let g = d + c;
-        let h = b + a;
+        // Compute b = ((pp.1 + pp.0) * (qq.1 + qq.0)) mod p
+        let term3 = (&pp.1 + &pp.0).rem_euclid(p);
+        let term4 = (&qq.1 + &qq.0).rem_euclid(p);
+        let b = (term3 * term4).rem_euclid(p);
+
+        // Compute c = (2 * pp.3 * qq.3 * d) mod p
+        let c = (BigInt::from(2) * &pp.3 * &qq.3 * d).rem_euclid(p);
+
+        // Compute d = (2 * pp.2 * qq.2) mod p
+        let d_val = (BigInt::from(2) * &pp.2 * &qq.2).rem_euclid(p);
+
+        let e = b.mod_sub(&a, p);
+        let f = d_val.mod_sub(&c, p);
+        let g = &d_val + &c;
+        let h = &b + &a;
 
         (&e * &f, &g * &h, &f * &g, &e * &h)
     }
@@ -340,7 +377,7 @@ pub mod ed25519 {
     }
 
     // Returns (X:Y:Z) representation in montgomery of the edward curve
-    pub fn point_mul_sec(s: BigInt, pp: Point, p: &BigInt, d: &BigInt) -> Point {
+    pub fn point_mul_sec(_s: BigInt, _pp: Point, _p: &BigInt, _d: &BigInt) -> Point {
         unimplemented!("Still not implemented")
     }
 
@@ -503,7 +540,7 @@ pub mod elliptic {
 
     use lazy_static::lazy_static;
 
-    use num_bigint::BigInt;
+    use super::num_bigint::BigInt;
 
     lazy_static! {
         pub static ref P: BigInt = BigInt::from(2).pow(255) - BigInt::from(19);
@@ -516,11 +553,21 @@ pub mod elliptic {
         (x_m, z_m): (BigInt, BigInt),
         p: &BigInt,
     ) -> (BigInt, BigInt) {
-        let u = (&x_p - &z_p) * (&x_q + &z_q) % p;
-        let v = (&x_p + &z_p) * (&x_q - &z_q) % p;
+        // Compute u = (x_p - z_p) * (x_q + z_q) mod p (with safe subtraction)
+        let term1 = x_p.mod_sub( &z_p, p);
+        let term2 = (&x_q + &z_q) % p; // Addition is safe since inputs are mod p
+        let u = (term1 * term2) % p;
 
-        let upv2 = (&u + &v).pow(2);
-        let umv2 = (&u - &v).pow(2);
+        // Compute v = (x_p + z_p) * (x_q - z_q) mod p (with safe subtraction)
+        let term3 = (&x_p + &z_p) % p;
+        let term4 = x_q.mod_sub(&z_q, p);
+        let v = (term3 * term4) % p;
+
+        // Compute upv² and umv² with safe operations
+        let upv = u.mod_add(&v, p); // Ensure (u + v) mod p
+        let umv = u.mod_sub( &v, p); // Ensure (u - v) mod p
+        let upv2 = (&upv * &upv) % p; // upv² mod p
+        let umv2 = (&umv * &umv) % p; // umv² mod p
 
         let x_p = (&z_m * upv2) % p;
         let z_p = (&x_m * umv2) % p;
