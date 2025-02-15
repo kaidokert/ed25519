@@ -5,7 +5,6 @@ extern crate sha2;
 
 mod num_bigint;
 
-
 pub mod hex {
 
     use super::num_bigint;

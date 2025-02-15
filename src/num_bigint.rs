@@ -1,12 +1,12 @@
-#![allow(unused)]
-
 
 use fixed_bigint::FixedUInt;
 
 type Inner = FixedUInt<u32, 32>;
 
 use num_traits::Num;
+use num_traits::PrimInt;
 
+#[derive(PartialEq)]
 pub enum Sign {
     Plus,
     Minus,
@@ -29,6 +29,12 @@ impl BigInt {
     fn from_self(value: Inner) -> Self {
         Self { inner: value }
     }
+    pub fn from_bytes_le(sign: Sign, bytes: &[u8]) -> Self {
+        assert!(sign == Sign::Plus);
+        let me = Inner::from_le_bytes(bytes);
+        Self { inner: me }
+    }
+
     pub fn bits(&self) -> usize {
         todo!()
     }
@@ -38,14 +44,11 @@ impl BigInt {
     pub fn to_le_bytes(&self) -> [u8; 32] {
         todo!()
     }
-    pub fn from_bytes_le(sign: Sign, bytes: &[u8]) -> Self {
-        todo!()
-    }
     pub fn to_signed_bytes_le(&self) -> [u8; 32] { 
         todo!()
     }
     pub fn pow(&self, exp: u64) -> Self {
-        todo!()
+        Self::from_self(self.inner.pow(exp as u32))
     }
     pub fn modpow(&self, exp: &Self, modulus: &Self) -> Self {
         todo!()
