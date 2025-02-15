@@ -171,7 +171,6 @@ pub mod hex {
         use super::*;
 
         #[test]
-        #[ignore]
         fn test_ladder() {
             let k = "a546e36bf0527c9d3b16154b82465edd62144c0ac1fc5a18506a2244ba449ac4".to_string();
             let u = "e6db6867583030db3594c1a424b15f7c726624ec26b3353b10a903a6d0ab1c4c".to_string();
@@ -238,7 +237,6 @@ pub mod hex {
         }
 
         #[test]
-        #[ignore]
         fn test_secret_expand() {
             let secret =
                 "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a".to_string();

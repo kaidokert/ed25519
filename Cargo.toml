@@ -12,7 +12,7 @@ num-traits = { version = "0.2.18", default-features = false }
 lazy_static = { version = "1.4.0", default-features = false }
 rand = { version = "0.9", default-features = false }
 sha2 = { version = "0.10.8", default-features = false }
-fixed-bigint = "0.1.12"
+fixed-bigint = { version = "0.1.14", features=["use-unsafe"]}
 modmath = { path = "../modmath" }
 
 [dev-dependencies]

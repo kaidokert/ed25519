@@ -1,10 +1,13 @@
-
 use fixed_bigint::FixedUInt;
 
 type Inner = FixedUInt<u32, 32>;
 
 use num_traits::Num;
 use num_traits::PrimInt;
+use num_traits::ToBytes;
+use num_traits::Zero;
+use num_traits::One;
+use num_traits::Euclid;
 
 #[derive(PartialEq)]
 pub enum Sign {
@@ -34,30 +37,46 @@ impl BigInt {
         let me = Inner::from_le_bytes(bytes);
         Self { inner: me }
     }
-
     pub fn bits(&self) -> usize {
-        todo!()
+        let mut count = 0;
+        let mut value = self.inner;
+        while value != Inner::zero() {
+            value = value >> 1usize;
+            count += 1;
+        }
+        count
     }
     pub fn bit(&self, n: u64) -> bool {
-        todo!()
+        // shift n times and check if the last bit is 1
+        (self.inner >> n as usize) & Inner::one() == Inner::one()
     }
     pub fn to_le_bytes(&self) -> [u8; 32] {
-        todo!()
+        let f= <Inner as ToBytes>::to_le_bytes(&self.inner);
+        let res = f.as_ref();
+        let mut output = [0u8; 32];
+        assert!(res.len() <= 32);
+        output[..res.len()].copy_from_slice(res);
+        output
     }
     pub fn to_signed_bytes_le(&self) -> [u8; 32] { 
+        // if the most significant bit is 1, we need to sign extend
+        let mut output = self.to_le_bytes();
         todo!()
     }
     pub fn pow(&self, exp: u64) -> Self {
         Self::from_self(self.inner.pow(exp as u32))
     }
     pub fn modpow(&self, exp: &Self, modulus: &Self) -> Self {
-        todo!()
+        let mp = modmath::basic_mod_exp( self.inner, exp.inner, modulus.inner);
+        Self::from_self(mp)
     }
     pub fn div_euclid(&self, rhs: &Self) -> Self {
-        todo!()
+        let res = self.inner.div_euclid(&rhs.inner);
+        Self::from_self(res)
     }
     pub fn rem_euclid(self, rhs: &Self) -> Self {
-        todo!()
+        let res = self.inner.rem_euclid(&rhs.inner);
+        Self::from_self(res)
     }
     pub fn from_str_radix(s: &str, radix: u32) -> Result<Self, ParseBigIntError> {
         let inside = Inner::from_str_radix(s, radix).map(Self::from_self);
@@ -78,7 +97,11 @@ impl From<u8> for BigInt {
 }
 impl From<i32> for BigInt {
     fn from(value: i32) -> Self {
-        todo!()
+        if value < 0 {
+            assert!(value >= 0, "Negative value");
+        }
+        let u32_value = value as u32;
+        Self::from_self(Inner::from(u32_value))
     }
 }
 impl From<i64> for BigInt {
