@@ -257,7 +257,6 @@ pub mod hex {
         }
 
         #[test]
-        #[ignore]
         fn test_secret_to_public() {
             let secret =
                 "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a".to_string();
@@ -493,7 +492,6 @@ pub mod ed25519 {
         use super::*;
 
         #[test]
-        #[ignore]
         fn values_of_g() {
             dbg!(G.clone());
             // Should give : (15112221349535400772501151409588531511454012693041857206046113283949847762202, 46316835694926478169428394003475163141307993866256225615783033603165251855960, 1, 46827403850823179245072216630277197565144205554125654976674165829533817101731)
@@ -712,7 +710,6 @@ pub mod elliptic {
         use super::*;
 
         #[test]
-        #[ignore]
         fn test_ladder() {
             let p = BigInt::from(101);
             let a24 = BigInt::from(38);

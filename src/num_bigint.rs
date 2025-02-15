@@ -1,6 +1,6 @@
 use fixed_bigint::FixedUInt;
 
-type Inner = FixedUInt<u32, 32>;
+type Inner = FixedUInt<u32, 64>;
 
 use num_traits::Num;
 use num_traits::PrimInt;
@@ -84,7 +84,11 @@ impl BigInt {
     }
     #[cfg(test)]
     pub fn to_str_radix(&self, radix: u32) -> String {
-        todo!()
+        assert!(radix == 10);
+        let mut results = [0u8; 128];
+        let ret_string = self.inner.to_radix_str(&mut results, radix as u8);
+        let res = ret_string.unwrap();
+        res.into()
     }
 }
 
