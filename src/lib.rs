@@ -317,17 +317,14 @@ pub mod ed25519 {
     }
 
     pub fn point_equal(pp: Point, qq: Point, p: &BigInt) -> bool {
-        fn modular_subtract(a: &BigInt, b: &BigInt, p: &BigInt) -> BigInt {
-            a.mod_sub(b, p)
-        }
         let term1= &pp.0 * &qq.2;
         let term2 = &qq.0 * &pp.2;
 
         let term3 = &pp.1 * &qq.2;
         let term4 = &qq.1 * &pp.2;
-        if (modular_subtract(&term1 , &term2, p)).rem_euclid(p) != BigInt::from(0) {
+        if (&term1.mod_sub(&term2, p)).rem_euclid(p) != BigInt::from(0) {
             false
-        } else if (modular_subtract(&term3 , &term4, p)).rem_euclid(p) != BigInt::from(0) {
+        } else if (&term3.mod_sub(&term4, p)).rem_euclid(p) != BigInt::from(0) {
             false
         } else {
             true
@@ -335,12 +332,9 @@ pub mod ed25519 {
     }
 
     pub fn point_add(pp: Point, qq: Point, p: &BigInt, d: &BigInt) -> Point {
-        fn modular_subtract(a: &BigInt, b: &BigInt, p: &BigInt) -> BigInt {
-            a.mod_sub(b, p)
-        }
         // Compute a = ((pp.1 - pp.0) * (qq.1 - qq.0)) mod p
-        let term1 = modular_subtract(&pp.1, &pp.0, p);
-        let term2 = modular_subtract(&qq.1, &qq.0, p);
+        let term1 = pp.1.mod_sub(&pp.0, p);
+        let term2 = qq.1.mod_sub(&qq.0, p);
         let a = (term1 * term2).rem_euclid(p);
 
         // Compute b = ((pp.1 + pp.0) * (qq.1 + qq.0)) mod p
@@ -354,8 +348,8 @@ pub mod ed25519 {
         // Compute d = (2 * pp.2 * qq.2) mod p
         let d_val = (BigInt::from(2) * &pp.2 * &qq.2).rem_euclid(p);
 
-        let e = modular_subtract(&b, &a, p);
-        let f = modular_subtract(&d_val, &c, p);
+        let e = b.mod_sub(&a, p);
+        let f = d_val.mod_sub(&c, p);
         let g = &d_val + &c;
         let h = &b + &a;
 
@@ -559,27 +553,19 @@ pub mod elliptic {
         (x_m, z_m): (BigInt, BigInt),
         p: &BigInt,
     ) -> (BigInt, BigInt) {
-        // Helper for modular addition (not strictly needed here but included for completeness)
-        fn modular_add(a: &BigInt, b: &BigInt, p: &BigInt) -> BigInt {
-            a.mod_add(b, p)
-        }
-        fn modular_subtract(a: &BigInt, b: &BigInt, p: &BigInt) -> BigInt {
-            a.mod_sub(b, p)
-        }
-
         // Compute u = (x_p - z_p) * (x_q + z_q) mod p (with safe subtraction)
-        let term1 = modular_subtract(&x_p, &z_p, p);
+        let term1 = x_p.mod_sub( &z_p, p);
         let term2 = (&x_q + &z_q) % p; // Addition is safe since inputs are mod p
         let u = (term1 * term2) % p;
 
         // Compute v = (x_p + z_p) * (x_q - z_q) mod p (with safe subtraction)
         let term3 = (&x_p + &z_p) % p;
-        let term4 = modular_subtract(&x_q, &z_q, p);
+        let term4 = x_q.mod_sub(&z_q, p);
         let v = (term3 * term4) % p;
 
         // Compute upv² and umv² with safe operations
-        let upv = modular_add(&u, &v, p); // Ensure (u + v) mod p
-        let umv = modular_subtract(&u, &v, p); // Ensure (u - v) mod p
+        let upv = u.mod_add(&v, p); // Ensure (u + v) mod p
+        let umv = u.mod_sub( &v, p); // Ensure (u - v) mod p
         let upv2 = (&upv * &upv) % p; // upv² mod p
         let umv2 = (&umv * &umv) % p; // umv² mod p
 
