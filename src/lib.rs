@@ -541,11 +541,35 @@ pub mod elliptic {
         (x_m, z_m): (BigInt, BigInt),
         p: &BigInt,
     ) -> (BigInt, BigInt) {
-        let u = (&x_p - &z_p) * (&x_q + &z_q) % p;
-        let v = (&x_p + &z_p) * (&x_q - &z_q) % p;
+        // Helper for modular addition (not strictly needed here but included for completeness)
+        fn modular_add(a: &BigInt, b: &BigInt, p: &BigInt) -> BigInt {
+            (a + b) % p
+        }
 
-        let upv2 = (&u + &v).pow(2);
-        let umv2 = (&u - &v).pow(2);
+        // Helper to compute (a - b) mod p safely (avoids negatives)
+        fn modular_subtract(a: &BigInt, b: &BigInt, p: &BigInt) -> BigInt {
+            if a >= b {
+                (a - b) % p
+            } else {
+                (p - (b - a) % p) % p
+            }
+        }
+
+        // Compute u = (x_p - z_p) * (x_q + z_q) mod p (with safe subtraction)
+        let term1 = modular_subtract(&x_p, &z_p, p);
+        let term2 = (&x_q + &z_q) % p; // Addition is safe since inputs are mod p
+        let u = (term1 * term2) % p;
+
+        // Compute v = (x_p + z_p) * (x_q - z_q) mod p (with safe subtraction)
+        let term3 = (&x_p + &z_p) % p;
+        let term4 = modular_subtract(&x_q, &z_q, p);
+        let v = (term3 * term4) % p;
+
+        // Compute upv² and umv² with safe operations
+        let upv = modular_add(&u, &v, p); // Ensure (u + v) mod p
+        let umv = modular_subtract(&u, &v, p); // Ensure (u - v) mod p
+        let upv2 = (&upv * &upv) % p; // upv² mod p
+        let umv2 = (&umv * &umv) % p; // umv² mod p
 
         let x_p = (&z_m * upv2) % p;
         let z_p = (&x_m * umv2) % p;
