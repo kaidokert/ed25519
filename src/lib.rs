@@ -328,15 +328,34 @@ pub mod ed25519 {
     }
 
     pub fn point_add(pp: Point, qq: Point, p: &BigInt, d: &BigInt) -> Point {
-        let a = ((&pp.1 - &pp.0) * (&qq.1 - &qq.0)).rem_euclid(p);
-        let b = ((pp.1 + pp.0) * (qq.1 + qq.0)).rem_euclid(p);
-        let c = (BigInt::from(2) * pp.3 * qq.3 * d).rem_euclid(p);
-        let d = (BigInt::from(2) * pp.2 * qq.2).rem_euclid(p);
+        // Helper to compute (a - b) mod p safely (avoids negatives)
+        fn modular_subtract(a: &BigInt, b: &BigInt, p: &BigInt) -> BigInt {
+            if a >= b {
+                (a - b) % p
+            } else {
+                (p - (b - a) % p) % p
+            }
+        }
+        // Compute a = ((pp.1 - pp.0) * (qq.1 - qq.0)) mod p
+        let term1 = modular_subtract(&pp.1, &pp.0, p);
+        let term2 = modular_subtract(&qq.1, &qq.0, p);
+        let a = (term1 * term2).rem_euclid(p);
 
-        let e = &b - &a;
-        let f = &d - &c;
-        let g = d + c;
-        let h = b + a;
+        // Compute b = ((pp.1 + pp.0) * (qq.1 + qq.0)) mod p
+        let term3 = (&pp.1 + &pp.0).rem_euclid(p);
+        let term4 = (&qq.1 + &qq.0).rem_euclid(p);
+        let b = (term3 * term4).rem_euclid(p);
+
+        // Compute c = (2 * pp.3 * qq.3 * d) mod p
+        let c = (BigInt::from(2) * &pp.3 * &qq.3 * d).rem_euclid(p);
+
+        // Compute d = (2 * pp.2 * qq.2) mod p
+        let d_val = (BigInt::from(2) * &pp.2 * &qq.2).rem_euclid(p);
+
+        let e = modular_subtract(&b, &a, p);
+        let f = modular_subtract(&d_val, &c, p);
+        let g = &d_val + &c;
+        let h = &b + &a;
 
         (&e * &f, &g * &h, &f * &g, &e * &h)
     }
