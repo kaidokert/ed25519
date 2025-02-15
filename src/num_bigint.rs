@@ -54,8 +54,8 @@ impl BigInt {
         let f= <Inner as ToBytes>::to_le_bytes(&self.inner);
         let res = f.as_ref();
         let mut output = [0u8; 32];
-        assert!(res.len() <= 32);
-        output[..res.len()].copy_from_slice(res);
+        let len = output.len();
+        output.copy_from_slice(&res[..len]);
         output
     }
     pub fn to_signed_bytes_le(&self) -> [u8; 32] { 

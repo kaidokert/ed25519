@@ -15,9 +15,18 @@ pub mod hex {
     lazy_static! {
         pub static ref P: BigInt = BigInt::from(2).pow(255) - BigInt::from(19);
         pub static ref A24: BigInt = BigInt::from(121666);
+/*
         pub static ref D: BigInt = (BigInt::from(-121665)
             * modp_inv(&BigInt::from(121666), &P.clone()))
         .rem_euclid(&P.clone());
+*/
+        pub static ref D: BigInt = {
+            let p = P.clone();
+            // Replace -121665 with (P - 121665) to avoid negatives
+            let numerator = &p - BigInt::from(121665); 
+            let inv_121666 = modp_inv(&A24, &p); // A24 is 121666, so reuse it
+            (numerator * inv_121666).rem_euclid(&p)
+        };        
     }
 
     // Extract the keys from the hex string
@@ -181,7 +190,6 @@ pub mod hex {
         }
 
         #[test]
-        #[ignore]
         fn test_decompress() {
             let public =
                 "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a".to_string();
@@ -203,7 +211,6 @@ pub mod hex {
         }
 
         #[test]
-        #[ignore]
         fn test_recover_x() {
             let y = BigInt::from_str_radix(
                 "47353187403435240905172017119993343428085915786025168596961101668974187888327",
@@ -218,7 +225,6 @@ pub mod hex {
         }
 
         #[test]
-        #[ignore]
         fn test_compress() {
             let public =
                 "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a".to_string();
@@ -283,9 +289,18 @@ pub mod ed25519 {
     lazy_static! {
         pub static ref P: BigInt = BigInt::from(2).pow(255) - BigInt::from(19);
         pub static ref A24: BigInt = BigInt::from(121666);
+/*
         pub static ref D: BigInt = (BigInt::from(-121665)
             * super::hex::modp_inv(&BigInt::from(121666), &P.clone()))
         .rem_euclid(&P.clone());
+ */
+        pub static ref D: BigInt = {
+            let p = P.clone();
+            // Replace -121665 with (P - 121665) to avoid negatives
+            let numerator = &p - BigInt::from(121665); 
+            let inv_121666 = super::hex::modp_inv(&A24, &p); // A24 is 121666, so reuse it
+            (numerator * inv_121666).rem_euclid(&p)
+        };        
         pub static ref G_Y: BigInt = (BigInt::from(4)
             * super::hex::modp_inv(&BigInt::from(5), &P.clone()))
         .rem_euclid(&P.clone());
