@@ -317,9 +317,22 @@ pub mod ed25519 {
     }
 
     pub fn point_equal(pp: Point, qq: Point, p: &BigInt) -> bool {
-        if (&pp.0 * &qq.2 - &qq.0 * &pp.2).rem_euclid(p) != BigInt::from(0) {
+        // Helper to compute (a - b) mod p safely (avoids negatives)
+        fn modular_subtract(a: &BigInt, b: &BigInt, p: &BigInt) -> BigInt {
+            if a >= b {
+                (a - b) % p
+            } else {
+                (p - (b - a) % p) % p
+            }
+        }
+        let term1= &pp.0 * &qq.2;
+        let term2 = &qq.0 * &pp.2;
+
+        let term3 = &pp.1 * &qq.2;
+        let term4 = &qq.1 * &pp.2;
+        if (modular_subtract(&term1 , &term2, p)).rem_euclid(p) != BigInt::from(0) {
             false
-        } else if (pp.1 * qq.2 - qq.1 * pp.2).rem_euclid(p) != BigInt::from(0) {
+        } else if (modular_subtract(&term3 , &term4, p)).rem_euclid(p) != BigInt::from(0) {
             false
         } else {
             true
