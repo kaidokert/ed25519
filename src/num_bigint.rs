@@ -29,6 +29,14 @@ impl BigInt {
             inner: FixedUInt::new(),
         }
     }
+
+    pub fn mod_sub(self, rhs: &Self, modulus: &Self) -> Self {
+        Self::from_self(modmath::basic_mod_sub(self.inner, rhs.inner, modulus.inner))
+    }
+    pub fn mod_add(self, rhs: &Self, modulus: &Self) -> Self {
+        Self::from_self(modmath::basic_mod_add(self.inner, rhs.inner, modulus.inner))
+    }
+    
     fn from_self(value: Inner) -> Self {
         Self { inner: value }
     }
@@ -61,7 +69,8 @@ impl BigInt {
     pub fn to_signed_bytes_le(&self) -> [u8; 32] { 
         // if the most significant bit is 1, we need to sign extend
         let mut output = self.to_le_bytes();
-        todo!()
+        output
+        //todo!()
     }
     pub fn pow(&self, exp: u64) -> Self {
         Self::from_self(self.inner.pow(exp as u32))

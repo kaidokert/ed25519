@@ -317,13 +317,8 @@ pub mod ed25519 {
     }
 
     pub fn point_equal(pp: Point, qq: Point, p: &BigInt) -> bool {
-        // Helper to compute (a - b) mod p safely (avoids negatives)
         fn modular_subtract(a: &BigInt, b: &BigInt, p: &BigInt) -> BigInt {
-            if a >= b {
-                (a - b) % p
-            } else {
-                (p - (b - a) % p) % p
-            }
+            a.mod_sub(b, p)
         }
         let term1= &pp.0 * &qq.2;
         let term2 = &qq.0 * &pp.2;
@@ -340,13 +335,8 @@ pub mod ed25519 {
     }
 
     pub fn point_add(pp: Point, qq: Point, p: &BigInt, d: &BigInt) -> Point {
-        // Helper to compute (a - b) mod p safely (avoids negatives)
         fn modular_subtract(a: &BigInt, b: &BigInt, p: &BigInt) -> BigInt {
-            if a >= b {
-                (a - b) % p
-            } else {
-                (p - (b - a) % p) % p
-            }
+            a.mod_sub(b, p)
         }
         // Compute a = ((pp.1 - pp.0) * (qq.1 - qq.0)) mod p
         let term1 = modular_subtract(&pp.1, &pp.0, p);
@@ -511,7 +501,6 @@ pub mod ed25519 {
         }
 
         #[test]
-        #[ignore]
         fn test_sign() {
             // Test with the example from the RFC 8032
             let secret: String =
@@ -530,7 +519,6 @@ pub mod ed25519 {
         }
 
         #[test]
-        #[ignore]
         fn test_verify() {
             // Test with the example from the RFC 8032
             let secret =
@@ -573,16 +561,10 @@ pub mod elliptic {
     ) -> (BigInt, BigInt) {
         // Helper for modular addition (not strictly needed here but included for completeness)
         fn modular_add(a: &BigInt, b: &BigInt, p: &BigInt) -> BigInt {
-            (a + b) % p
+            a.mod_add(b, p)
         }
-
-        // Helper to compute (a - b) mod p safely (avoids negatives)
         fn modular_subtract(a: &BigInt, b: &BigInt, p: &BigInt) -> BigInt {
-            if a >= b {
-                (a - b) % p
-            } else {
-                (p - (b - a) % p) % p
-            }
+            a.mod_sub(b, p)
         }
 
         // Compute u = (x_p - z_p) * (x_q + z_q) mod p (with safe subtraction)
