@@ -5,6 +5,17 @@ extern crate sha2;
 
 mod num_bigint;
 
+// We are going to get a slice of slices, and we want to concatenate them into a single slice.
+pub fn concat_emul<'a>(slices: &[&[u8]], storage: &'a mut [u8]) -> &'a [u8] {
+    let total_len = slices.iter().map(|s| s.len()).sum();
+    let mut offset = 0;
+    for slice in slices {
+        storage[offset..offset + slice.len()].copy_from_slice(slice);
+        offset += slice.len();
+    }
+    &storage[..total_len]
+}
+
 pub mod hex {
 
     use super::num_bigint;
@@ -153,7 +164,8 @@ pub mod hex {
         let mut hasher = Sha512::new();
 
         hasher.update(&k);
-        let h = hasher.finalize().to_vec();
+        let finalized = hasher.finalize();
+        let h = finalized.as_slice();
         let mut a = decode_little_endian(&h[..32]);
         a &= BigInt::pow(&BigInt::from(2), 254) - BigInt::from(8);
         a |= BigInt::pow(&BigInt::from(2), 254);
@@ -384,7 +396,8 @@ pub mod ed25519 {
     use sha2::{Digest, Sha512};
 
     fn sha512_modq(msg: &[u8], q: &BigInt) -> BigInt {
-        let hash = Sha512::new().chain_update(msg).finalize().to_vec();
+        let finalized = Sha512::new().chain_update(msg).finalize();
+        let hash = finalized.as_slice();
 
         let result_nomodq = BigInt::from_bytes_le(num_bigint::Sign::Plus, &hash[0..64]);
 
@@ -406,7 +419,8 @@ pub mod ed25519 {
         );
 
         let prefix_h = prefix.as_slice();
-        let concatenated_message = [prefix_h, msg].concat();
+        let mut storage = [0u8; 1024];
+        let concatenated_message = super::concat_emul(&[prefix_h, msg], &mut storage);
         let r = sha512_modq(&concatenated_message, &q);
         let rr = point_mul(r.clone(), G.clone(), &p, &d);
 
@@ -414,7 +428,8 @@ pub mod ed25519 {
 
         assert!(rrs.len() == 32);
 
-        let rrsamsg = [&rrs, &aa, msg].concat();
+        let mut storage = [0u8; 1024];
+        let rrsamsg = super::concat_emul(&[&rrs, &aa, msg], &mut storage);
         let h = sha512_modq(&rrsamsg, &q);
         let s = (r + h * a).rem_euclid(&q);
 
@@ -471,7 +486,8 @@ pub mod ed25519 {
 
         let rrs = rrs.as_slice();
         let public = public.as_slice();
-        let concat = [rrs, public, msg].concat();
+        let mut storage = [0u8; 1024];
+        let concat = super::concat_emul(&[rrs, public, msg], &mut storage);
 
         let h = sha512_modq(&concat, &q);
 
