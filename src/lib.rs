@@ -31,6 +31,14 @@ pub mod hex {
 
     use lazy_static::lazy_static;
 
+    #[cfg(feature = "precomputed")]
+    lazy_static! {
+        pub static ref P: BigInt = BigInt::from_str_radix("7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffed", 16).expect("Worked");
+        pub static ref A24: BigInt = BigInt::from_str_radix("1db42", 16).expect("Worked");
+        pub static ref D: BigInt = BigInt::from_str_radix("52036cee2b6ffe738cc740797779e89800700a4d4141d8ab75eb4dca135978a3", 16).expect("Worked");
+    }
+
+    #[cfg(not(feature = "precomputed"))]
     lazy_static! {
         pub static ref P: BigInt = BigInt::from(2).pow(255) - BigInt::from(19);
         pub static ref A24: BigInt = BigInt::from(121666);
@@ -46,6 +54,12 @@ pub mod hex {
             let inv_121666 = modp_inv(&A24, &p); // A24 is 121666, so reuse it
             (numerator * inv_121666).rem_euclid(&p)
         };        
+    }
+
+    pub fn dump_static_constants() {
+        println!("hex: P: {:?}", P.clone().to_str_radix(16));
+        println!("hex: A24: {:?}", A24.clone().to_str_radix(16));
+        println!("hex: D: {:?}", D.clone().to_str_radix(16));
     }
 
     // Extract the keys from the hex string
@@ -308,12 +322,18 @@ pub mod ed25519 {
 
     #[cfg(feature = "precomputed")]
     lazy_static! {
-        pub static ref P: BigInt = BigInt::from_str_radix("1",10).expect("Worked");
-        pub static ref A24: BigInt = BigInt::from_str_radix("1",10).expect("Worked");
-        pub static ref D: BigInt = BigInt::from_str_radix("1",10).expect("Worked");
-        pub static ref G_Y: BigInt = BigInt::from_str_radix("1",10).expect("Worked");
-        pub static ref G_X: BigInt = BigInt::from_str_radix("1",10).expect("Worked");
-        pub static ref Q: BigInt = BigInt::from_str_radix("1",10).expect("Worked");
+        pub static ref P: BigInt = BigInt::from_str_radix("7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffed", 16).expect("Worked");
+        pub static ref A24: BigInt = BigInt::from_str_radix("1db42", 16).expect("Worked");
+        pub static ref D: BigInt = BigInt::from_str_radix("52036cee2b6ffe738cc740797779e89800700a4d4141d8ab75eb4dca135978a3", 16).expect("Worked");
+        pub static ref G_Y: BigInt = BigInt::from_str_radix("6666666666666666666666666666666666666666666666666666666666666658", 16).expect("Worked");
+        pub static ref G_X: BigInt = BigInt::from_str_radix("216936d3cd6e53fec0a4e231fdd6dc5c692cc7609525a7b2c9562d608f25d51a", 16).expect("Worked");
+        pub static ref G: Point = (
+            G_X.clone(),
+            G_Y.clone(),
+            BigInt::from(1),
+            BigInt::from_str_radix("67875f0fd78b766566ea4e8e64abe37d20f09f80775152f56dde8ab3a5b7dda3", 16).expect("Worked")
+        );
+        pub static ref Q: BigInt = BigInt::from_str_radix("1000000000000000000000000000000014def9dea2f79cd65812631a5cf5d3ed", 16).expect("Worked");
     }
 
     #[cfg(not(feature = "precomputed"))]
@@ -346,6 +366,20 @@ pub mod ed25519 {
         pub static ref Q: BigInt = BigInt::from(2).pow(252)
             + BigInt::from_str_radix("27742317777372353535851937790883648493", 10)
                 .expect("Error in group order q constant");
+    }
+
+
+    pub fn dump_static_constants() {
+        println!("P: {}", P.clone().to_str_radix(16));
+        println!("A24: {}", A24.clone().to_str_radix(16));
+        println!("D: {}", D.clone().to_str_radix(16));
+        println!("G_Y: {}", G_Y.clone().to_str_radix(16));
+        println!("G_X: {}", G_X.clone().to_str_radix(16));
+        println!("Q: {}", Q.clone().to_str_radix(16));
+        println!("G 0: {}", G.clone().0.to_str_radix(16));
+        println!("G 1: {}", G.clone().1.to_str_radix(16));
+        println!("G 2: {}", G.clone().2.to_str_radix(16));
+        println!("G 3: {}", G.clone().3.to_str_radix(16));
     }
 
     pub fn point_equal(pp: Point, qq: Point, p: &BigInt) -> bool {
@@ -484,14 +518,6 @@ pub mod ed25519 {
         true
     }
 
-    pub fn dump_static_constants() {
-        println!("P: {}", P.clone().to_str_radix(16));
-        println!("A24: {}", A24.clone().to_str_radix(16));
-        println!("D: {}", D.clone().to_str_radix(16));
-        println!("G_Y: {}", G_Y.clone().to_str_radix(16));
-        println!("G_X: {}", G_X.clone().to_str_radix(16));
-        println!("Q: {}", Q.clone().to_str_radix(16));
-    }
     pub fn verify(public: [u8; 32], msg: &[u8], signature: [u8; 64]) -> bool {
         let p = P.clone();
         let d = D.clone();
@@ -603,9 +629,21 @@ pub mod elliptic {
 
     use super::num_bigint::BigInt;
 
+    #[cfg(not(feature = "precomputed"))]
     lazy_static! {
         pub static ref P: BigInt = BigInt::from(2).pow(255) - BigInt::from(19);
         pub static ref A24: BigInt = BigInt::from(121666);
+    }
+
+    #[cfg(feature = "precomputed")]
+    lazy_static! {
+        pub static ref P: BigInt = BigInt::from_str_radix("7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffed", 16).expect("Worked");
+        pub static ref A24: BigInt = BigInt::from_str_radix("1db42", 16).expect("Worked");
+    }
+
+    pub fn dump_static_constants() {
+        println!("elliptic: P: {:?}", P.clone().to_str_radix(16));
+        println!("elliptic: A24: {:?}", A24.clone().to_str_radix(16));
     }
 
     fn x_add(
