@@ -88,9 +88,8 @@ impl BigInt {
         let inside = Inner::from_str_radix(s, radix).map(Self::from_self);
         inside.map_err(|_| ParseBigIntError)
     }
-    #[cfg(test)]
     pub fn to_str_radix(&self, radix: u32) -> String {
-        assert!(radix == 10);
+        // assert!(radix == 10);
         let mut results = [0u8; 128];
         let ret_string = self.inner.to_radix_str(&mut results, radix as u8);
         let res = ret_string.unwrap();
