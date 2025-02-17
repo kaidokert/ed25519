@@ -152,6 +152,13 @@ impl<'a> core::ops::Add<&'a BigInt> for &'a BigInt {
         BigInt::from_self(self.inner.add(rhs.inner))
     }
 }
+impl<'a> core::ops::Add<&'a BigInt> for BigInt {
+    type Output = BigInt;
+
+    fn add(self, rhs: &'a BigInt) -> Self::Output {
+        BigInt::from_self(self.inner.add(rhs.inner))
+    }
+}
 
 impl core::ops::Sub for BigInt {
     type Output = BigInt;
@@ -198,6 +205,11 @@ impl core::ops::BitOrAssign for BigInt {
 impl core::ops::BitAndAssign for BigInt {
     fn bitand_assign(&mut self, rhs: Self) {
         self.inner.bitand_assign(rhs.inner);
+    }
+}
+impl core::ops::ShrAssign<usize> for BigInt {
+    fn shr_assign(&mut self, rhs: usize) {
+        self.inner.shr_assign(rhs);
     }
 }
 
