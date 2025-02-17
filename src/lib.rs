@@ -56,6 +56,7 @@ pub mod hex {
         };        
     }
 
+    #[cfg(any(test,feature ="dump"))]
     pub fn dump_static_constants() {
         println!("hex: P: {:?}", P.clone().to_str_radix(16));
         println!("hex: A24: {:?}", A24.clone().to_str_radix(16));
@@ -311,7 +312,7 @@ pub mod hex {
 }
 
 pub mod ed25519 {
-    use super::{info, debug, error, warn};
+    use super::info;
 
     use lazy_static::lazy_static;
 
@@ -369,6 +370,7 @@ pub mod ed25519 {
     }
 
 
+    #[cfg(any(test,feature ="dump"))]
     pub fn dump_static_constants() {
         println!("P: {}", P.clone().to_str_radix(16));
         println!("A24: {}", A24.clone().to_str_radix(16));
@@ -431,9 +433,7 @@ pub mod ed25519 {
             BigInt::from(0),
         );
         let mut s = s;
-        debug!("Starting point_mul");
         while s > BigInt::from(0) {
-            debug!("s iteration");
             if s.bit(0) == true {
                 q = point_add(q.clone(), pp.clone(), p, d);
             }
@@ -507,16 +507,6 @@ pub mod ed25519 {
         signature
     }
 
-    pub fn check_function(public: [u8; 32], msg: &[u8], signature: [u8; 64]) -> bool {
-        use super::println;
-        let p = P.clone();
-        //let d = D.clone();
-        let q = Q.clone();
-
-        info!("Decompressing public key");
-        println!("hai");
-        true
-    }
 
     pub fn verify(public: [u8; 32], msg: &[u8], signature: [u8; 64]) -> bool {
         let p = P.clone();
@@ -555,7 +545,7 @@ pub mod ed25519 {
 
         let rrs = rrs.as_slice();
         let public = public.as_slice();
-        let mut storage = [0u8; 1024];
+        let mut storage = [0u8; 128];
         let concat = super::concat_emul(&[rrs, public, msg], &mut storage);
         info!("Doing sha512_modq");
         let h = sha512_modq(&concat, &q);
@@ -641,6 +631,7 @@ pub mod elliptic {
         pub static ref A24: BigInt = BigInt::from_str_radix("1db42", 16).expect("Worked");
     }
 
+    #[cfg(any(test,feature ="dump"))]
     pub fn dump_static_constants() {
         println!("elliptic: P: {:?}", P.clone().to_str_radix(16));
         println!("elliptic: A24: {:?}", A24.clone().to_str_radix(16));
