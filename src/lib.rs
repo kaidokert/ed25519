@@ -1,7 +1,5 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
-extern crate lazy_static;
-
 mod num_bigint;
 
 use hmac_sha512::Hash;
@@ -20,36 +18,37 @@ pub mod ed25519 {
     use super::num_bigint;
     use num_bigint::BigInt;
 
-    use lazy_static::lazy_static;
+    const P_BYTES: [u8; 32] = [
+        237, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+        255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 127
+    ];
 
-    lazy_static! {
-        // 2^255 - 19 in little-endian format
-        pub static ref P: BigInt = BigInt::from_bytes_le(
-            &[237, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 127]
-        );
-        pub static ref D: BigInt = BigInt::from_bytes_le( 
-            &[163, 120, 89, 19, 202, 77, 235, 117, 171, 216, 65, 65, 77, 10, 112, 0, 152, 232, 121, 119, 121, 64, 199, 140, 115, 254, 111, 43, 238, 108, 3, 82]);
-        // 4/5 mod P
-        pub static ref G_Y: BigInt = BigInt::from_bytes_le(
-            &[88, 102, 102, 102, 102, 102, 102, 102, 102, 102, 102, 102, 102, 102, 102, 102, 102, 102, 102, 102, 102, 102, 102, 102, 102, 102, 102, 102, 102, 102, 102, 102]
-        );
-        pub static ref G_X: BigInt = BigInt::from_bytes_le(
-            &[26, 213, 37, 143, 96, 45, 86, 201, 178, 167, 37, 149, 96, 199, 44, 105, 92, 220, 214, 253, 49, 226, 164, 192, 254, 83, 110, 205, 211, 54, 105, 33]);
-        pub static ref G: Point = (
-            G_X.clone(),
-            G_Y.clone(),
-            BigInt::from(1),
-            BigInt::from_bytes_le(
-                &[163, 221, 183, 165, 179, 138, 222, 109, 245, 82, 81, 119, 128, 159, 240, 32, 125, 227, 171, 100, 142, 78, 234, 102, 101, 118, 139, 215, 15, 95, 135, 103]
-            )
-        );
-        pub static ref Q: BigInt = BigInt::from_bytes_le(
-            &[237, 211, 245, 92, 26, 99, 18, 88, 214, 156, 247, 162, 222, 249, 222, 20, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 16]
-        );
-    }
+    const D_BYTES: [u8; 32] = [
+        163, 120, 89, 19, 202, 77, 235, 117, 171, 216, 65, 65, 77, 10, 112, 0,
+        152, 232, 121, 119, 121, 64, 199, 140, 115, 254, 111, 43, 238, 108, 3, 82
+    ];
 
-    // We are going to get a slice of slices, and we want to concatenate them into a single slice.
-    pub fn concat_emul<'a>(slices: &[&[u8]], storage: &'a mut [u8]) -> &'a [u8] {
+    const G_Y_BYTES: [u8; 32] = [
+        88, 102, 102, 102, 102, 102, 102, 102, 102, 102, 102, 102, 102, 102, 102, 102,
+        102, 102, 102, 102, 102, 102, 102, 102, 102, 102, 102, 102, 102, 102, 102, 102
+    ];
+
+    const G_X_BYTES: [u8; 32] = [
+        26, 213, 37, 143, 96, 45, 86, 201, 178, 167, 37, 149, 96, 199, 44, 105,
+        92, 220, 214, 253, 49, 226, 164, 192, 254, 83, 110, 205, 211, 54, 105, 33
+    ];
+
+    const G_T_BYTES: [u8; 32] = [
+        163, 221, 183, 165, 179, 138, 222, 109, 245, 82, 81, 119, 128, 159, 240, 32,
+        125, 227, 171, 100, 142, 78, 234, 102, 101, 118, 139, 215, 15, 95, 135, 103
+    ];
+
+    const Q_BYTES: [u8; 32] = [
+        237, 211, 245, 92, 26, 99, 18, 88, 214, 156, 247, 162, 222, 249, 222, 20,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 16
+    ];
+
+    fn concat_emul<'a>(slices: &[&[u8]], storage: &'a mut [u8]) -> &'a [u8] {
         let total_len = slices.iter().map(|s| s.len()).sum();
         let mut offset = 0;
         for slice in slices {
@@ -59,15 +58,15 @@ pub mod ed25519 {
         &storage[..total_len]
     }
 
-    pub fn decode_little_endian(b: &[u8]) -> BigInt {
+    fn decode_little_endian(b: &[u8]) -> BigInt {
         BigInt::from_bytes_le(&b[0..32])
     }
 
-    pub fn modp_inv(m: &BigInt, p: &BigInt) -> BigInt {
+    fn modp_inv(m: &BigInt, p: &BigInt) -> BigInt {
         m.modpow(&(p - BigInt::from(2)), p)
     }
 
-    pub fn recover_x(y: &BigInt, sign: u8, p: &BigInt, d: &BigInt) -> Option<BigInt> {
+    fn recover_x(y: &BigInt, sign: u8, p: &BigInt, d: &BigInt) -> Option<BigInt> {
         // First compute y² mod p
         let y2 = y.mod_mul(y, p);
 
@@ -116,7 +115,7 @@ pub mod ed25519 {
         }
     }
 
-    pub fn decompress_edward_point(k: [u8; 32], p: &BigInt, d: &BigInt) -> Option<Point> {
+    fn decompress_edward_point(k: [u8; 32], p: &BigInt, d: &BigInt) -> Option<Point> {
         let mut k_list = k.clone();
 
         let sign = k_list[k.len() - 1] >> 7;
@@ -132,7 +131,7 @@ pub mod ed25519 {
         }
     }
 
-    pub fn point_equal(pp: &Point, qq: &Point, p: &BigInt) -> bool {
+    fn point_equal(pp: &Point, qq: &Point, p: &BigInt) -> bool {
         let term1 = &pp.0 * &qq.2;
         let term2 = &qq.0 * &pp.2;
 
@@ -147,12 +146,10 @@ pub mod ed25519 {
         }
     }
 
-    pub fn point_add(pp: &Point, qq: &Point, p: &BigInt, d: &BigInt) -> Point {
-        // Instead of creating new BigInts for these intermediates, we can chain the operations
+    fn point_add(pp: &Point, qq: &Point, p: &BigInt, d: &BigInt) -> Point {
         let a = pp.1.mod_sub(&pp.0, p).mod_mul(&qq.1.mod_sub(&qq.0, p), p);
         let b = pp.1.mod_add(&pp.0, p).mod_mul(&qq.1.mod_add(&qq.0, p), p);
 
-        // Avoid intermediate allocations by chaining
         let c = BigInt::from(2)
             .mod_mul(&pp.3, p)
             .mod_mul(&qq.3, p)
@@ -160,7 +157,6 @@ pub mod ed25519 {
 
         let d_val = BigInt::from(2).mod_mul(&pp.2, p).mod_mul(&qq.2, p);
 
-        // e, f, g, h could be computed inline where used instead of stored
         let x3 = b.mod_sub(&a, p).mod_mul(&d_val.mod_sub(&c, p), p);
         let y3 = (d_val + &c).mod_mul(&(&b + &a), p);
         let z3 = d_val.mod_sub(&c, p).mod_mul(&(d_val + &c), p);
@@ -169,7 +165,7 @@ pub mod ed25519 {
         (x3, y3, z3, t3)
     }
 
-    pub fn point_mul(s: BigInt, pp: &Point, p: &BigInt, d: &BigInt) -> Point {
+    fn point_mul(s: BigInt, pp: &Point, p: &BigInt, d: &BigInt) -> Point {
         let mut q = (
             BigInt::from(0),
             BigInt::from(1),
@@ -189,7 +185,7 @@ pub mod ed25519 {
         q
     }
 
-    pub fn sha512_modq(msg: &[u8], q: &BigInt) -> BigInt {
+    fn sha512_modq(msg: &[u8], q: &BigInt) -> BigInt {
         let mut compact_sha = super::Hash::new();
         compact_sha.update(msg);
         let finalized = compact_sha.finalize();
@@ -200,12 +196,19 @@ pub mod ed25519 {
     }
 
     pub fn verify(public: [u8; 32], msg: &[u8], signature: [u8; 64]) -> bool {
-        let p = &*P;
-        let d = &*D;
-        let q = &*Q;
+        let p = BigInt::from_bytes_le(&P_BYTES);
+        let d = BigInt::from_bytes_le(&D_BYTES);
+        let q = BigInt::from_bytes_le(&Q_BYTES);
+        
+        let g = (
+            BigInt::from_bytes_le(&G_X_BYTES),
+            BigInt::from_bytes_le(&G_Y_BYTES),
+            BigInt::from(1),
+            BigInt::from_bytes_le(&G_T_BYTES)
+        );
 
         info!("Decompressing public key");
-        let aa = decompress_edward_point(public, p, d);
+        let aa = decompress_edward_point(public, &p, &d);
 
         if aa.is_none() {
             return false;
@@ -218,7 +221,7 @@ pub mod ed25519 {
             .expect("Invalid signature length");
 
         info!("Decompressing rrs");
-        let rr = decompress_edward_point(rrs, p, d);
+        let rr = decompress_edward_point(rrs, &p, &d);
         if rr.is_none() {
             return false;
         }
@@ -230,7 +233,7 @@ pub mod ed25519 {
             .expect("invalid signature length");
         let s = decode_little_endian(&s_bytes);
 
-        if &s >= q {
+        if &s >= &q {
             return false;
         }
 
@@ -239,15 +242,15 @@ pub mod ed25519 {
         let mut storage = [0u8; 128];
         let concat = concat_emul(&[rrs, public, msg], &mut storage);
         info!("Doing sha512_modq");
-        let h = sha512_modq(&concat, q);
+        let h = sha512_modq(&concat, &q);
 
         info!("Doing point_mul(s, G)");
-        let sbb = point_mul(s, &*G, p, d);
+        let sbb = point_mul(s, &g, &p, &d);
         info!("Doing point_mul(h, aa)");
-        let haa = point_mul(h, &aa, p, d);
+        let haa = point_mul(h, &aa, &p, &d);
         info!("Doing point_add(rr, haa)");
-        let second_point = point_add(&rr, &haa, p, d);
+        let second_point = point_add(&rr, &haa, &p, &d);
         info!("Doing point_equal(sbb, second_point, &p)");
-        point_equal(&sbb, &second_point, p)
+        point_equal(&sbb, &second_point, &p)
     }
 }
