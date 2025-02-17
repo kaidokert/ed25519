@@ -23,41 +23,29 @@ pub mod ed25519 {
     use lazy_static::lazy_static;
 
     lazy_static! {
-        pub static ref P: BigInt = BigInt::from_str_radix(
-            "7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffed",
-            16
-        )
-        .expect("Worked");
-        pub static ref D: BigInt = BigInt::from_str_radix(
-            "52036cee2b6ffe738cc740797779e89800700a4d4141d8ab75eb4dca135978a3",
-            16
-        )
-        .expect("Worked");
-        pub static ref G_Y: BigInt = BigInt::from_str_radix(
-            "6666666666666666666666666666666666666666666666666666666666666658",
-            16
-        )
-        .expect("Worked");
-        pub static ref G_X: BigInt = BigInt::from_str_radix(
-            "216936d3cd6e53fec0a4e231fdd6dc5c692cc7609525a7b2c9562d608f25d51a",
-            16
-        )
-        .expect("Worked");
+        // 2^255 - 19 in little-endian format
+        pub static ref P: BigInt = BigInt::from_bytes_le(
+            &[237, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 127]
+        );
+        pub static ref D: BigInt = BigInt::from_bytes_le( 
+            &[163, 120, 89, 19, 202, 77, 235, 117, 171, 216, 65, 65, 77, 10, 112, 0, 152, 232, 121, 119, 121, 64, 199, 140, 115, 254, 111, 43, 238, 108, 3, 82]);
+        // 4/5 mod P
+        pub static ref G_Y: BigInt = BigInt::from_bytes_le(
+            &[88, 102, 102, 102, 102, 102, 102, 102, 102, 102, 102, 102, 102, 102, 102, 102, 102, 102, 102, 102, 102, 102, 102, 102, 102, 102, 102, 102, 102, 102, 102, 102]
+        );
+        pub static ref G_X: BigInt = BigInt::from_bytes_le(
+            &[26, 213, 37, 143, 96, 45, 86, 201, 178, 167, 37, 149, 96, 199, 44, 105, 92, 220, 214, 253, 49, 226, 164, 192, 254, 83, 110, 205, 211, 54, 105, 33]);
         pub static ref G: Point = (
             G_X.clone(),
             G_Y.clone(),
             BigInt::from(1),
-            BigInt::from_str_radix(
-                "67875f0fd78b766566ea4e8e64abe37d20f09f80775152f56dde8ab3a5b7dda3",
-                16
+            BigInt::from_bytes_le(
+                &[163, 221, 183, 165, 179, 138, 222, 109, 245, 82, 81, 119, 128, 159, 240, 32, 125, 227, 171, 100, 142, 78, 234, 102, 101, 118, 139, 215, 15, 95, 135, 103]
             )
-            .expect("Worked")
         );
-        pub static ref Q: BigInt = BigInt::from_str_radix(
-            "1000000000000000000000000000000014def9dea2f79cd65812631a5cf5d3ed",
-            16
-        )
-        .expect("Worked");
+        pub static ref Q: BigInt = BigInt::from_bytes_le(
+            &[237, 211, 245, 92, 26, 99, 18, 88, 214, 156, 247, 162, 222, 249, 222, 20, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 16]
+        );
     }
 
     // We are going to get a slice of slices, and we want to concatenate them into a single slice.
@@ -72,14 +60,13 @@ pub mod ed25519 {
     }
 
     pub fn decode_little_endian(b: &[u8]) -> BigInt {
-        BigInt::from_bytes_le(num_bigint::Sign::Plus, &b[0..32])
+        BigInt::from_bytes_le(&b[0..32])
     }
 
     pub fn modp_inv(m: &BigInt, p: &BigInt) -> BigInt {
         m.modpow(&(p - BigInt::from(2)), p)
     }
 
-    #[inline(never)]
     pub fn recover_x(y: &BigInt, sign: u8, p: &BigInt, d: &BigInt) -> Option<BigInt> {
         // First compute y² mod p
         let y2 = y.mod_mul(y, p);
@@ -119,7 +106,7 @@ pub mod ed25519 {
             if x.mod_mul(&x, p).mod_sub(&x2, p) != BigInt::from(0) {
                 return None;
             }
-            let weird = ((&x).bit(0) as u8) != sign;
+            let weird = ((&x).is_odd() as u8) != sign;
 
             if weird {
                 x = p - &x;
@@ -129,11 +116,7 @@ pub mod ed25519 {
         }
     }
 
-    pub fn decompress_edward_point(
-        k: [u8; 32],
-        p: &BigInt,
-        d: &BigInt,
-    ) -> Option<Point> {
+    pub fn decompress_edward_point(k: [u8; 32], p: &BigInt, d: &BigInt) -> Option<Point> {
         let mut k_list = k.clone();
 
         let sign = k_list[k.len() - 1] >> 7;
@@ -145,7 +128,7 @@ pub mod ed25519 {
             None
         } else {
             let x = recover_x(&y, sign, p, d);
-            x.map(|x| (x.clone(), y.clone(), BigInt::from(1), (x * y) % p))
+            x.map(|x| (x.clone(), y.clone(), BigInt::from(1), x.mod_mul(&y, p)))
         }
     }
 
@@ -155,16 +138,15 @@ pub mod ed25519 {
 
         let term3 = &pp.1 * &qq.2;
         let term4 = &qq.1 * &pp.2;
-        if (term1.mod_sub(&term2, p)) % p != BigInt::from(0) {
+        if term1.mod_sub(&term2, p) != BigInt::from(0) {
             false
-        } else if (term3.mod_sub(&term4, p)) % p != BigInt::from(0) {
+        } else if term3.mod_sub(&term4, p) != BigInt::from(0) {
             false
         } else {
             true
         }
     }
 
-    #[inline(never)]
     pub fn point_add(pp: &Point, qq: &Point, p: &BigInt, d: &BigInt) -> Point {
         // Instead of creating new BigInts for these intermediates, we can chain the operations
         let a = pp.1.mod_sub(&pp.0, p).mod_mul(&qq.1.mod_sub(&qq.0, p), p);
@@ -187,7 +169,6 @@ pub mod ed25519 {
         (x3, y3, z3, t3)
     }
 
-    #[inline(never)]
     pub fn point_mul(s: BigInt, pp: &Point, p: &BigInt, d: &BigInt) -> Point {
         let mut q = (
             BigInt::from(0),
@@ -199,7 +180,7 @@ pub mod ed25519 {
         let mut remaining = s;
 
         while remaining > BigInt::from(0) {
-            if remaining.bit(0) {
+            if remaining.is_odd() {
                 q = point_add(&q, &current, p, d);
             }
             current = point_add(&current, &current, p, d);
@@ -208,18 +189,16 @@ pub mod ed25519 {
         q
     }
 
-    #[inline(never)]
     pub fn sha512_modq(msg: &[u8], q: &BigInt) -> BigInt {
         let mut compact_sha = super::Hash::new();
         compact_sha.update(msg);
         let finalized = compact_sha.finalize();
         let hash = finalized.as_slice();
 
-        let result_nomodq = BigInt::from_bytes_le(num_bigint::Sign::Plus, &hash[0..64]);
+        let result_nomodq = BigInt::from_bytes_le(&hash[0..64]);
         result_nomodq % q
     }
 
-    #[inline(never)]
     pub fn verify(public: [u8; 32], msg: &[u8], signature: [u8; 64]) -> bool {
         let p = &*P;
         let d = &*D;

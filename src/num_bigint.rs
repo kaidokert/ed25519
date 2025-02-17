@@ -2,18 +2,7 @@ use fixed_bigint::FixedUInt;
 
 type Inner = FixedUInt<u32, 16>;
 
-use num_traits::Num;
-use num_traits::PrimInt;
-use num_traits::ToBytes;
-use num_traits::Zero;
 use num_traits::One;
-use num_traits::Euclid;
-
-#[derive(PartialEq)]
-pub enum Sign {
-    Plus,
-    Minus,
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ParseBigIntError;
@@ -29,7 +18,6 @@ impl BigInt {
             inner: FixedUInt::new(),
         }
     }
-
     pub fn mod_mul(self, rhs: &Self, modulus: &Self) -> Self {
         Self::from_self(modmath::strict_mod_mul(self.inner, &rhs.inner, &modulus.inner))
     }
@@ -39,57 +27,20 @@ impl BigInt {
     pub fn mod_add(self, rhs: &Self, modulus: &Self) -> Self {
         Self::from_self(modmath::strict_mod_add(self.inner, &rhs.inner, &modulus.inner))
     }
-
-    fn from_self(value: Inner) -> Self {
-        Self { inner: value }
-    }
-    pub fn from_bytes_le(sign: Sign, bytes: &[u8]) -> Self {
-        assert!(sign == Sign::Plus);
-        let me = Inner::from_le_bytes(bytes);
-        Self { inner: me }
-    }
-    pub fn bits(&self) -> usize {
-        let mut count = 0;
-        let mut value = self.inner;
-        while value != Inner::zero() {
-            value = value >> 1usize;
-            count += 1;
-        }
-        count
-    }
-    pub fn bit(&self, n: u64) -> bool {
-        // shift n times and check if the last bit is 1
-        (self.inner >> n as usize) & Inner::one() == Inner::one()
-    }
-    pub fn to_le_bytes(&self) -> [u8; 32] {
-        let f= <Inner as ToBytes>::to_le_bytes(&self.inner);
-        let res = f.as_ref();
-        let mut output = [0u8; 32];
-        let len = output.len();
-        output.copy_from_slice(&res[..len]);
-        output
-    }
-    pub fn to_signed_bytes_le(&self) -> [u8; 32] { 
-        self.to_le_bytes()
-    }
-    pub fn pow(&self, exp: u64) -> Self {
-        Self::from_self(self.inner.pow(exp as u32))
-    }
     pub fn modpow(&self, exp: &Self, modulus: &Self) -> Self {
         let mp = modmath::strict_mod_exp ( self.inner, &exp.inner, &modulus.inner);
         Self::from_self(mp)
     }
-    pub fn from_str_radix(s: &str, radix: u32) -> Result<Self, ParseBigIntError> {
-        let inside = Inner::from_str_radix(s, radix).map(Self::from_self);
-        inside.map_err(|_| ParseBigIntError)
+
+    fn from_self(value: Inner) -> Self {
+        Self { inner: value }
     }
-    #[cfg(any(test,feature ="dump"))]
-    pub fn to_str_radix(&self, radix: u32) -> String {
-        // assert!(radix == 10);
-        let mut results = [0u8; 128];
-        let ret_string = self.inner.to_radix_str(&mut results, radix as u8);
-        let res = ret_string.unwrap();
-        res.into()
+    pub fn from_bytes_le(bytes: &[u8]) -> Self {
+        let me = Inner::from_le_bytes(bytes);
+        Self { inner: me }
+    }
+    pub fn is_odd(&self) -> bool {
+        self.inner & Inner::one() == Inner::one()
     }
 }
 
@@ -107,11 +58,6 @@ impl From<i32> for BigInt {
         }
         let u32_value = value as u32;
         Self::from_self(Inner::from(u32_value))
-    }
-}
-impl From<i64> for BigInt {
-    fn from(_value: i64) -> Self {
-        todo!()
     }
 }
 
