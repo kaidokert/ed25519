@@ -21,6 +21,7 @@ modmath = { version = "0.1.0", default-features = false }
 log = { version = "0.4.25", optional = true }
 env_logger = { version = "0.11.6", optional = true }
 defmt = { version = "0.3", optional = true }
+hmac-sha512 = { version = "1", features = ["opt_size"] }
 
 [dev-dependencies]
 # intentionally empty

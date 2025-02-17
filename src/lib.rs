@@ -1,9 +1,10 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
 extern crate lazy_static;
-extern crate sha2;
 
 mod num_bigint;
+
+use hmac_sha512::Hash;
 
 #[cfg(feature = "std")]
 use log::info;
@@ -20,8 +21,6 @@ pub mod ed25519 {
     use num_bigint::BigInt;
 
     use lazy_static::lazy_static;
-
-    use sha2::{Digest, Sha512};
 
     lazy_static! {
         pub static ref P: BigInt = BigInt::from_str_radix(
@@ -80,6 +79,7 @@ pub mod ed25519 {
         m.modpow(&(p - BigInt::from(2)), p)
     }
 
+    #[inline(never)]
     pub fn recover_x(y: &BigInt, sign: u8, p: &BigInt, d: &BigInt) -> Option<BigInt> {
         // First compute y² mod p
         let y2 = y.mod_mul(y, p);
@@ -164,6 +164,7 @@ pub mod ed25519 {
         }
     }
 
+    #[inline(never)]
     pub fn point_add(pp: &Point, qq: &Point, p: &BigInt, d: &BigInt) -> Point {
         // Instead of creating new BigInts for these intermediates, we can chain the operations
         let a = pp.1.mod_sub(&pp.0, p).mod_mul(&qq.1.mod_sub(&qq.0, p), p);
@@ -186,6 +187,7 @@ pub mod ed25519 {
         (x3, y3, z3, t3)
     }
 
+    #[inline(never)]
     pub fn point_mul(s: BigInt, pp: &Point, p: &BigInt, d: &BigInt) -> Point {
         let mut q = (
             BigInt::from(0),
@@ -206,14 +208,18 @@ pub mod ed25519 {
         q
     }
 
+    #[inline(never)]
     pub fn sha512_modq(msg: &[u8], q: &BigInt) -> BigInt {
-        let finalized = Sha512::new().chain_update(msg).finalize();
+        let mut compact_sha = super::Hash::new();
+        compact_sha.update(msg);
+        let finalized = compact_sha.finalize();
         let hash = finalized.as_slice();
 
         let result_nomodq = BigInt::from_bytes_le(num_bigint::Sign::Plus, &hash[0..64]);
         result_nomodq % q
     }
 
+    #[inline(never)]
     pub fn verify(public: [u8; 32], msg: &[u8], signature: [u8; 64]) -> bool {
         let p = &*P;
         let d = &*D;
