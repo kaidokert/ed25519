@@ -229,28 +229,31 @@ pub mod ed25519 {
         // Compute a = ((pp.1 - pp.0) * (qq.1 - qq.0)) mod p
         let term1 = pp.1.mod_sub(&pp.0, p);
         let term2 = qq.1.mod_sub(&qq.0, p);
-        let a = (term1 * term2) % p;
+        let a = term1.mod_mul(&term2, p);
 
         // Compute b = ((pp.1 + pp.0) * (qq.1 + qq.0)) mod p
-        let term3 = (&pp.1 + &pp.0) % p;
-        let term4 = (&qq.1 + &qq.0) % p;
-        let b = (term3 * term4) % p;
+        let term3 = pp.1.mod_add(&pp.0, p);
+        let term4 = qq.1.mod_add(&qq.0, p);
+        let b = term3.mod_mul(&term4, p);
 
         // Compute c = (2 * pp.3 * qq.3 * d) mod p
-        let c = (BigInt::from(2) * &pp.3 * &qq.3 * d) % p;
+        let two_pp3 = BigInt::from(2).mod_mul(&pp.3, p);
+        let temp     = two_pp3.mod_mul(&qq.3, p);
+        let c        = temp.mod_mul(d, p);
 
         // Compute d = (2 * pp.2 * qq.2) mod p
-        let d_val = (BigInt::from(2) * &pp.2 * &qq.2) % p;
+        let two_pp2  = BigInt::from(2).mod_mul(&pp.2, p);
+        let d_val    = two_pp2.mod_mul(&qq.2, p);
 
         let e = b.mod_sub(&a, p);
         let f = d_val.mod_sub(&c, p);
         let g = &d_val + &c;
         let h = &b + &a;
 
-        let x3 = (&e * &f) % p;
-        let y3 = (&g * &h) % p;
-        let z3 = (&f * &g) % p;
-        let t3 = (&e * &h) % p;
+        let x3 = e.mod_mul(&f, p);
+        let y3 = g.mod_mul(&h, p);
+        let z3 = f.mod_mul(&g, p);
+        let t3 = e.mod_mul(&h, p);
 
         (x3, y3, z3, t3)
     }

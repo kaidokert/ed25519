@@ -30,6 +30,9 @@ impl BigInt {
         }
     }
 
+    pub fn mod_mul(self, rhs: &Self, modulus: &Self) -> Self {
+        Self::from_self(modmath::strict_mod_mul(self.inner, &rhs.inner, &modulus.inner))
+    }
     pub fn mod_sub(self, rhs: &Self, modulus: &Self) -> Self {
         Self::from_self(modmath::strict_mod_sub(self.inner, &rhs.inner, &modulus.inner))
     }
