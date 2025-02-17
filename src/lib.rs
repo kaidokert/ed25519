@@ -80,49 +80,49 @@ pub mod ed25519 {
         m.modpow(&(p - BigInt::from(2)), p)
     }
 
-    pub fn recover_x(y: &BigInt, sign: u8, p: BigInt, d: BigInt) -> Option<BigInt> {
+    pub fn recover_x(y: &BigInt, sign: u8, p: &BigInt, d: &BigInt) -> Option<BigInt> {
         // First compute y² mod p
-        let y2 = y.mod_mul(&y, &p);
+        let y2 = y.mod_mul(y, p);
 
         // left = (y² - 1) mod p
-        let left = y2.mod_sub(&BigInt::from(1), &p);
+        let left = y2.mod_sub(&BigInt::from(1), p);
 
         // denom_raw = (d * y²) mod p
-        let denom_raw = d.mod_mul(&y2, &p);
+        let denom_raw = d.mod_mul(&y2, p);
 
         // denom = (denom_raw + 1) mod p
-        let denom = denom_raw.mod_add(&BigInt::from(1), &p);
+        let denom = denom_raw.mod_add(&BigInt::from(1), p);
 
         // inv_denom = denom^(-1) mod p
-        let inv_denom = modp_inv(&denom, &p);
+        let inv_denom = modp_inv(&denom, p);
 
         // Finally, x2 = left * inv_denom mod p
-        let x2 = left.mod_mul(&inv_denom, &p);
+        let x2 = left.mod_mul(&inv_denom, p);
 
-        if x2 == 0.into() {
+        if x2 == BigInt::from(0) {
             if sign > 0 {
                 None
             } else {
                 Some(BigInt::from(0))
             }
         } else {
-            let p3 = &p + BigInt::from(3);
-            let mut x = x2.modpow(&(p3 / &BigInt::from(8)), &p);
+            let p3 = p + BigInt::from(3);
+            let mut x = x2.modpow(&(p3 / &BigInt::from(8)), p);
 
             let modp_sqrt_m1 =
-                BigInt::from(2).modpow(&((&p - BigInt::from(1)) / &BigInt::from(4)), &p);
+                BigInt::from(2).modpow(&((p - BigInt::from(1)) / &BigInt::from(4)), p);
 
-            if x.mod_mul(&x, &p).mod_sub(&x2, &p) != BigInt::from(0) {
-                x = x.mod_mul(&modp_sqrt_m1, &p);
+            if x.mod_mul(&x, p).mod_sub(&x2, p) != BigInt::from(0) {
+                x = x.mod_mul(&modp_sqrt_m1, p);
             }
 
-            if x.mod_mul(&x, &p).mod_sub(&x2, &p) != BigInt::from(0) {
+            if x.mod_mul(&x, p).mod_sub(&x2, p) != BigInt::from(0) {
                 return None;
             }
             let weird = ((&x).bit(0) as u8) != sign;
 
             if weird {
-                x = &p - &x;
+                x = p - &x;
             }
 
             Some(x)
@@ -144,7 +144,7 @@ pub mod ed25519 {
         if &y > p {
             None
         } else {
-            let x = recover_x(&y, sign, p.clone(), d.clone());
+            let x = recover_x(&y, sign, p, d);
             x.map(|x| (x.clone(), y.clone(), BigInt::from(1), (x * y) % p))
         }
     }
@@ -206,12 +206,11 @@ pub mod ed25519 {
         q
     }
 
-    fn sha512_modq(msg: &[u8], q: &BigInt) -> BigInt {
+    pub fn sha512_modq(msg: &[u8], q: &BigInt) -> BigInt {
         let finalized = Sha512::new().chain_update(msg).finalize();
         let hash = finalized.as_slice();
 
         let result_nomodq = BigInt::from_bytes_le(num_bigint::Sign::Plus, &hash[0..64]);
-
         result_nomodq % q
     }
 
