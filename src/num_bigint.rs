@@ -1,6 +1,6 @@
 use fixed_bigint::FixedUInt;
 
-type Inner = FixedUInt<u32, 64>;
+type Inner = FixedUInt<u32, 40>;
 
 use num_traits::Num;
 use num_traits::PrimInt;
