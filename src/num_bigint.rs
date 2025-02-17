@@ -79,10 +79,6 @@ impl BigInt {
         let mp = modmath::strict_mod_exp ( self.inner, &exp.inner, &modulus.inner);
         Self::from_self(mp)
     }
-    pub fn div_euclid(&self, rhs: &Self) -> Self {
-        let res = self.inner.div_euclid(&rhs.inner);
-        Self::from_self(res)
-    }
     pub fn from_str_radix(s: &str, radix: u32) -> Result<Self, ParseBigIntError> {
         let inside = Inner::from_str_radix(s, radix).map(Self::from_self);
         inside.map_err(|_| ParseBigIntError)
@@ -116,6 +112,21 @@ impl From<i32> for BigInt {
 impl From<i64> for BigInt {
     fn from(_value: i64) -> Self {
         todo!()
+    }
+}
+
+impl core::ops::Div for BigInt {
+    type Output = BigInt;
+
+    fn div(self, rhs: Self) -> Self::Output {
+        BigInt::from_self(self.inner.div(rhs.inner))
+    }
+}
+impl<'a> core::ops::Div<&'a BigInt> for BigInt {
+    type Output = BigInt;
+
+    fn div(self, rhs: &'a BigInt) -> Self::Output {
+        BigInt::from_self(self.inner.div(rhs.inner))
     }
 }
 

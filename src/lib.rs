@@ -6,12 +6,12 @@ extern crate sha2;
 mod num_bigint;
 
 #[cfg(feature = "std")]
-use log::{info, debug, error, warn};
+use log::{debug, error, info, warn};
 #[cfg(feature = "std")]
 use std::println;
 
 #[cfg(feature = "defmt")]
-use defmt::{info, debug, error, warn, println};
+use defmt::{debug, error, info, println, warn};
 
 // We are going to get a slice of slices, and we want to concatenate them into a single slice.
 pub fn concat_emul<'a>(slices: &[&[u8]], storage: &'a mut [u8]) -> &'a [u8] {
@@ -32,9 +32,17 @@ pub mod hex {
     use lazy_static::lazy_static;
 
     lazy_static! {
-        pub static ref P: BigInt = BigInt::from_str_radix("7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffed", 16).expect("Worked");
+        pub static ref P: BigInt = BigInt::from_str_radix(
+            "7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffed",
+            16
+        )
+        .expect("Worked");
         pub static ref A24: BigInt = BigInt::from_str_radix("1db42", 16).expect("Worked");
-        pub static ref D: BigInt = BigInt::from_str_radix("52036cee2b6ffe738cc740797779e89800700a4d4141d8ab75eb4dca135978a3", 16).expect("Worked");
+        pub static ref D: BigInt = BigInt::from_str_radix(
+            "52036cee2b6ffe738cc740797779e89800700a4d4141d8ab75eb4dca135978a3",
+            16
+        )
+        .expect("Worked");
     }
 
     // Extract the keys from the hex string
@@ -79,8 +87,23 @@ pub mod hex {
 
     // Verified function.
     pub fn recover_x(y: &BigInt, sign: u8, p: BigInt, d: BigInt) -> Option<BigInt> {
-        let x2 = ((y * y - BigInt::from(1)) * modp_inv(&(&d * y * y + BigInt::from(1)), &p))
-            % &p;
+        // First compute y² mod p
+        let y2 = y.mod_mul(&y, &p);
+
+        // left = (y² - 1) mod p
+        let left = y2.mod_sub(&BigInt::from(1), &p);
+
+        // denom_raw = (d * y²) mod p
+        let denom_raw = d.mod_mul(&y2, &p);
+
+        // denom = (denom_raw + 1) mod p
+        let denom = denom_raw.mod_add(&BigInt::from(1), &p);
+
+        // inv_denom = denom^(-1) mod p
+        let inv_denom = modp_inv(&denom, &p);
+
+        // Finally, x2 = left * inv_denom mod p
+        let x2 = left.mod_mul(&inv_denom, &p);
 
         if x2 == 0.into() {
             if sign > 0 {
@@ -90,15 +113,16 @@ pub mod hex {
             }
         } else {
             let p3 = &p + BigInt::from(3);
-            let mut x = x2.modpow(&p3.div_euclid(&BigInt::from(8)), &p);
+            let mut x = x2.modpow(&(p3 / &BigInt::from(8)) , &p);
+            
             let modp_sqrt_m1 =
-                BigInt::from(2).modpow(&((&p - BigInt::from(1)).div_euclid(&BigInt::from(4))), &p);
+                BigInt::from(2).modpow(&((&p - BigInt::from(1)) / &BigInt::from(4) ), &p);
 
-            if (&x * &x - &x2) % &p != BigInt::from(0) {
-                x = (&x * modp_sqrt_m1) % &p;
+            if x.mod_mul(&x, &p).mod_sub(&x2, &p) != BigInt::from(0) {
+                x = x.mod_mul(&modp_sqrt_m1, &p);
             }
 
-            if (&x * &x - &x2) % &p != BigInt::from(0) {
+            if x.mod_mul(&x, &p).mod_sub(&x2, &p) != BigInt::from(0) {
                 return None;
             }
             let weird = ((&x).bit(0) as u8) != sign;
@@ -131,12 +155,7 @@ pub mod hex {
                 return None;
             } else {
                 let x = x.unwrap();
-                return Some((
-                    x.clone(),
-                    y.clone(),
-                    BigInt::from(1),
-                    (x * y) % &p,
-                ));
+                return Some((x.clone(), y.clone(), BigInt::from(1), (x * y) % &p));
             }
         }
     }
@@ -144,8 +163,8 @@ pub mod hex {
     pub fn compress_edward_point(x: BigInt, y: BigInt, z: BigInt, p: BigInt) -> [u8; 32] {
         // No need to worry about t. Only provide x y and z.
         let zinv = modp_inv(&z, &p);
-        let x = (x * &zinv) % &p;
-        let y = (y * &zinv) % &p;
+        let x = x.mod_mul(&zinv, &p);
+        let y = y.mod_mul(&zinv, &p);
 
         //let x_bytes = x.to_le_bytes();
         let mut y_bytes = y.to_le_bytes();
@@ -182,7 +201,6 @@ pub mod hex {
         let point_result = point_mul(a.clone(), G.clone(), &P.clone(), &D.clone());
         compress_edward_point(point_result.0, point_result.1, point_result.2, P.clone())
     }
-
 }
 
 pub mod ed25519 {
@@ -196,22 +214,46 @@ pub mod ed25519 {
     pub type Point = (BigInt, BigInt, BigInt, BigInt);
 
     lazy_static! {
-        pub static ref P: BigInt = BigInt::from_str_radix("7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffed", 16).expect("Worked");
+        pub static ref P: BigInt = BigInt::from_str_radix(
+            "7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffed",
+            16
+        )
+        .expect("Worked");
         pub static ref A24: BigInt = BigInt::from_str_radix("1db42", 16).expect("Worked");
-        pub static ref D: BigInt = BigInt::from_str_radix("52036cee2b6ffe738cc740797779e89800700a4d4141d8ab75eb4dca135978a3", 16).expect("Worked");
-        pub static ref G_Y: BigInt = BigInt::from_str_radix("6666666666666666666666666666666666666666666666666666666666666658", 16).expect("Worked");
-        pub static ref G_X: BigInt = BigInt::from_str_radix("216936d3cd6e53fec0a4e231fdd6dc5c692cc7609525a7b2c9562d608f25d51a", 16).expect("Worked");
+        pub static ref D: BigInt = BigInt::from_str_radix(
+            "52036cee2b6ffe738cc740797779e89800700a4d4141d8ab75eb4dca135978a3",
+            16
+        )
+        .expect("Worked");
+        pub static ref G_Y: BigInt = BigInt::from_str_radix(
+            "6666666666666666666666666666666666666666666666666666666666666658",
+            16
+        )
+        .expect("Worked");
+        pub static ref G_X: BigInt = BigInt::from_str_radix(
+            "216936d3cd6e53fec0a4e231fdd6dc5c692cc7609525a7b2c9562d608f25d51a",
+            16
+        )
+        .expect("Worked");
         pub static ref G: Point = (
             G_X.clone(),
             G_Y.clone(),
             BigInt::from(1),
-            BigInt::from_str_radix("67875f0fd78b766566ea4e8e64abe37d20f09f80775152f56dde8ab3a5b7dda3", 16).expect("Worked")
+            BigInt::from_str_radix(
+                "67875f0fd78b766566ea4e8e64abe37d20f09f80775152f56dde8ab3a5b7dda3",
+                16
+            )
+            .expect("Worked")
         );
-        pub static ref Q: BigInt = BigInt::from_str_radix("1000000000000000000000000000000014def9dea2f79cd65812631a5cf5d3ed", 16).expect("Worked");
+        pub static ref Q: BigInt = BigInt::from_str_radix(
+            "1000000000000000000000000000000014def9dea2f79cd65812631a5cf5d3ed",
+            16
+        )
+        .expect("Worked");
     }
 
     pub fn point_equal(pp: Point, qq: Point, p: &BigInt) -> bool {
-        let term1= &pp.0 * &qq.2;
+        let term1 = &pp.0 * &qq.2;
         let term2 = &qq.0 * &pp.2;
 
         let term3 = &pp.1 * &qq.2;
@@ -238,12 +280,12 @@ pub mod ed25519 {
 
         // Compute c = (2 * pp.3 * qq.3 * d) mod p
         let two_pp3 = BigInt::from(2).mod_mul(&pp.3, p);
-        let temp     = two_pp3.mod_mul(&qq.3, p);
-        let c        = temp.mod_mul(d, p);
+        let temp = two_pp3.mod_mul(&qq.3, p);
+        let c = temp.mod_mul(d, p);
 
         // Compute d = (2 * pp.2 * qq.2) mod p
-        let two_pp2  = BigInt::from(2).mod_mul(&pp.2, p);
-        let d_val    = two_pp2.mod_mul(&qq.2, p);
+        let two_pp2 = BigInt::from(2).mod_mul(&pp.2, p);
+        let d_val = two_pp2.mod_mul(&qq.2, p);
 
         let e = b.mod_sub(&a, p);
         let f = d_val.mod_sub(&c, p);
@@ -341,7 +383,6 @@ pub mod ed25519 {
         signature
     }
 
-
     pub fn verify(public: [u8; 32], msg: &[u8], signature: [u8; 64]) -> bool {
         let p = P.clone();
         let d = D.clone();
@@ -392,156 +433,5 @@ pub mod ed25519 {
         let second_point = point_add(rr, haa, &p, &d);
         info!("Doing point_equal(sbb, second_point, &p)");
         point_equal(sbb, second_point, &p)
-    }
-
-}
-
-pub mod elliptic {
-
-    use lazy_static::lazy_static;
-
-    use super::num_bigint::BigInt;
-
-    lazy_static! {
-        pub static ref P: BigInt = BigInt::from_str_radix("7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffed", 16).expect("Worked");
-        pub static ref A24: BigInt = BigInt::from_str_radix("1db42", 16).expect("Worked");
-    }
-
-    fn x_add(
-        (x_p, z_p): (BigInt, BigInt),
-        (x_q, z_q): (BigInt, BigInt),
-        (x_m, z_m): (BigInt, BigInt),
-        p: &BigInt,
-    ) -> (BigInt, BigInt) {
-        // Compute u = (x_p - z_p) * (x_q + z_q) mod p (with safe subtraction)
-        let term1 = x_p.mod_sub( &z_p, p);
-        let term2 = (&x_q + &z_q) % p; // Addition is safe since inputs are mod p
-        let u = (term1 * term2) % p;
-
-        // Compute v = (x_p + z_p) * (x_q - z_q) mod p (with safe subtraction)
-        let term3 = (&x_p + &z_p) % p;
-        let term4 = x_q.mod_sub(&z_q, p);
-        let v = (term3 * term4) % p;
-
-        // Compute upv² and umv² with safe operations
-        let upv = u.mod_add(&v, p); // Ensure (u + v) mod p
-        let umv = u.mod_sub( &v, p); // Ensure (u - v) mod p
-        let upv2 = (&upv * &upv) % p; // upv² mod p
-        let umv2 = (&umv * &umv) % p; // umv² mod p
-
-        let x_p = (&z_m * upv2) % p;
-        let z_p = (&x_m * umv2) % p;
-
-        (x_p, z_p)
-    }
-
-    fn x_dbl((x, z): (BigInt, BigInt), p: &BigInt, a24: &BigInt) -> (BigInt, BigInt) {
-        let q = (&x + &z) % p;
-        let q = (q.pow(2)) % p;
-
-        //let R = (X - Z) % p;
-        let r = (&x * &x + &z * &z - BigInt::from(2) * &x * &z) % p;
-
-        let s = (BigInt::from(4) * &x * &z) % p;
-
-        let x_3 = (&q * &r) % p;
-        let z_3 = (&s * (&r + (a24 * &s))) % p;
-
-        (x_3, z_3)
-    }
-
-    fn conditional_swap(
-        swap: u8,
-        (x_1, z_1): (BigInt, BigInt),
-        (x_2, z_2): (BigInt, BigInt),
-    ) -> ((BigInt, BigInt), (BigInt, BigInt)) {
-        let swap = BigInt::from(swap);
-        let onemswap = BigInt::from(1) - &swap;
-        (
-            (
-                &x_1 * &onemswap + &x_2 * &swap,
-                &z_1 * &onemswap + &z_2 * &swap,
-            ),
-            (
-                &x_1 * &swap + &x_2 * &onemswap,
-                &z_1 * &swap + &z_2 * &onemswap,
-            ),
-        )
-    }
-
-    pub fn ladder(m: &BigInt, x: &BigInt, p: &BigInt, a24: &BigInt) -> (BigInt, BigInt) {
-        let u = (x.clone(), BigInt::from(1));
-        let mut x_0 = (BigInt::from(1), BigInt::from(0));
-        let mut x_1 = u.clone();
-
-        let mut bits: [u8; 256] = [0; 256];
-        for i in 0..255 {
-            bits[i] = m.bit(i as u64) as u8;
-        } // Bits are read in one constant go.
-
-        for i in (0..m.bits()).rev() {
-            let bit = bits[i as usize];
-            let x_added = x_add(x_0.clone(), x_1.clone(), u.clone(), p);
-            let (m0, _) = conditional_swap(bit, x_0, x_1);
-            let x_doubled = x_dbl(m0, &p, &a24);
-
-            x_0 = x_doubled;
-            x_1 = x_added;
-
-            let (m0, m1) = conditional_swap(bit, x_0, x_1);
-
-            x_0 = m0;
-            x_1 = m1;
-        }
-
-        x_0
-    }
-
-    pub fn slightly_different_x22519(m: &BigInt, x: &BigInt, p: &BigInt, a24: &BigInt) -> BigInt {
-        let u = (x.clone(), BigInt::from(1));
-        let mut x_2 = (BigInt::from(1), BigInt::from(0));
-        let mut x_3 = u.clone();
-
-        let mut bits: [u8; 256] = [0; 256];
-        for i in 0..255 {
-            bits[i] = m.bit(i as u64) as u8;
-        } // Bits are read in one constant go.
-        let mut swap = 0;
-        for i in (0..m.bits()).rev() {
-            let bit = bits[i as usize];
-            swap ^= bit;
-
-            (x_2, x_3) = conditional_swap(swap, x_2, x_3);
-
-            swap = bit;
-            let xx_2 = &x_2.0;
-            let xz_2 = &x_2.1;
-
-            let xx_3 = &x_3.0;
-            let xz_3 = &x_3.1;
-
-            let a = xx_2 + xz_2;
-            let aa = (&a).pow(2);
-
-            let b = xx_2 - xz_2;
-            let bb = (&b).pow(2);
-
-            let e = &aa - &bb;
-            let c = xx_3 + xz_3;
-            let d = xx_3 - xz_3;
-            let da = d * &a;
-            let cb = c * &b;
-
-            let xx_3 = (&da + &cb).pow(2) % p;
-            let xz_3 = x * (&da - &cb).pow(2) % p;
-            let xx_2 = (&aa * bb) % p;
-            let xz_2 = &e * (aa + a24 * &e) % p;
-
-            x_2 = (xx_2, xz_2);
-            x_3 = (xx_3, xz_3);
-        }
-        (x_2, _) = conditional_swap(swap, x_2, x_3);
-
-        x_2.0 * (x_2.1.modpow(&(p - 2), p)) % p
     }
 }
