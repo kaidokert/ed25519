@@ -1,6 +1,6 @@
 use fixed_bigint::FixedUInt;
 
-type Inner = FixedUInt<u32, 40>;
+type Inner = FixedUInt<u32, 24>;
 
 use num_traits::Num;
 use num_traits::PrimInt;
@@ -78,10 +78,6 @@ impl BigInt {
     }
     pub fn div_euclid(&self, rhs: &Self) -> Self {
         let res = self.inner.div_euclid(&rhs.inner);
-        Self::from_self(res)
-    }
-    pub fn rem_euclid(self, rhs: &Self) -> Self {
-        let res = self.inner.rem_euclid(&rhs.inner);
         Self::from_self(res)
     }
     pub fn from_str_radix(s: &str, radix: u32) -> Result<Self, ParseBigIntError> {

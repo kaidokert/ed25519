@@ -7,7 +7,6 @@ edition = "2021"
 default = ["std"]
 std = ["log", "env_logger"]
 defmt = ["dep:defmt"]
-precomputed = []
 
 [dependencies]
 num-traits = { version = "0.2.18", default-features = false }
