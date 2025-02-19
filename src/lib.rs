@@ -687,3 +687,33 @@ pub mod elliptic {
         }
     }
 }
+
+mod x2 {
+    use super::elliptic::ladder;
+    use super::hex::{decode_scalar25519, decode_ucoordinate};
+    use num_bigint::BigInt;
+    use rand::RngCore;
+
+    lazy_static! {
+        pub static ref BASE_POINT_U: BigInt = decode_ucoordinate("0900000000000000000000000000000000000000000000000000000000000000");
+    }
+
+    pub fn private_key_gen() -> [u8; 32] {
+        let mut rng = rand::thread_rng();
+        let mut private_key = [0u8; 32];
+        rng.fill_bytes(&mut private_key);
+        //... 
+        private_key
+    }
+
+    pub fn public_key_gen(private_key: &[u8; 32]) -> [u8; 32] {
+        let private_key_int = decode_scalar25519(private_key);
+        // call `ladder` and `BASE_POINT_U`
+    }
+
+    pub fn shared_secret(private_key: &[u8; 32], public_key: &[u8; 32]) -> [u8; 32] {
+        let private_key_int = decode_scalar25519(private_key);
+        let public_key_int = decode_ucoordinate(public_key);
+        // call `ladder`
+    }
+}
