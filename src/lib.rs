@@ -58,29 +58,23 @@ pub mod ed25519 {
         &storage[..total_len]
     }
 
-    fn decode_little_endian(b: &[u8]) -> BigInt {
-        BigInt::from_bytes_le(&b[0..32])
-    }
-
-    fn modp_inv(m: &BigInt, p: &BigInt) -> BigInt {
-        m.modpow(&(p - BigInt::from(2)), p)
-    }
-
     fn recover_x(y: &BigInt, sign: u8, p: &BigInt, d: &BigInt) -> Option<BigInt> {
+        let one = BigInt::from(1);
+
         // First compute y² mod p
         let y2 = y.mod_mul(y, p);
 
         // left = (y² - 1) mod p
-        let left = y2.mod_sub(&BigInt::from(1), p);
+        let left = y2.mod_sub(&one, p);
 
         // denom_raw = (d * y²) mod p
         let denom_raw = d.mod_mul(&y2, p);
 
         // denom = (denom_raw + 1) mod p
-        let denom = denom_raw.mod_add(&BigInt::from(1), p);
+        let denom = denom_raw.mod_add(&one, p);
 
         // inv_denom = denom^(-1) mod p
-        let inv_denom = modp_inv(&denom, p);
+        let inv_denom = denom.modpow(&(p - BigInt::from(2)), p);
 
         // Finally, x2 = left * inv_denom mod p
         let x2 = left.mod_mul(&inv_denom, p);
@@ -96,7 +90,7 @@ pub mod ed25519 {
             let mut x = x2.modpow(&(p3 / &BigInt::from(8)), p);
 
             let modp_sqrt_m1 =
-                BigInt::from(2).modpow(&((p - BigInt::from(1)) / &BigInt::from(4)), p);
+                BigInt::from(2).modpow(&((p - one) / &BigInt::from(4)), p);
 
             if x.mod_mul(&x, p).mod_sub(&x2, p) != BigInt::from(0) {
                 x = x.mod_mul(&modp_sqrt_m1, p);
@@ -121,28 +115,13 @@ pub mod ed25519 {
         let sign = k_list[k.len() - 1] >> 7;
         k_list[k.len() - 1] &= 0b01111111;
 
-        let y = decode_little_endian(&k_list);
+        let y = BigInt::from_bytes_le(&k_list[0..32]);
 
         if &y > p {
             None
         } else {
             let x = recover_x(&y, sign, p, d);
             x.map(|x| (x.clone(), y.clone(), BigInt::from(1), x.mod_mul(&y, p)))
-        }
-    }
-
-    fn point_equal(pp: &Point, qq: &Point, p: &BigInt) -> bool {
-        let term1 = &pp.0 * &qq.2;
-        let term2 = &qq.0 * &pp.2;
-
-        let term3 = &pp.1 * &qq.2;
-        let term4 = &qq.1 * &pp.2;
-        if term1.mod_sub(&term2, p) != BigInt::from(0) {
-            false
-        } else if term3.mod_sub(&term4, p) != BigInt::from(0) {
-            false
-        } else {
-            true
         }
     }
 
@@ -231,7 +210,8 @@ pub mod ed25519 {
         let s_bytes: [u8; 32] = signature[32..64]
             .try_into()
             .expect("invalid signature length");
-        let s = decode_little_endian(&s_bytes);
+
+        let s = BigInt::from_bytes_le(&s_bytes);
 
         if &s >= &q {
             return false;
@@ -253,4 +233,21 @@ pub mod ed25519 {
         info!("Doing point_equal(sbb, second_point, &p)");
         point_equal(&sbb, &second_point, &p)
     }
+
+
+    fn point_equal(pp: &Point, qq: &Point, p: &BigInt) -> bool {
+        let term1 = &pp.0 * &qq.2;
+        let term2 = &qq.0 * &pp.2;
+
+        let term3 = &pp.1 * &qq.2;
+        let term4 = &qq.1 * &pp.2;
+        if term1.mod_sub(&term2, p) != BigInt::from(0) {
+            false
+        } else if term3.mod_sub(&term4, p) != BigInt::from(0) {
+            false
+        } else {
+            true
+        }
+    }
+
 }
