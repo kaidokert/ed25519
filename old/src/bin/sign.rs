@@ -29,6 +29,7 @@ fn main() {
 
     let secret: [u8; 32] = sk.try_into().expect("secret key is not 32 bytes");
 
+    /*
     let sig = ed25519::ed25519::sign(secret, &data);
     let sign_file = std::fs::File::create(sigfile.clone());
 
@@ -39,4 +40,5 @@ fn main() {
             std::process::exit(1);
         }
     }
+     */
 }

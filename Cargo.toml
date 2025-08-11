@@ -1,27 +1,4 @@
-[package]
-name = "ed25519"
-version = "0.1.0"
-edition = "2021"
+[workspace]
+resolver = "2"
 
-[features]
-default = ["std"]
-std = ["log", "env_logger"]
-defmt = ["dep:defmt"]
-precomputed = []
-
-[dependencies]
-num-traits = { version = "0.2.18", default-features = false }
-rand = { version = "0.9", default-features = false }
-fixed-bigint = { version = "0.1.14", features=["use-unsafe"]}
-modmath = { version = "0.1.0", default-features = false }
-log = { version = "0.4.25", optional = true }
-env_logger = { version = "0.11.6", optional = true }
-defmt = { version = "0.3", optional = true }
-hmac-sha512 = { version = "1", features = ["opt_size"] }
-
-[dev-dependencies]
-# intentionally empty
-
-[[bin]]
-name = "keygen"
-required-features = ["thread_rng"]
+members = [ "old", "new" ]

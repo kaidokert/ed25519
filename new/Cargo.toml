@@ -1,0 +1,22 @@
+[package]
+name = "ed25519n"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+log = { version = "*", optional = true }
+env_logger = { version = "*", optional = true }
+modmath = "0.1.2"
+fixed-bigint = { version = "0.1.17", features=["use-unsafe"], optional=true }
+num-traits = {  version = "0.2" , default-features = false }
+hmac-sha512 = { version = "1", features = ["opt_size"] }
+
+[features]
+default = ["std"]
+std = ["log", "env_logger"]
+precomputed = []
+fixed-bigint = ["dep:fixed-bigint"]
+
+[[bin]]
+name = "verify_baked"
+required-features = ["fixed-bigint"]
