@@ -10,13 +10,31 @@ modmath = "0.1.2"
 fixed-bigint = { version = "0.1.17", features=["use-unsafe"], optional=true }
 num-traits = {  version = "0.2" , default-features = false }
 hmac-sha512 = { version = "1", features = ["opt_size"] }
+num-bigint = { version = "0.4.6", optional = true }
+bnum = { version = "0.13.0", optional = true, features = ["numtraits"] }
+crypto-bigint = { version = "0.6.1", optional = true }
+ibig = { version = "0.3.6", optional = true }
 
 [features]
 default = ["std"]
 std = ["log", "env_logger"]
 precomputed = []
 fixed-bigint = ["dep:fixed-bigint"]
+fixed-bigint-u64 = ["fixed-bigint"]
+montgomery = []
+montgomery-euclidean = ["montgomery"]
+montgomery-hensels = ["montgomery"]
+num-bigint = ["dep:num-bigint"]
+bnum = ["dep:bnum"]
+crypto-bigint = ["dep:crypto-bigint"]
+ibig = ["dep:ibig"]
 
 [[bin]]
 name = "verify_baked"
 required-features = ["fixed-bigint"]
+
+[[bin]]
+name = "benchmark"
+
+[patch.crates-io]
+modmath = { path = "deps/modmath-rs" }

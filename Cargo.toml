@@ -2,3 +2,6 @@
 resolver = "2"
 
 members = [ "old", "new" ]
+
+[patch.crates-io]
+modmath = { path = "deps/modmath-rs/modmath" }

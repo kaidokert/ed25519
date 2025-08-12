@@ -30,5 +30,8 @@ where
 }
 
 fn main() {
+    #[cfg(all(feature = "fixed-bigint", not(feature = "fixed-bigint-u64"))) ]
     main_inner::<fixed_bigint::FixedUInt<u32, 16>>();
+    #[cfg(all(feature = "fixed-bigint", feature = "fixed-bigint-u64"))]
+    main_inner::<fixed_bigint::FixedUInt<u64, 8>>();
 }
