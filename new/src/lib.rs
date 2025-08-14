@@ -247,6 +247,129 @@ impl BrigIntStrict for crypto_bigint_patched::U512 {
     }
 }
 
+#[cfg(feature = "crypto-bigint-patched")]
+impl BrigIntConstrained for crypto_bigint_patched::U512 {
+    fn from_bytes_le(bytes: &[u8]) -> Self {
+        // crypto-bigint requires exactly 64 bytes for U512, pad if needed
+        let mut padded_bytes = [0u8; 64];
+        let copy_len = core::cmp::min(bytes.len(), 64);
+        padded_bytes[..copy_len].copy_from_slice(&bytes[..copy_len]);
+        crypto_bigint_patched::U512::from_le_slice(&padded_bytes)
+    }
+
+    fn to_bytes_le<'a>(&self, out: &'a mut [u8]) -> &'a [u8] {
+        let bytes = self.to_le_bytes();
+        let copy_len = core::cmp::min(bytes.len(), out.len());
+        out[..copy_len].copy_from_slice(&bytes[..copy_len]);
+        &out[..copy_len]
+    }
+}
+
+// Missing trait implementations for standard bnum (constrained + basic modes)
+#[cfg(feature = "bnum")]
+impl BrigIntConstrained for bnum::types::U512 {
+    fn from_bytes_le(bytes: &[u8]) -> Self {
+        let mut result = bnum::types::U512::ZERO;
+        for (i, &byte) in bytes.iter().enumerate() {
+            if i < 64 {
+                result |= bnum::types::U512::from(byte as u64) << (i * 8);
+            }
+        }
+        result
+    }
+
+    fn to_bytes_le<'a>(&self, out: &'a mut [u8]) -> &'a [u8] {
+        let mut temp = *self;
+        for i in 0..core::cmp::min(64, out.len()) {
+            let byte_val = temp & bnum::types::U512::from(0xff_u64);
+            let mut byte = 0u8;
+            for val in 0..=255u8 {
+                if byte_val == bnum::types::U512::from(val as u64) {
+                    byte = val;
+                    break;
+                }
+            }
+            out[i] = byte;
+            temp = temp >> 8;
+        }
+        &out[..core::cmp::min(64, out.len())]
+    }
+}
+
+// Missing trait implementations for num_bigint_patched (constrained mode)
+#[cfg(feature = "num-bigint-patched")]
+impl BrigIntStrict for num_bigint_patched::BigUint {
+    fn from_bytes_le(bytes: &[u8]) -> Self {
+        num_bigint_patched::BigUint::from_bytes_le(bytes)
+    }
+
+    fn to_bytes_le<'a>(&self, out: &'a mut [u8]) -> &'a [u8] {
+        let bytes = self.to_bytes_le();
+        let copy_len = core::cmp::min(bytes.len(), out.len());
+        out[..copy_len].copy_from_slice(&bytes[..copy_len]);
+        // Pad with zeros if needed
+        if copy_len < out.len() {
+            out[copy_len..].fill(0);
+        }
+        &out[..out.len()]
+    }
+}
+
+#[cfg(feature = "num-bigint-patched")]
+impl BrigIntConstrained for num_bigint_patched::BigUint {
+    fn from_bytes_le(bytes: &[u8]) -> Self {
+        num_bigint_patched::BigUint::from_bytes_le(bytes)
+    }
+
+    fn to_bytes_le<'a>(&self, out: &'a mut [u8]) -> &'a [u8] {
+        let bytes = self.to_bytes_le();
+        let copy_len = core::cmp::min(bytes.len(), out.len());
+        out[..copy_len].copy_from_slice(&bytes[..copy_len]);
+        // Pad with zeros if needed
+        if copy_len < out.len() {
+            out[copy_len..].fill(0);
+        }
+        &out[..out.len()]
+    }
+}
+
+// Missing trait implementations for ibig_patched (constrained mode)
+#[cfg(feature = "ibig-patched")]
+impl BrigIntStrict for ibig_patched::UBig {
+    fn from_bytes_le(bytes: &[u8]) -> Self {
+        ibig_patched::UBig::from_le_bytes(bytes)
+    }
+
+    fn to_bytes_le<'a>(&self, out: &'a mut [u8]) -> &'a [u8] {
+        let bytes = self.to_le_bytes();
+        let copy_len = core::cmp::min(bytes.len(), out.len());
+        out[..copy_len].copy_from_slice(&bytes[..copy_len]);
+        // Pad with zeros if needed
+        if copy_len < out.len() {
+            out[copy_len..].fill(0);
+        }
+        &out[..out.len()]
+    }
+}
+
+#[cfg(feature = "ibig-patched")]
+impl BrigIntConstrained for ibig_patched::UBig {
+    fn from_bytes_le(bytes: &[u8]) -> Self {
+        ibig_patched::UBig::from_le_bytes(bytes)
+    }
+
+    fn to_bytes_le<'a>(&self, out: &'a mut [u8]) -> &'a [u8] {
+        let bytes = self.to_le_bytes();
+        let copy_len = core::cmp::min(bytes.len(), out.len());
+        out[..copy_len].copy_from_slice(&bytes[..copy_len]);
+        // Pad with zeros if needed
+        if copy_len < out.len() {
+            out[copy_len..].fill(0);
+        }
+        &out[..out.len()]
+    }
+}
+
 // ED25519 constants
 pub const P_BYTES: [u8; 32] = [
     237, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
