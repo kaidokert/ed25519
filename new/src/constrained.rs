@@ -1,4 +1,7 @@
-use modmath::{constrained_mod_add, constrained_mod_exp, constrained_mod_inv, constrained_mod_mul, constrained_mod_sub};
+use modmath::{
+    constrained_mod_add, constrained_mod_exp, constrained_mod_inv, constrained_mod_mul,
+    constrained_mod_sub,
+};
 
 #[cfg(feature = "montgomery")]
 use modmath::constrained_montgomery_mod_exp;
@@ -9,14 +12,12 @@ use log::info;
 #[cfg(feature = "defmt")]
 use defmt::info;
 
-
 use crate::{BrigIntConstrained, CoreIntConstrained, Point};
-use crate::{P_BYTES, D_BYTES, Q_BYTES, G_X_BYTES, G_Y_BYTES, G_T_BYTES};
+use crate::{D_BYTES, G_T_BYTES, G_X_BYTES, G_Y_BYTES, P_BYTES, Q_BYTES};
 
 fn print_value<T: BrigIntConstrained>(label: &str, value: &T)
 where
-    for<'a> &'a T: core::ops::Rem<&'a T, Output = T>
-        + core::ops::BitAnd<Output = T>,
+    for<'a> &'a T: core::ops::Rem<&'a T, Output = T> + core::ops::BitAnd<Output = T>,
 {
     let mut buffer = [0u8; 128];
     let bytes = value.to_bytes_le(&mut buffer);
@@ -34,8 +35,7 @@ where
 
 fn recover_x<T: BrigIntConstrained>(y: T, sign: u8, p: &T, d: T) -> Option<T>
 where
-    for<'a> &'a T: core::ops::Rem<&'a T, Output = T>
-        + core::ops::BitAnd<Output = T>,
+    for<'a> &'a T: core::ops::Rem<&'a T, Output = T> + core::ops::BitAnd<Output = T>,
 {
     let one = T::one();
 
@@ -124,8 +124,7 @@ where
 
 fn decompress_edward_point<T: BrigIntConstrained>(k: [u8; 32], p: &T, d: &T) -> Option<Point<T>>
 where
-    for<'a> &'a T: core::ops::Rem<&'a T, Output = T>
-        + core::ops::BitAnd<Output = T>,
+    for<'a> &'a T: core::ops::Rem<&'a T, Output = T> + core::ops::BitAnd<Output = T>,
 {
     let mut k_list = k.clone();
     let sign = k_list[k.len() - 1] >> 7;
@@ -141,7 +140,12 @@ where
         x.map(|x_val| {
             let x_copy = x_val.clone();
             let y_copy = y_owned.clone();
-            (x_val, y_owned, T::one(), constrained_mod_mul(x_copy, &y_copy, p))
+            (
+                x_val,
+                y_owned,
+                T::one(),
+                constrained_mod_mul(x_copy, &y_copy, p),
+            )
         })
     }
 }
@@ -158,8 +162,7 @@ fn concat_emul<'a>(slices: &[&[u8]], storage: &'a mut [u8]) -> &'a [u8] {
 
 fn sha512_modq<T: BrigIntConstrained>(msg: &[u8], q: &T) -> T
 where
-    for<'a> &'a T: core::ops::Rem<&'a T, Output = T>
-        + core::ops::BitAnd<Output = T>,
+    for<'a> &'a T: core::ops::Rem<&'a T, Output = T> + core::ops::BitAnd<Output = T>,
 {
     let mut compact_sha = hmac_sha512::Hash::new();
     compact_sha.update(msg);
@@ -172,8 +175,7 @@ where
 
 fn point_add<T: BrigIntConstrained>(pp: &Point<T>, qq: &Point<T>, p: &T, d: &T) -> Point<T>
 where
-    for<'a> &'a T: core::ops::Rem<&'a T, Output = T>
-        + core::ops::BitAnd<Output = T>,
+    for<'a> &'a T: core::ops::Rem<&'a T, Output = T> + core::ops::BitAnd<Output = T>,
 {
     // a = (pp.1 - pp.0) * (qq.1 - qq.0) mod p
     let pp1_sub_pp0 = constrained_mod_sub(pp.1.clone(), &pp.0, p);
@@ -223,16 +225,10 @@ where
 
 fn point_mul<T: BrigIntConstrained>(s: T, pp: &Point<T>, p: &T, d: &T) -> Point<T>
 where
-    for<'a> &'a T: core::ops::Rem<&'a T, Output = T>
-        + core::ops::BitAnd<Output = T>,
+    for<'a> &'a T: core::ops::Rem<&'a T, Output = T> + core::ops::BitAnd<Output = T>,
 {
     let mut q = (T::zero(), T::one(), T::one(), T::zero());
-    let mut current = (
-        pp.0.clone(),
-        pp.1.clone(),
-        pp.2.clone(),
-        pp.3.clone(),
-    );
+    let mut current = (pp.0.clone(), pp.1.clone(), pp.2.clone(), pp.3.clone());
     let mut remaining = s;
 
     while remaining > T::zero() {
@@ -250,8 +246,7 @@ where
 
 fn point_equal<T: BrigIntConstrained>(pp: &Point<T>, qq: &Point<T>, p: &T) -> bool
 where
-    for<'a> &'a T: core::ops::Rem<&'a T, Output = T>
-        + core::ops::BitAnd<Output = T>,
+    for<'a> &'a T: core::ops::Rem<&'a T, Output = T> + core::ops::BitAnd<Output = T>,
 {
     // term1 = pp.0 * qq.2 mod p
     let term1 = constrained_mod_mul(pp.0.clone(), &qq.2, p);
@@ -280,8 +275,7 @@ where
 
 pub fn verify<T: BrigIntConstrained>(public: [u8; 32], msg: &[u8], signature: [u8; 64]) -> bool
 where
-    for<'a> &'a T: core::ops::Rem<&'a T, Output = T>
-        + core::ops::BitAnd<Output = T>,
+    for<'a> &'a T: core::ops::Rem<&'a T, Output = T> + core::ops::BitAnd<Output = T>,
 {
     let total_start = std::time::Instant::now();
 

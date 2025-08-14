@@ -23,7 +23,7 @@ const METHOD: NPrimeMethod = NPrimeMethod::HenselsLifting;
 const METHOD: NPrimeMethod = NPrimeMethod::ExtendedEuclidean; // Default to ExtendedEuclidean if no method specified
 
 use crate::{BrigIntStrict, CoreIntStrict, Point};
-use crate::{P_BYTES, D_BYTES, Q_BYTES, G_X_BYTES, G_Y_BYTES, G_T_BYTES, MODP_SQRT_M1_BYTES};
+use crate::{D_BYTES, G_T_BYTES, G_X_BYTES, G_Y_BYTES, MODP_SQRT_M1_BYTES, P_BYTES, Q_BYTES};
 
 fn print_value<T: BrigIntStrict>(label: &str, value: &T)
 where
@@ -82,10 +82,10 @@ where
     let three = &two + &one;
     let exp = p - two.clone();
 
-    info!("recovering x");
-    print_value("denom", &denom);
-    print_value("exp", &exp);
-    print_value("p", &p);
+    //info!("recovering x");
+    //print_value("denom", &denom);
+    //print_value("exp", &exp);
+    //print_value("p", &p);
 
     let inv_denom = {
         #[cfg(feature = "montgomery")]

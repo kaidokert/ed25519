@@ -15,6 +15,11 @@ bnum = { version = "0.13.0", optional = true, features = ["numtraits"] }
 crypto-bigint = { version = "0.6.1", optional = true }
 ibig = { version = "0.3.6", optional = true }
 
+num-bigint_patched = { package = "num-bigint", git = "https://github.com/kaidokert/num-bigint.git" , tag = "v0.4.6_patch", optional = true }
+bnum_patched = { package = "bnum",features = ["numtraits"]  , git = "https://github.com/kaidokert/bnum.git", tag = "v0.12.1_patch", optional = true }
+crypto-bigint_patched = { package = "crypto-bigint", git = "https://github.com/kaidokert/crypto-bigint.git" , tag = "v0.6.1_rsa_patch_1", optional = true }
+ibig_patched = { package = "ibig", git = "https://github.com/kaidokert/ibig-rs.git" , tag = "v0.3.6_patch", optional = true }
+
 [features]
 default = ["std"]
 std = ["log", "env_logger"]
@@ -28,6 +33,10 @@ num-bigint = ["dep:num-bigint"]
 bnum = ["dep:bnum"]
 crypto-bigint = ["dep:crypto-bigint"]
 ibig = ["dep:ibig"]
+num-bigint-patched = ["dep:num-bigint_patched"]
+bnum-patched = ["dep:bnum_patched"]
+crypto-bigint-patched = ["dep:crypto-bigint_patched"]
+ibig-patched = ["dep:ibig_patched"]
 
 [[bin]]
 name = "verify_baked"
@@ -35,6 +44,9 @@ required-features = ["fixed-bigint"]
 
 [[bin]]
 name = "benchmark"
+
+[[bin]]
+name = "test_montgomery_performance"
 
 [patch.crates-io]
 modmath = { path = "deps/modmath-rs" }

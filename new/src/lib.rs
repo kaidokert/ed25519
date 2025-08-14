@@ -1,5 +1,6 @@
-pub mod strict;
+pub mod basic;
 pub mod constrained;
+pub mod strict;
 
 // Common traits and types
 
@@ -28,8 +29,7 @@ pub trait CoreIntStrict:
 {
 }
 
-impl<T> CoreIntStrict for T
-where
+impl<T> CoreIntStrict for T where
     T: Sized
         + core::cmp::PartialOrd
         + num_traits::One
@@ -49,7 +49,7 @@ where
         + for<'a> core::ops::Mul<&'a T, Output = T>
         + for<'a> core::ops::Add<&'a T, Output = T>
         + for<'a> core::ops::Sub<&'a T, Output = T>
-        + for<'a> core::ops::AddAssign<&'a T>,
+        + for<'a> core::ops::AddAssign<&'a T>
 {
 }
 
@@ -78,8 +78,7 @@ pub trait CoreIntConstrained:
 {
 }
 
-impl<T> CoreIntConstrained for T
-where
+impl<T> CoreIntConstrained for T where
     T: Sized
         + Clone
         + core::cmp::PartialOrd
@@ -99,7 +98,7 @@ where
         + for<'a> core::ops::DivAssign<&'a T>
         + for<'a> core::ops::Add<&'a T, Output = T>
         + for<'a> core::ops::Sub<&'a T, Output = T>
-        + for<'a> core::ops::Mul<&'a T, Output = T>,
+        + for<'a> core::ops::Mul<&'a T, Output = T>
 {
 }
 
@@ -111,15 +110,15 @@ pub trait BrigIntStrict: CoreIntStrict + Clone {
     fn to_bytes_le<'a>(&self, out: &'a mut [u8]) -> &'a [u8];
 }
 
-// BrigInt trait for constrained mode (used with CoreIntConstrained)  
+// BrigInt trait for constrained mode (used with CoreIntConstrained)
 pub trait BrigIntConstrained: CoreIntConstrained + Clone {
     fn from_bytes_le(bytes: &[u8]) -> Self;
     fn to_bytes_le<'a>(&self, out: &'a mut [u8]) -> &'a [u8];
 }
 
 // Keep old names for backwards compatibility - but as trait aliases
-pub use CoreIntStrict as CoreInt;
 pub use BrigIntStrict as BrigInt;
+pub use CoreIntStrict as CoreInt;
 
 #[cfg(feature = "fixed-bigint")]
 impl BrigIntStrict for fixed_bigint::FixedUInt<u32, 16> {
@@ -171,7 +170,8 @@ impl BrigIntConstrained for bnum::types::U512 {
         // Use simple implementation: assume 32 bytes and create directly
         let mut result = bnum::types::U512::ZERO;
         for (i, &byte) in bytes.iter().enumerate() {
-            if i < 64 {  // U512 is 64 bytes, but only use first 32 for ed25519
+            if i < 64 {
+                // U512 is 64 bytes, but only use first 32 for ed25519
                 result |= bnum::types::U512::from(byte as u64) << (i * 8);
             }
         }
@@ -195,6 +195,55 @@ impl BrigIntConstrained for bnum::types::U512 {
             temp = temp >> 8;
         }
         &out[..core::cmp::min(64, out.len())]
+    }
+}
+
+#[cfg(feature = "bnum-patched")]
+impl BrigIntStrict for bnum_patched::types::U512 {
+    fn from_bytes_le(bytes: &[u8]) -> Self {
+        let mut result = bnum_patched::types::U512::ZERO;
+        for (i, &byte) in bytes.iter().enumerate() {
+            if i < 64 {
+                // U512 is 64 bytes, but only use first 32 for ed25519
+                result |= bnum_patched::types::U512::from(byte as u64) << (i * 8);
+            }
+        }
+        result
+    }
+
+    fn to_bytes_le<'a>(&self, out: &'a mut [u8]) -> &'a [u8] {
+        let mut temp = *self;
+        for i in 0..core::cmp::min(64, out.len()) {
+            let byte_val = temp & bnum_patched::types::U512::from(0xff_u64);
+            let mut byte = 0u8;
+            for val in 0..=255u8 {
+                if byte_val == bnum_patched::types::U512::from(val as u64) {
+                    byte = val;
+                    break;
+                }
+            }
+            out[i] = byte;
+            temp = temp >> 8;
+        }
+        &out[..core::cmp::min(64, out.len())]
+    }
+}
+
+#[cfg(feature = "crypto-bigint-patched")]
+impl BrigIntStrict for crypto_bigint_patched::U512 {
+    fn from_bytes_le(bytes: &[u8]) -> Self {
+        // crypto-bigint requires exactly 64 bytes for U512, pad if needed
+        let mut padded_bytes = [0u8; 64];
+        let copy_len = core::cmp::min(bytes.len(), 64);
+        padded_bytes[..copy_len].copy_from_slice(&bytes[..copy_len]);
+        crypto_bigint_patched::U512::from_le_slice(&padded_bytes)
+    }
+
+    fn to_bytes_le<'a>(&self, out: &'a mut [u8]) -> &'a [u8] {
+        let bytes = self.to_le_bytes();
+        let copy_len = core::cmp::min(bytes.len(), out.len());
+        out[..copy_len].copy_from_slice(&bytes[..copy_len]);
+        &out[..copy_len]
     }
 }
 
@@ -225,7 +274,7 @@ pub const G_T_BYTES: [u8; 32] = [
     100, 142, 78, 234, 102, 101, 118, 139, 215, 15, 95, 135, 103,
 ];
 
-// Precomputed modp_sqrt_m1 = 2^((p-1)/4) mod p for Ed25519  
+// Precomputed modp_sqrt_m1 = 2^((p-1)/4) mod p for Ed25519
 // This is sqrt(-1) mod p used in point decompression
 // Value: b0a00e4a271beec478e42fad0618432fa7d7fb3d99004d2b0bdfc14f8024832b (hex, big-endian)
 pub const MODP_SQRT_M1_BYTES: [u8; 32] = [
@@ -233,9 +282,10 @@ pub const MODP_SQRT_M1_BYTES: [u8; 32] = [
     0xa7, 0xd7, 0xfb, 0x3d, 0x99, 0x00, 0x4d, 0x2b, 0x0b, 0xdf, 0xc1, 0x4f, 0x80, 0x24, 0x83, 0x2b,
 ];
 
-// Re-export both implementations
-pub use strict::verify as verify_strict;
+// Re-export all implementations
+pub use basic::verify as verify_basic;
 pub use constrained::verify as verify_constrained;
+pub use strict::verify as verify_strict;
 
 // Default to strict implementation for backwards compatibility
 pub use verify_strict as verify;
