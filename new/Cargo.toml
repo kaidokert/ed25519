@@ -19,6 +19,7 @@ num-bigint_patched = { package = "num-bigint", git = "https://github.com/kaidoke
 bnum_patched = { package = "bnum",features = ["numtraits"]  , git = "https://github.com/kaidokert/bnum.git", tag = "v0.12.1_patch", optional = true }
 crypto-bigint_patched = { package = "crypto-bigint", git = "https://github.com/kaidokert/crypto-bigint.git" , tag = "v0.6.1_rsa_patch_1", optional = true }
 ibig_patched = { package = "ibig", git = "https://github.com/kaidokert/ibig-rs.git" , tag = "v0.3.6_patch", optional = true }
+ed25519-dalek = { version = "2.2.0", features = ["rand_core"] }
 
 [features]
 default = ["std"]

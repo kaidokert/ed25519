@@ -23,6 +23,10 @@ const METHOD: NPrimeMethod = NPrimeMethod::HenselsLifting;
 const METHOD: NPrimeMethod = NPrimeMethod::ExtendedEuclidean; // Default to ExtendedEuclidean if no method specified
 
 use crate::{BrigIntStrict, CoreIntStrict, Point};
+
+// Niels coordinates: (Y+X, Y-X, 2dT) - optimized for point additions
+// Reduces point addition from 10M to 8M multiplications 
+type NielsPoint<T> = (T, T, T);
 use crate::{D_BYTES, G_T_BYTES, G_X_BYTES, G_Y_BYTES, MODP_SQRT_M1_BYTES, P_BYTES, Q_BYTES};
 
 fn print_value<T: BrigIntStrict>(label: &str, value: &T)
@@ -213,6 +217,75 @@ where
     result_nomodq % q
 }
 
+// Dedicated Edwards point doubling for Ed25519 (a = -1)
+// Much faster than generic point_add(P, P) - saves ~3 multiplications per doubling
+fn point_double<T: BrigIntStrict>(pp: &Point<T>, p: &T) -> Point<T>
+where
+    for<'a> &'a T: core::ops::BitAnd<Output = T>
+        + core::ops::Rem<&'a T, Output = T>
+        + core::ops::Add<&'a T, Output = T>
+        + core::ops::Sub<T, Output = T>
+        + core::ops::Sub<&'a T, Output = T>
+        + core::ops::Mul<&'a T, Output = T>
+        + core::ops::Div<&'a T, Output = T>,
+{
+    // Extended Edwards doubling for Ed25519 (a = -1)
+    // Input: P = (X:Y:Z:T) in extended coordinates
+    // Output: 2P = (X2:Y2:Z2:T2)
+    
+    // A = X^2
+    let pp0_copy = &pp.0 + &T::zero();
+    let a = strict_mod_mul(pp0_copy, &pp.0, p);
+    
+    // B = Y^2  
+    let pp1_copy = &pp.1 + &T::zero();
+    let b = strict_mod_mul(pp1_copy, &pp.1, p);
+    
+    // C = 2*Z^2
+    let two = &T::one() + &T::one();
+    let pp2_copy = &pp.2 + &T::zero();
+    let z_squared = strict_mod_mul(pp2_copy, &pp.2, p);
+    let c = strict_mod_mul(two, &z_squared, p);
+    
+    // D = -A (since a = -1 for Ed25519)
+    let d_val = strict_mod_sub(T::zero(), &a, p);
+    
+    // E = (X+Y)^2 - A - B
+    let x_plus_y = strict_mod_add(pp.0.clone(), &pp.1, p);
+    let x_plus_y_copy = &x_plus_y + &T::zero();
+    let x_plus_y_squared = strict_mod_mul(x_plus_y_copy, &x_plus_y, p);
+    let e_temp = strict_mod_sub(x_plus_y_squared, &a, p);
+    let e = strict_mod_sub(e_temp, &b, p);
+    
+    // G = D + B
+    let g = strict_mod_add(d_val.clone(), &b, p);
+    
+    // F = G - C
+    let f = strict_mod_sub(g.clone(), &c, p);
+    
+    // H = D - B  
+    let h = strict_mod_sub(d_val, &b, p);
+    
+    // Final coordinates:
+    // X2 = E * F
+    let e_copy = &e + &T::zero();
+    let x2 = strict_mod_mul(e_copy, &f, p);
+    
+    // Y2 = G * H
+    let g_copy = &g + &T::zero();
+    let y2 = strict_mod_mul(g_copy, &h, p);
+    
+    // Z2 = F * G
+    let f_copy = &f + &T::zero();
+    let z2 = strict_mod_mul(f_copy, &g, p);
+    
+    // T2 = E * H
+    let e_copy2 = &e + &T::zero();
+    let t2 = strict_mod_mul(e_copy2, &h, p);
+    
+    (x2, y2, z2, t2)
+}
+
 fn point_add<T: BrigIntStrict>(pp: &Point<T>, qq: &Point<T>, p: &T, d: &T) -> Point<T>
 where
     for<'a> &'a T: core::ops::BitAnd<Output = T>
@@ -278,6 +351,80 @@ where
     (x3, y3, z3, t3)
 }
 
+// Convert extended coordinates to Niels form: (Y+X, Y-X, 2dT)
+fn to_niels<T: BrigIntStrict>(pp: &Point<T>, p: &T, d: &T) -> NielsPoint<T>
+where
+    for<'a> &'a T: core::ops::BitAnd<Output = T>
+        + core::ops::Rem<&'a T, Output = T>
+        + core::ops::Add<&'a T, Output = T>
+        + core::ops::Sub<T, Output = T>
+        + core::ops::Sub<&'a T, Output = T>
+        + core::ops::Mul<&'a T, Output = T>
+        + core::ops::Div<&'a T, Output = T>,
+{
+    // Y+X
+    let y_plus_x = strict_mod_add(pp.1.clone(), &pp.0, p);
+    
+    // Y-X
+    let y_minus_x = strict_mod_sub(pp.1.clone(), &pp.0, p);
+    
+    // 2dT 
+    let two = &T::one() + &T::one();
+    let d_copy = d.clone();
+    let dt = strict_mod_mul(d_copy, &pp.3, p);
+    let two_dt = strict_mod_mul(two, &dt, p);
+    
+    (y_plus_x, y_minus_x, two_dt)
+}
+
+// Mixed addition: Extended + Niels -> Extended
+// More efficient than Extended + Extended addition
+fn point_add_niels<T: BrigIntStrict>(pp: &Point<T>, niels: &NielsPoint<T>, p: &T) -> Point<T>
+where
+    for<'a> &'a T: core::ops::BitAnd<Output = T>
+        + core::ops::Rem<&'a T, Output = T>
+        + core::ops::Add<&'a T, Output = T>
+        + core::ops::Sub<T, Output = T>
+        + core::ops::Sub<&'a T, Output = T>
+        + core::ops::Mul<&'a T, Output = T>
+        + core::ops::Div<&'a T, Output = T>,
+{
+    // Mixed Edwards addition formula from "Twisted Edwards Curves" paper
+    // Input: P = (X1:Y1:Z1:T1) in extended, Q = (y+x, y-x, 2dt) in Niels
+    // Output: P+Q in extended coordinates
+    
+    let (y_plus_x, y_minus_x, two_dt) = niels;
+    
+    // A = (Y1-X1)*(y-x)  
+    let pp_y_minus_x = strict_mod_sub(pp.1.clone(), &pp.0, p);
+    let a = strict_mod_mul(pp_y_minus_x, y_minus_x, p);
+    
+    // B = (Y1+X1)*(y+x)
+    let pp_y_plus_x = strict_mod_add(pp.1.clone(), &pp.0, p);
+    let b = strict_mod_mul(pp_y_plus_x, y_plus_x, p);
+    
+    // C = T1*2dt
+    let c = strict_mod_mul(pp.3.clone(), two_dt, p);
+    
+    // D = 2*Z1
+    let two = &T::one() + &T::one();
+    let d_val = strict_mod_mul(two, &pp.2, p);
+    
+    // E = B-A, F = D-C, G = D+C, H = B+A
+    let e = strict_mod_sub(b.clone(), &a, p);
+    let f = strict_mod_sub(d_val.clone(), &c, p); 
+    let g = strict_mod_add(d_val, &c, p);
+    let h = strict_mod_add(b, &a, p);
+    
+    // X3 = E*F, Y3 = G*H, Z3 = F*G, T3 = E*H
+    let x3 = strict_mod_mul(e.clone(), &f, p);
+    let y3 = strict_mod_mul(g.clone(), &h, p);
+    let z3 = strict_mod_mul(f, &g, p);
+    let t3 = strict_mod_mul(e, &h, p);
+    
+    (x3, y3, z3, t3)
+}
+
 fn point_mul<T: BrigIntStrict>(s: T, pp: &Point<T>, p: &T, d: &T) -> Point<T>
 where
     for<'a> &'a T: core::ops::BitAnd<Output = T>
@@ -308,6 +455,158 @@ where
         remaining >>= 1;
     }
     q
+}
+
+// JSF-based double scalar multiplication: s*G + h*A using Joint Sparse Form
+// Reduces point additions by ~40-50% compared to binary methods - no lookup tables needed!
+// Uses Niels coordinates for precomputed points to save ~2M per addition
+fn jsf_double_scalar_mul<T: BrigIntStrict>(
+    s: T,        // scalar 1
+    g: &Point<T>, // base point G  
+    h: T,        // scalar 2
+    a: &Point<T>, // public key point A
+    p: &T,       // prime modulus
+    d: &T        // curve parameter d
+) -> Point<T>
+where
+    for<'a> &'a T: core::ops::BitAnd<Output = T>
+        + core::ops::Rem<&'a T, Output = T>
+        + core::ops::Add<&'a T, Output = T>
+        + core::ops::Sub<T, Output = T>
+        + core::ops::Sub<&'a T, Output = T>
+        + core::ops::Mul<&'a T, Output = T>
+        + core::ops::Div<&'a T, Output = T>,
+{
+    // Generate JSF representation for both scalars
+    let jsf = crate::jsf::JsfIterator::new(s, h);
+    
+    // Identity point in extended coordinates
+    let mut result = (T::zero(), T::one(), T::one(), T::zero());
+    
+    // Convert base points to Niels form for faster additions
+    let g_niels = to_niels(g, p, d);
+    let a_niels = to_niels(a, p, d);
+    
+    // Create negative Niels points: (Y+X, Y-X, 2dT) -> (Y-X, Y+X, -2dT) 
+    let neg_g_niels = (
+        g_niels.1.clone(),                       // Y-X (swapped)
+        g_niels.0.clone(),                       // Y+X (swapped)
+        strict_mod_sub(T::zero(), &g_niels.2, p) // -2dT
+    );
+    
+    let neg_a_niels = (
+        a_niels.1.clone(),                       // Y-X (swapped)  
+        a_niels.0.clone(),                       // Y+X (swapped)
+        strict_mod_sub(T::zero(), &a_niels.2, p) // -2dT
+    );
+    
+    // Process JSF digits from MSB to LSB
+    for digit in jsf.digits_msb_first() {
+        // Always double the result (use dedicated doubling for efficiency)
+        result = point_double(&result, p);
+        
+        // Add ±G based on s digit using mixed Niels addition
+        match digit.s_digit {
+            1 => result = point_add_niels(&result, &g_niels, p),
+            -1 => result = point_add_niels(&result, &neg_g_niels, p),
+            0 => {}, // No addition needed
+            _ => unreachable!("JSF digits must be -1, 0, or 1"),
+        }
+        
+        // Add ±A based on h digit using mixed Niels addition
+        match digit.h_digit {
+            1 => result = point_add_niels(&result, &a_niels, p),
+            -1 => result = point_add_niels(&result, &neg_a_niels, p),
+            0 => {}, // No addition needed
+            _ => unreachable!("JSF digits must be -1, 0, or 1"),
+        }
+    }
+    
+    result
+}
+
+// Optimized JSF double scalar multiplication using byte-based processing
+// Avoids expensive bigint operations by working directly on 32-byte scalars
+fn jsf_double_scalar_mul_bytes<T: BrigIntStrict>(
+    s_bytes: &[u8; 32], // scalar 1 as bytes
+    g: &Point<T>,       // base point G  
+    h_bytes: &[u8; 32], // scalar 2 as bytes
+    a: &Point<T>,       // public key point A
+    p: &T,              // prime modulus
+    d: &T               // curve parameter d
+) -> Point<T>
+where
+    for<'a> &'a T: core::ops::BitAnd<Output = T>
+        + core::ops::Rem<&'a T, Output = T>
+        + core::ops::Add<&'a T, Output = T>
+        + core::ops::Sub<T, Output = T>
+        + core::ops::Sub<&'a T, Output = T>
+        + core::ops::Mul<&'a T, Output = T>
+        + core::ops::Div<&'a T, Output = T>,
+{
+    // Generate JSF representation using optimized byte processing
+    let jsf = crate::jsf::JsfIterator::from_bytes_32(s_bytes, h_bytes);
+    
+    // Identity point in extended coordinates
+    let mut result = (T::zero(), T::one(), T::one(), T::zero());
+    
+    // Convert base points to Niels form for faster additions
+    let g_niels = to_niels(g, p, d);
+    let a_niels = to_niels(a, p, d);
+    
+    // Create negative Niels points: (Y+X, Y-X, 2dT) -> (Y-X, Y+X, -2dT) 
+    let neg_g_niels = (
+        g_niels.1.clone(),                       // Y-X (swapped)
+        g_niels.0.clone(),                       // Y+X (swapped)
+        strict_mod_sub(T::zero(), &g_niels.2, p) // -2dT
+    );
+    
+    let neg_a_niels = (
+        a_niels.1.clone(),                       // Y-X (swapped)  
+        a_niels.0.clone(),                       // Y+X (swapped)
+        strict_mod_sub(T::zero(), &a_niels.2, p) // -2dT
+    );
+    
+    // Process JSF digits from MSB to LSB
+    for digit in jsf.digits_msb_first() {
+        // Always double the result (use dedicated doubling for efficiency)
+        result = point_double(&result, p);
+        
+        // Add ±G based on s digit using mixed Niels addition
+        match digit.s_digit {
+            1 => result = point_add_niels(&result, &g_niels, p),
+            -1 => result = point_add_niels(&result, &neg_g_niels, p),
+            0 => {}, // No addition needed
+            _ => unreachable!("JSF digits must be -1, 0, or 1"),
+        }
+        
+        // Add ±A based on h digit using mixed Niels addition
+        match digit.h_digit {
+            1 => result = point_add_niels(&result, &a_niels, p),
+            -1 => result = point_add_niels(&result, &neg_a_niels, p),
+            0 => {}, // No addition needed
+            _ => unreachable!("JSF digits must be -1, 0, or 1"),
+        }
+    }
+    
+    result
+}
+
+fn point_negate<T: BrigIntStrict>(pp: &Point<T>, p: &T) -> Point<T>
+where
+    for<'a> &'a T: core::ops::BitAnd<Output = T>
+        + core::ops::Rem<&'a T, Output = T>
+        + core::ops::Add<&'a T, Output = T>
+        + core::ops::Sub<T, Output = T>
+        + core::ops::Sub<&'a T, Output = T>
+        + core::ops::Mul<&'a T, Output = T>
+        + core::ops::Div<&'a T, Output = T>,
+{
+    // In Edwards coordinates, negating a point (x,y) gives (-x,y)
+    // In extended coordinates (X:Y:Z:T), this becomes (-X:Y:Z:-T)
+    let neg_x = strict_mod_sub(T::zero(), &pp.0, p);
+    let neg_t = strict_mod_sub(T::zero(), &pp.3, p);
+    (neg_x, pp.1.clone(), pp.2.clone(), neg_t)
 }
 
 fn point_equal<T: BrigIntStrict>(pp: &Point<T>, qq: &Point<T>, p: &T) -> bool
@@ -413,29 +712,18 @@ where
         start.elapsed().as_secs_f64() * 1000.0
     );
 
+    // Use JSF (Joint Sparse Form): compute s*G + h*(-A) and compare with R
+    // JSF reduces point additions by ~40-50% compared to binary methods
+    let neg_aa = point_negate(&aa, &p);
     let start = std::time::Instant::now();
-    let sbb = point_mul(s, &g, &p, &d);
+    let sbb_minus_haa = jsf_double_scalar_mul(s, &g, h, &neg_aa, &p, &d);
     info!(
-        "TIMING: point_mul(s, g) took {:.3}ms",
+        "TIMING: jsf_double_scalar_mul(s*G - h*A) took {:.3}ms",
         start.elapsed().as_secs_f64() * 1000.0
     );
 
     let start = std::time::Instant::now();
-    let haa = point_mul(h, &aa, &p, &d);
-    info!(
-        "TIMING: point_mul(h, aa) took {:.3}ms",
-        start.elapsed().as_secs_f64() * 1000.0
-    );
-
-    let start = std::time::Instant::now();
-    let second_point = point_add(&rr, &haa, &p, &d);
-    info!(
-        "TIMING: point_add(rr, haa) took {:.3}ms",
-        start.elapsed().as_secs_f64() * 1000.0
-    );
-
-    let start = std::time::Instant::now();
-    let result = point_equal(&sbb, &second_point, &p);
+    let result = point_equal(&sbb_minus_haa, &rr, &p);
     info!(
         "TIMING: point_equal took {:.3}ms",
         start.elapsed().as_secs_f64() * 1000.0

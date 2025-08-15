@@ -1,6 +1,8 @@
 pub mod basic;
 pub mod constrained;
 pub mod strict;
+pub mod field25519;
+pub mod jsf;
 
 // Common traits and types
 
@@ -412,3 +414,14 @@ pub use strict::verify as verify_strict;
 
 // Default to strict implementation for backwards compatibility
 pub use verify_strict as verify;
+
+// Add BrigIntStrict implementation for our specialized F25519 field
+impl BrigIntStrict for crate::field25519::F25519 {
+    fn from_bytes_le(bytes: &[u8]) -> Self {
+        Self::from_bytes_le(bytes)
+    }
+
+    fn to_bytes_le<'a>(&self, out: &'a mut [u8]) -> &'a [u8] {
+        crate::field25519::F25519::to_bytes_le(self, out)
+    }
+}
