@@ -1,4 +1,5 @@
 use modmath::{strict_mod_add, strict_mod_exp, strict_mod_inv, strict_mod_mul, strict_mod_sub};
+use crate::lazy_field::{lazy_mod_add, lazy_mod_sub, lazy_mod_mul};
 
 #[cfg(feature = "montgomery")]
 use modmath::{NPrimeMethod, strict_montgomery_mod_exp_with_method};
@@ -377,8 +378,57 @@ where
     (y_plus_x, y_minus_x, two_dt)
 }
 
-// Mixed addition: Extended + Niels -> Extended
-// More efficient than Extended + Extended addition
+// Mixed addition: Extended + Niels -> Extended  
+// LAZY VERSION: Assumes all inputs are reduced (< p) to avoid expensive divisions
+// Reduces ~32 divisions per point addition to ~4 divisions
+fn point_add_niels_lazy<T: BrigIntStrict>(pp: &Point<T>, niels: &NielsPoint<T>, p: &T) -> Point<T>
+where
+    for<'a> &'a T: core::ops::BitAnd<Output = T>
+        + core::ops::Rem<&'a T, Output = T>
+        + core::ops::Add<&'a T, Output = T>
+        + core::ops::Sub<T, Output = T>
+        + core::ops::Sub<&'a T, Output = T>
+        + core::ops::Mul<&'a T, Output = T>
+        + core::ops::Div<&'a T, Output = T>,
+{
+    // Mixed Edwards addition formula from "Twisted Edwards Curves" paper
+    // Input: P = (X1:Y1:Z1:T1) in extended, Q = (y+x, y-x, 2dt) in Niels
+    // Output: P+Q in extended coordinates
+    // ASSUMES: All coordinates in pp and niels are < p (reduced)
+    
+    let (y_plus_x, y_minus_x, two_dt) = niels;
+    
+    // A = (Y1-X1)*(y-x) - lazy: 1 sub + 1 mul 
+    let pp_y_minus_x = lazy_mod_sub(pp.1.clone(), &pp.0, p);
+    let a = lazy_mod_mul(pp_y_minus_x, y_minus_x, p);
+    
+    // B = (Y1+X1)*(y+x) - lazy: 1 add + 1 mul
+    let pp_y_plus_x = lazy_mod_add(pp.1.clone(), &pp.0, p);
+    let b = lazy_mod_mul(pp_y_plus_x, y_plus_x, p);
+    
+    // C = T1*2dt - lazy: 1 mul (both inputs assumed reduced)
+    let c = lazy_mod_mul(pp.3.clone(), two_dt, p);
+    
+    // D = 2*Z1 - lazy: 1 mul (Z1 < p, constant 2 < p)
+    let two = &T::one() + &T::one();
+    let d_val = lazy_mod_mul(two, &pp.2, p);
+    
+    // E = B-A, F = D-C, G = D+C, H = B+A - all lazy: cheap add/sub operations
+    let e = lazy_mod_sub(b.clone(), &a, p);
+    let f = lazy_mod_sub(d_val.clone(), &c, p); 
+    let g = lazy_mod_add(d_val, &c, p);
+    let h = lazy_mod_add(b, &a, p);
+    
+    // Final coordinates: X3 = E*F, Y3 = G*H, Z3 = F*G, T3 = E*H - lazy: 4 muls only
+    let x3 = lazy_mod_mul(e.clone(), &f, p);
+    let y3 = lazy_mod_mul(g.clone(), &h, p);
+    let z3 = lazy_mod_mul(f, &g, p);
+    let t3 = lazy_mod_mul(e, &h, p);
+    
+    (x3, y3, z3, t3)
+}
+
+// Original version kept for comparison/fallback
 fn point_add_niels<T: BrigIntStrict>(pp: &Point<T>, niels: &NielsPoint<T>, p: &T) -> Point<T>
 where
     for<'a> &'a T: core::ops::BitAnd<Output = T>
@@ -507,16 +557,16 @@ where
         
         // Add ±G based on s digit using mixed Niels addition
         match digit.s_digit {
-            1 => result = point_add_niels(&result, &g_niels, p),
-            -1 => result = point_add_niels(&result, &neg_g_niels, p),
+            1 => result = point_add_niels_lazy(&result, &g_niels, p),
+            -1 => result = point_add_niels_lazy(&result, &neg_g_niels, p),
             0 => {}, // No addition needed
             _ => unreachable!("JSF digits must be -1, 0, or 1"),
         }
         
         // Add ±A based on h digit using mixed Niels addition
         match digit.h_digit {
-            1 => result = point_add_niels(&result, &a_niels, p),
-            -1 => result = point_add_niels(&result, &neg_a_niels, p),
+            1 => result = point_add_niels_lazy(&result, &a_niels, p),
+            -1 => result = point_add_niels_lazy(&result, &neg_a_niels, p),
             0 => {}, // No addition needed
             _ => unreachable!("JSF digits must be -1, 0, or 1"),
         }
@@ -574,16 +624,16 @@ where
         
         // Add ±G based on s digit using mixed Niels addition
         match digit.s_digit {
-            1 => result = point_add_niels(&result, &g_niels, p),
-            -1 => result = point_add_niels(&result, &neg_g_niels, p),
+            1 => result = point_add_niels_lazy(&result, &g_niels, p),
+            -1 => result = point_add_niels_lazy(&result, &neg_g_niels, p),
             0 => {}, // No addition needed
             _ => unreachable!("JSF digits must be -1, 0, or 1"),
         }
         
         // Add ±A based on h digit using mixed Niels addition
         match digit.h_digit {
-            1 => result = point_add_niels(&result, &a_niels, p),
-            -1 => result = point_add_niels(&result, &neg_a_niels, p),
+            1 => result = point_add_niels_lazy(&result, &a_niels, p),
+            -1 => result = point_add_niels_lazy(&result, &neg_a_niels, p),
             0 => {}, // No addition needed
             _ => unreachable!("JSF digits must be -1, 0, or 1"),
         }

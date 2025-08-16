@@ -3,6 +3,7 @@ pub mod constrained;
 pub mod strict;
 pub mod field25519;
 pub mod jsf;
+pub mod lazy_field;
 
 // Common traits and types
 

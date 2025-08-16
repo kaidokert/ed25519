@@ -9,3 +9,4 @@ todo.txt
 *.py
 Cargo.lock
 deps/
+*.md
