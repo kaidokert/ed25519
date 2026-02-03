@@ -54,6 +54,112 @@ where
     info!("{}: {}", label, hex_string);
 }
 
+// LAZY version of recover_x - optimizes basic arithmetic while keeping expensive ops (sqrt, inverse) as-is  
+// Reduces ~15 basic divisions while preserving the inherently expensive square root computation
+fn recover_x_lazy<T: BrigIntStrict>(y: T, sign: u8, p: &T, d: T) -> Option<T>
+where
+    for<'a> &'a T: core::ops::BitAnd<Output = T>
+        + core::ops::Rem<&'a T, Output = T>
+        + core::ops::Add<&'a T, Output = T>
+        + core::ops::Sub<T, Output = T>
+        + core::ops::Sub<&'a T, Output = T>
+        + core::ops::Mul<&'a T, Output = T>
+        + core::ops::Div<&'a T, Output = T>,
+{
+    let one = T::one();
+
+    // First compute y² mod p - lazy: 1 mul only (y is from bytes, < p)
+    let y2 = &y + &T::zero();
+    let y2 = lazy_mod_mul(y, &y2, p);
+
+    // Create another copy of y² for later use
+    let y2_copy = &y2 + &T::zero();
+
+    // left = (y² - 1) mod p - lazy: 1 sub (y² < p, 1 < p)
+    let left = lazy_mod_sub(y2, &one, p);
+
+    // denom_raw = (d * y²) mod p - lazy: 1 mul (d < p, y² < p)
+    let denom_raw = lazy_mod_mul(d, &y2_copy, p);
+
+    // denom = (denom_raw + 1) mod p - lazy: 1 add
+    let denom = lazy_mod_add(denom_raw, &one, p);
+
+    // inv_denom = denom^(-1) mod p - KEEP EXPENSIVE (inherently costly)
+    let two = &one + &one;
+    let three = &two + &one;
+    let _exp = p - two.clone();
+
+    let inv_denom = {
+        #[cfg(feature = "montgomery")]
+        {
+            // Even with Montgomery, use direct inverse instead of pow(p-2) for better performance
+            strict_mod_inv(denom, p).unwrap()
+        }
+        #[cfg(not(feature = "montgomery"))]
+        {
+            // Use Extended Euclidean instead of Fermat's little theorem (denom^(p-2))
+            strict_mod_inv(denom, p).unwrap()
+        }
+    };
+
+    // Finally, x2 = left * inv_denom mod p - lazy: 1 mul (both inputs < p)
+    let x2 = lazy_mod_mul(left, &inv_denom, p);
+
+    if x2 == T::zero() {
+        if sign > 0 { None } else { Some(T::zero()) }
+    } else {
+        // three already defined above
+        let p3 = p + &three;
+        let four = &two + &two;
+        let eight = &four + &four;
+
+        let exp = p3 / &eight;
+        let x2_copy = &x2 + &T::zero();
+
+        // Square root computation - KEEP EXPENSIVE (inherently costly)
+        let mut x = {
+            #[cfg(feature = "montgomery")]
+            {
+                strict_montgomery_mod_exp_with_method(x2, &exp, p, METHOD).unwrap()
+            }
+            #[cfg(not(feature = "montgomery"))]
+            {
+                strict_mod_exp(x2, &exp, p)
+            }
+        };
+
+        // Use precomputed modp_sqrt_m1 = 2^((p-1)/4) mod p instead of computing it
+        let modp_sqrt_m1 = T::from_bytes_le(&MODP_SQRT_M1_BYTES);
+
+        // Verification operations - lazy: basic arithmetic only
+        let x_copy = &x + &T::zero();
+        let x_for_mul = &x + &T::zero();
+        let tmp1 = lazy_mod_mul(x_for_mul, &x_copy, p);
+        let tmp2 = lazy_mod_sub(tmp1, &x2_copy, p);
+        if tmp2 != T::zero() {
+            x = lazy_mod_mul(x, &modp_sqrt_m1, p);
+        }
+
+        let x_copy2 = &x + &T::zero();
+        let x_for_final_check = &x + &T::zero();
+        let tmp1 = lazy_mod_mul(x_for_final_check, &x_copy2, p);
+        let x2_copy2 = &x2_copy + &T::zero();
+        let tmp2 = lazy_mod_sub(tmp1, &x2_copy2, p);
+        if tmp2 != T::zero() {
+            return None;
+        }
+        let x_for_check = &x + &T::zero();
+        let weird = (&x_for_check & &one.clone() == one) as u8 != sign;
+        // To be continued...
+        if weird {
+            x = p - x;
+        }
+
+        Some(x)
+    }
+}
+
+// Original version kept for comparison/fallback
 fn recover_x<T: BrigIntStrict>(y: T, sign: u8, p: &T, d: T) -> Option<T>
 where
     for<'a> &'a T: core::ops::BitAnd<Output = T>
@@ -180,11 +286,11 @@ where
     } else {
         let d_owned = d + &T::zero();
         let y_owned = &y + &T::zero();
-        let x = recover_x(y, sign, p, d_owned);
+        let x = recover_x_lazy(y, sign, p, d_owned);
         x.map(|x_val| {
             let x_copy = &x_val + &T::zero();
             let y_copy = &y_owned + &T::zero();
-            (x_val, y_owned, T::one(), strict_mod_mul(x_copy, &y_copy, p))
+            (x_val, y_owned, T::one(), lazy_mod_mul(x_copy, &y_copy, p))
         })
     }
 }
@@ -218,8 +324,77 @@ where
     result_nomodq % q
 }
 
-// Dedicated Edwards point doubling for Ed25519 (a = -1)
-// Much faster than generic point_add(P, P) - saves ~3 multiplications per doubling
+// LAZY Edwards point doubling for Ed25519 (a = -1)
+// Assumes input point coordinates are < p to avoid expensive divisions
+// Reduces ~41 divisions per doubling to ~7 divisions
+fn point_double_lazy<T: BrigIntStrict>(pp: &Point<T>, p: &T) -> Point<T>
+where
+    for<'a> &'a T: core::ops::BitAnd<Output = T>
+        + core::ops::Rem<&'a T, Output = T>
+        + core::ops::Add<&'a T, Output = T>
+        + core::ops::Sub<T, Output = T>
+        + core::ops::Sub<&'a T, Output = T>
+        + core::ops::Mul<&'a T, Output = T>
+        + core::ops::Div<&'a T, Output = T>,
+{
+    // Extended Edwards doubling for Ed25519 (a = -1)
+    // Input: P = (X:Y:Z:T) in extended coordinates (ASSUMES: all < p)
+    // Output: 2P = (X2:Y2:Z2:T2)
+    
+    // A = X^2 - lazy: 1 mul only
+    let pp0_copy = &pp.0 + &T::zero();
+    let a = lazy_mod_mul(pp0_copy, &pp.0, p);
+    
+    // B = Y^2 - lazy: 1 mul only
+    let pp1_copy = &pp.1 + &T::zero();
+    let b = lazy_mod_mul(pp1_copy, &pp.1, p);
+    
+    // C = 2*Z^2 - lazy: 2 muls (Z² then 2*Z²)
+    let two = &T::one() + &T::one();
+    let pp2_copy = &pp.2 + &T::zero();
+    let z_squared = lazy_mod_mul(pp2_copy, &pp.2, p);
+    let c = lazy_mod_mul(two, &z_squared, p);
+    
+    // D = -A (since a = -1 for Ed25519) - lazy: 1 sub
+    let d_val = lazy_mod_sub(T::zero(), &a, p);
+    
+    // E = (X+Y)^2 - A - B - lazy: 1 add + 1 mul + 2 subs
+    let x_plus_y = lazy_mod_add(pp.0.clone(), &pp.1, p);
+    let x_plus_y_copy = &x_plus_y + &T::zero();
+    let x_plus_y_squared = lazy_mod_mul(x_plus_y_copy, &x_plus_y, p);
+    let e_temp = lazy_mod_sub(x_plus_y_squared, &a, p);
+    let e = lazy_mod_sub(e_temp, &b, p);
+    
+    // G = D + B - lazy: 1 add
+    let g = lazy_mod_add(d_val.clone(), &b, p);
+    
+    // F = G - C - lazy: 1 sub
+    let f = lazy_mod_sub(g.clone(), &c, p);
+    
+    // H = D - B - lazy: 1 sub
+    let h = lazy_mod_sub(d_val, &b, p);
+    
+    // Final coordinates: lazy 4 muls only
+    // X2 = E * F
+    let e_copy = &e + &T::zero();
+    let x2 = lazy_mod_mul(e_copy, &f, p);
+    
+    // Y2 = G * H
+    let g_copy = &g + &T::zero();
+    let y2 = lazy_mod_mul(g_copy, &h, p);
+    
+    // Z2 = F * G
+    let f_copy = &f + &T::zero();
+    let z2 = lazy_mod_mul(f_copy, &g, p);
+    
+    // T2 = E * H
+    let e_copy2 = &e + &T::zero();
+    let t2 = lazy_mod_mul(e_copy2, &h, p);
+    
+    (x2, y2, z2, t2)
+}
+
+// Original version kept for comparison/fallback
 fn point_double<T: BrigIntStrict>(pp: &Point<T>, p: &T) -> Point<T>
 where
     for<'a> &'a T: core::ops::BitAnd<Output = T>
@@ -352,7 +527,35 @@ where
     (x3, y3, z3, t3)
 }
 
-// Convert extended coordinates to Niels form: (Y+X, Y-X, 2dT)
+// LAZY Convert extended coordinates to Niels form: (Y+X, Y-X, 2dT)
+// Assumes input point coordinates are < p (from lazy point operations)
+// Reduces 4 expensive divisions to 2 divisions
+fn to_niels_lazy<T: BrigIntStrict>(pp: &Point<T>, p: &T, d: &T) -> NielsPoint<T>
+where
+    for<'a> &'a T: core::ops::BitAnd<Output = T>
+        + core::ops::Rem<&'a T, Output = T>
+        + core::ops::Add<&'a T, Output = T>
+        + core::ops::Sub<T, Output = T>
+        + core::ops::Sub<&'a T, Output = T>
+        + core::ops::Mul<&'a T, Output = T>
+        + core::ops::Div<&'a T, Output = T>,
+{
+    // Y+X - lazy: 1 add (Y < p, X < p)
+    let y_plus_x = lazy_mod_add(pp.1.clone(), &pp.0, p);
+    
+    // Y-X - lazy: 1 sub (Y < p, X < p)  
+    let y_minus_x = lazy_mod_sub(pp.1.clone(), &pp.0, p);
+    
+    // 2dT - lazy: 2 muls (d < p, T < p, then 2 < p)
+    let two = &T::one() + &T::one();
+    let d_copy = d.clone();
+    let dt = lazy_mod_mul(d_copy, &pp.3, p);
+    let two_dt = lazy_mod_mul(two, &dt, p);
+    
+    (y_plus_x, y_minus_x, two_dt)
+}
+
+// Original version kept for comparison
 fn to_niels<T: BrigIntStrict>(pp: &Point<T>, p: &T, d: &T) -> NielsPoint<T>
 where
     for<'a> &'a T: core::ops::BitAnd<Output = T>
@@ -534,26 +737,26 @@ where
     let mut result = (T::zero(), T::one(), T::one(), T::zero());
     
     // Convert base points to Niels form for faster additions
-    let g_niels = to_niels(g, p, d);
-    let a_niels = to_niels(a, p, d);
+    let g_niels = to_niels_lazy(g, p, d);
+    let a_niels = to_niels_lazy(a, p, d);
     
     // Create negative Niels points: (Y+X, Y-X, 2dT) -> (Y-X, Y+X, -2dT) 
     let neg_g_niels = (
         g_niels.1.clone(),                       // Y-X (swapped)
         g_niels.0.clone(),                       // Y+X (swapped)
-        strict_mod_sub(T::zero(), &g_niels.2, p) // -2dT
+        lazy_mod_sub(T::zero(), &g_niels.2, p) // -2dT LAZY: 1 sub vs 2 divisions
     );
     
     let neg_a_niels = (
         a_niels.1.clone(),                       // Y-X (swapped)  
         a_niels.0.clone(),                       // Y+X (swapped)
-        strict_mod_sub(T::zero(), &a_niels.2, p) // -2dT
+        lazy_mod_sub(T::zero(), &a_niels.2, p) // -2dT LAZY: 1 sub vs 2 divisions
     );
     
     // Process JSF digits from MSB to LSB
     for digit in jsf.digits_msb_first() {
         // Always double the result (use dedicated doubling for efficiency)
-        result = point_double(&result, p);
+        result = point_double_lazy(&result, p);
         
         // Add ±G based on s digit using mixed Niels addition
         match digit.s_digit {
@@ -601,26 +804,26 @@ where
     let mut result = (T::zero(), T::one(), T::one(), T::zero());
     
     // Convert base points to Niels form for faster additions
-    let g_niels = to_niels(g, p, d);
-    let a_niels = to_niels(a, p, d);
+    let g_niels = to_niels_lazy(g, p, d);
+    let a_niels = to_niels_lazy(a, p, d);
     
     // Create negative Niels points: (Y+X, Y-X, 2dT) -> (Y-X, Y+X, -2dT) 
     let neg_g_niels = (
         g_niels.1.clone(),                       // Y-X (swapped)
         g_niels.0.clone(),                       // Y+X (swapped)
-        strict_mod_sub(T::zero(), &g_niels.2, p) // -2dT
+        lazy_mod_sub(T::zero(), &g_niels.2, p) // -2dT LAZY: 1 sub vs 2 divisions
     );
     
     let neg_a_niels = (
         a_niels.1.clone(),                       // Y-X (swapped)  
         a_niels.0.clone(),                       // Y+X (swapped)
-        strict_mod_sub(T::zero(), &a_niels.2, p) // -2dT
+        lazy_mod_sub(T::zero(), &a_niels.2, p) // -2dT LAZY: 1 sub vs 2 divisions
     );
     
     // Process JSF digits from MSB to LSB
     for digit in jsf.digits_msb_first() {
         // Always double the result (use dedicated doubling for efficiency)
-        result = point_double(&result, p);
+        result = point_double_lazy(&result, p);
         
         // Add ±G based on s digit using mixed Niels addition
         match digit.s_digit {
@@ -642,6 +845,20 @@ where
     result
 }
 
+// LAZY Point negation: assumes input coordinates < p, result < p
+// Eliminates 2 expensive divisions to 2 fast subtractions
+fn point_negate_lazy<T: BrigIntStrict>(pp: &Point<T>, p: &T) -> Point<T>
+where
+    for<'a> &'a T: core::ops::Add<&'a T, Output = T>
+        + core::ops::Sub<&'a T, Output = T>,
+{
+    // In Edwards coordinates, negating a point (x,y) gives (-x,y)
+    // In extended coordinates (X:Y:Z:T), this becomes (-X:Y:Z:-T)
+    let neg_x = lazy_mod_sub(T::zero(), &pp.0, p);  // LAZY: 1 sub vs 2 divisions
+    let neg_t = lazy_mod_sub(T::zero(), &pp.3, p);  // LAZY: 1 sub vs 2 divisions
+    (neg_x, pp.1.clone(), pp.2.clone(), neg_t)
+}
+
 fn point_negate<T: BrigIntStrict>(pp: &Point<T>, p: &T) -> Point<T>
 where
     for<'a> &'a T: core::ops::BitAnd<Output = T>
@@ -657,6 +874,34 @@ where
     let neg_x = strict_mod_sub(T::zero(), &pp.0, p);
     let neg_t = strict_mod_sub(T::zero(), &pp.3, p);
     (neg_x, pp.1.clone(), pp.2.clone(), neg_t)
+}
+
+// LAZY Point equality: assumes input coordinates < p
+// Eliminates ~12 expensive divisions to ~6 divisions + fast comparisons
+fn point_equal_lazy<T: BrigIntStrict>(pp: &Point<T>, qq: &Point<T>, p: &T) -> bool
+where
+    for<'a> &'a T: core::ops::Add<&'a T, Output = T>
+        + core::ops::Sub<&'a T, Output = T>
+        + core::ops::Mul<&'a T, Output = T>
+        + core::ops::Rem<&'a T, Output = T>,
+{
+    // term1 = pp.0 * qq.2 mod p - LAZY: single reduction on result
+    let term1 = lazy_mod_mul(pp.0.clone(), &qq.2, p);
+
+    // term2 = qq.0 * pp.2 mod p - LAZY: single reduction on result  
+    let term2 = lazy_mod_mul(qq.0.clone(), &pp.2, p);
+
+    // term3 = pp.1 * qq.2 mod p - LAZY: single reduction on result
+    let term3 = lazy_mod_mul(pp.1.clone(), &qq.2, p);
+
+    // term4 = qq.1 * pp.2 mod p - LAZY: single reduction on result
+    let term4 = lazy_mod_mul(qq.1.clone(), &pp.2, p);
+
+    // Check if term1 - term2 == 0 (mod p) and term3 - term4 == 0 (mod p) - LAZY: fast subs
+    let diff1 = lazy_mod_sub(term1, &term2, p);
+    let diff2 = lazy_mod_sub(term3, &term4, p);
+
+    diff1 == T::zero() && diff2 == T::zero()
 }
 
 fn point_equal<T: BrigIntStrict>(pp: &Point<T>, qq: &Point<T>, p: &T) -> bool
@@ -764,7 +1009,7 @@ where
 
     // Use JSF (Joint Sparse Form): compute s*G + h*(-A) and compare with R
     // JSF reduces point additions by ~40-50% compared to binary methods
-    let neg_aa = point_negate(&aa, &p);
+    let neg_aa = point_negate_lazy(&aa, &p);
     let start = std::time::Instant::now();
     let sbb_minus_haa = jsf_double_scalar_mul(s, &g, h, &neg_aa, &p, &d);
     info!(
@@ -773,7 +1018,7 @@ where
     );
 
     let start = std::time::Instant::now();
-    let result = point_equal(&sbb_minus_haa, &rr, &p);
+    let result = point_equal_lazy(&sbb_minus_haa, &rr, &p);
     info!(
         "TIMING: point_equal took {:.3}ms",
         start.elapsed().as_secs_f64() * 1000.0
