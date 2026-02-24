@@ -988,8 +988,8 @@ where
     // denom = (denom_raw + 1) mod p
     let denom = lazy_mod_add(denom_raw, &one, p);
 
-    // inv_denom — expensive but inherently so
-    let inv_denom = strict_mod_inv(denom, p).unwrap();
+    // inv_denom via Fermat's little theorem (zero divisions)
+    let inv_denom = ctx.mont_inv(denom);
 
     // x2 = left * inv_denom in Montgomery form
     let left_m = ctx.to_mont(left);
@@ -1008,17 +1008,8 @@ where
 
         let exp = p3 / &eight;
 
-        // Square root — keep expensive mod_exp
-        let mut x = {
-            #[cfg(feature = "montgomery")]
-            {
-                strict_montgomery_mod_exp_with_method(x2, &exp, p, METHOD).unwrap()
-            }
-            #[cfg(not(feature = "montgomery"))]
-            {
-                strict_mod_exp(x2, &exp, p)
-            }
-        };
+        // Square root via Montgomery exponentiation (zero divisions)
+        let mut x = ctx.mont_exp(x2, exp);
 
         let modp_sqrt_m1 = T::from_bytes_le(&MODP_SQRT_M1_BYTES);
 

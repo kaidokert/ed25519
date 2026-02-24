@@ -65,4 +65,48 @@ where
     pub fn mont_mul(&self, a: T, b: T) -> T {
         wide_montgomery_mul(a, b, self.modulus, self.n_prime)
     }
+
+    /// Montgomery exponentiation: base^exponent mod modulus
+    /// Input base is in normal form, exponent is in normal form.
+    /// Returns result in normal form.
+    /// Zero divisions — all multiplications use Montgomery REDC.
+    pub fn mont_exp(&self, base: T, exponent: T) -> T
+    where
+        T: core::ops::Shr<usize, Output = T>
+            + core::ops::BitAnd<Output = T>,
+    {
+        // Convert base to Montgomery form
+        let mut base_m = self.to_mont(base);
+        // 1 in Montgomery form = R mod N
+        let mut result_m = self.r_mod_n;
+        let mut exp = exponent;
+        let one = T::one();
+
+        while exp > T::zero() {
+            if (exp & one) == one {
+                result_m = self.mont_mul(result_m, base_m);
+            }
+            exp = exp >> 1;
+            if exp > T::zero() {
+                base_m = self.mont_mul(base_m, base_m);
+            }
+        }
+
+        // Convert back to normal form
+        self.from_mont(result_m)
+    }
+
+    /// Montgomery-based modular inverse via Fermat's little theorem.
+    /// Computes a^{-1} mod p = a^{p-2} mod p (only valid when modulus is prime).
+    /// Zero divisions — uses mont_exp internally.
+    pub fn mont_inv(&self, a: T) -> T
+    where
+        T: core::ops::Sub<Output = T>
+            + core::ops::Shr<usize, Output = T>
+            + core::ops::BitAnd<Output = T>,
+    {
+        // p - 2
+        let exp = self.modulus - T::one() - T::one();
+        self.mont_exp(a, exp)
+    }
 }
