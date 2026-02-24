@@ -1,5 +1,7 @@
 use std::time::Instant;
 
+#[allow(dead_code)]
+#[cfg(not(feature = "wide-mont"))]
 fn benchmark_strict<T: ed25519n::BrigIntStrict>()
 where
     for<'a> &'a T: core::ops::BitAnd<Output = T>

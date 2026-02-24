@@ -4,6 +4,11 @@ use crate::lazy_field::{lazy_mod_add, lazy_mod_sub, lazy_mod_mul};
 #[cfg(feature = "montgomery")]
 use modmath::{NPrimeMethod, strict_montgomery_mod_exp_with_method};
 
+#[cfg(feature = "wide-mont")]
+use crate::montgomery_ctx::MontgomeryCtx;
+#[cfg(feature = "wide-mont")]
+use crate::lazy_mont::mont_mod_mul;
+
 #[cfg(feature = "std")]
 use log::info;
 
@@ -939,7 +944,495 @@ where
     }
 }
 
+// =========================================================================
+// Montgomery-domain point operations (wide-mont feature)
+// =========================================================================
+// When wide-mont is enabled, all multiplications use wide-REDC Montgomery
+// multiplication instead of (a * b) % p. Add/sub remain unchanged.
+// All point coordinates are kept in Montgomery form throughout.
+
+#[cfg(feature = "wide-mont")]
+fn recover_x_mont<T: BrigIntStrict>(y: T, sign: u8, p: &T, d: T, ctx: &MontgomeryCtx<T>) -> Option<T>
+where
+    T: Copy
+        + modmath::WideMul
+        + num_traits::ops::overflowing::OverflowingAdd
+        + num_traits::WrappingMul
+        + num_traits::WrappingAdd
+        + num_traits::WrappingSub,
+    for<'a> &'a T: core::ops::BitAnd<Output = T>
+        + core::ops::Rem<&'a T, Output = T>
+        + core::ops::Add<&'a T, Output = T>
+        + core::ops::Sub<T, Output = T>
+        + core::ops::Sub<&'a T, Output = T>
+        + core::ops::Mul<&'a T, Output = T>
+        + core::ops::Div<&'a T, Output = T>,
+{
+    let one = T::one();
+
+    // Convert to Montgomery form for multiplications
+    let y_m = ctx.to_mont(y);
+    let d_m = ctx.to_mont(d);
+
+    // y² in Montgomery form
+    let y2_m = ctx.mont_mul(y_m, y_m);
+
+    // left = (y² - 1) mod p — work in normal domain for add/sub
+    let y2 = ctx.from_mont(y2_m);
+    let left = lazy_mod_sub(y2, &one, p);
+
+    // denom_raw = d * y² in Montgomery form
+    let denom_raw_m = ctx.mont_mul(d_m, y2_m);
+    let denom_raw = ctx.from_mont(denom_raw_m);
+
+    // denom = (denom_raw + 1) mod p
+    let denom = lazy_mod_add(denom_raw, &one, p);
+
+    // inv_denom — expensive but inherently so
+    let inv_denom = strict_mod_inv(denom, p).unwrap();
+
+    // x2 = left * inv_denom in Montgomery form
+    let left_m = ctx.to_mont(left);
+    let inv_denom_m = ctx.to_mont(inv_denom);
+    let x2_m = ctx.mont_mul(left_m, inv_denom_m);
+    let x2 = ctx.from_mont(x2_m);
+
+    if x2 == T::zero() {
+        if sign > 0 { None } else { Some(T::zero()) }
+    } else {
+        let two = &one + &one;
+        let three = &two + &one;
+        let p3 = p + &three;
+        let four = &two + &two;
+        let eight = &four + &four;
+
+        let exp = p3 / &eight;
+
+        // Square root — keep expensive mod_exp
+        let mut x = {
+            #[cfg(feature = "montgomery")]
+            {
+                strict_montgomery_mod_exp_with_method(x2, &exp, p, METHOD).unwrap()
+            }
+            #[cfg(not(feature = "montgomery"))]
+            {
+                strict_mod_exp(x2, &exp, p)
+            }
+        };
+
+        let modp_sqrt_m1 = T::from_bytes_le(&MODP_SQRT_M1_BYTES);
+
+        // Verification: x² - x2 == 0? (Montgomery mul)
+        let x_m = ctx.to_mont(x);
+        let tmp1_m = ctx.mont_mul(x_m, x_m);
+        let tmp1 = ctx.from_mont(tmp1_m);
+        let tmp2 = lazy_mod_sub(tmp1, &x2, p);
+        if tmp2 != T::zero() {
+            let sqrt_m1_m = ctx.to_mont(modp_sqrt_m1);
+            let x_m = ctx.to_mont(x);
+            x = ctx.from_mont(ctx.mont_mul(x_m, sqrt_m1_m));
+        }
+
+        // Final check
+        let x_m = ctx.to_mont(x);
+        let tmp1_m = ctx.mont_mul(x_m, x_m);
+        let tmp1 = ctx.from_mont(tmp1_m);
+        let tmp2 = lazy_mod_sub(tmp1, &x2, p);
+        if tmp2 != T::zero() {
+            return None;
+        }
+        let weird = (&x & &one.clone() == one) as u8 != sign;
+        if weird {
+            x = p - x;
+        }
+
+        Some(x)
+    }
+}
+
+// decompress_edward_point_mont uses recover_x_mont for the sqrt but returns
+// points in NORMAL form. The caller (verify_mont) converts to Montgomery form.
+#[cfg(feature = "wide-mont")]
+fn decompress_edward_point_mont<T: BrigIntStrict>(k: [u8; 32], p: &T, d: &T, ctx: &MontgomeryCtx<T>) -> Option<Point<T>>
+where
+    T: Copy
+        + modmath::WideMul
+        + num_traits::ops::overflowing::OverflowingAdd
+        + num_traits::WrappingMul
+        + num_traits::WrappingAdd
+        + num_traits::WrappingSub,
+    for<'a> &'a T: core::ops::BitAnd<Output = T>
+        + core::ops::Rem<&'a T, Output = T>
+        + core::ops::Add<&'a T, Output = T>
+        + core::ops::Sub<T, Output = T>
+        + core::ops::Sub<&'a T, Output = T>
+        + core::ops::Mul<&'a T, Output = T>
+        + core::ops::Div<&'a T, Output = T>,
+{
+    let mut k_list = k.clone();
+    let sign = k_list[k.len() - 1] >> 7;
+    k_list[k.len() - 1] &= 0b01111111;
+    let y = T::from_bytes_le(&k_list[0..32]);
+
+    if &y > p {
+        None
+    } else {
+        let d_owned = d + &T::zero();
+        let y_owned = &y + &T::zero();
+        let x = recover_x_mont(y, sign, p, d_owned, ctx);
+        x.map(|x_val| {
+            // Compute T = x*y using Montgomery mul, but return point in normal form
+            let t = ctx.from_mont(ctx.mont_mul(ctx.to_mont(x_val), ctx.to_mont(y_owned)));
+            (x_val, y_owned, T::one(), t)
+        })
+    }
+}
+
+#[cfg(feature = "wide-mont")]
+fn point_double_mont<T: BrigIntStrict>(pp: &Point<T>, p: &T, ctx: &MontgomeryCtx<T>) -> Point<T>
+where
+    T: Copy
+        + modmath::WideMul
+        + num_traits::ops::overflowing::OverflowingAdd
+        + num_traits::WrappingMul
+        + num_traits::WrappingAdd
+        + num_traits::WrappingSub,
+    for<'a> &'a T: core::ops::Add<&'a T, Output = T>
+        + core::ops::Sub<&'a T, Output = T>,
+{
+    // A = X^2
+    let a = mont_mod_mul(pp.0, &pp.0, ctx);
+    // B = Y^2
+    let b = mont_mod_mul(pp.1, &pp.1, ctx);
+    // C = 2*Z^2
+    let z_squared = mont_mod_mul(pp.2, &pp.2, ctx);
+    let c = mont_mod_mul(ctx.two_mont, &z_squared, ctx);
+    // D = -A (since a = -1 for Ed25519)
+    let d_val = lazy_mod_sub(T::zero(), &a, p);
+    // E = (X+Y)^2 - A - B
+    let x_plus_y = lazy_mod_add(pp.0, &pp.1, p);
+    let x_plus_y_squared = mont_mod_mul(x_plus_y, &x_plus_y, ctx);
+    let e_temp = lazy_mod_sub(x_plus_y_squared, &a, p);
+    let e = lazy_mod_sub(e_temp, &b, p);
+    // G = D + B
+    let g = lazy_mod_add(d_val, &b, p);
+    // F = G - C
+    let f = lazy_mod_sub(g, &c, p);
+    // H = D - B
+    let h = lazy_mod_sub(d_val, &b, p);
+    // Final coordinates
+    let x2 = mont_mod_mul(e, &f, ctx);
+    let y2 = mont_mod_mul(g, &h, ctx);
+    let z2 = mont_mod_mul(f, &g, ctx);
+    let t2 = mont_mod_mul(e, &h, ctx);
+    (x2, y2, z2, t2)
+}
+
+#[cfg(feature = "wide-mont")]
+fn to_niels_mont<T: BrigIntStrict>(pp: &Point<T>, p: &T, d: &T, ctx: &MontgomeryCtx<T>) -> NielsPoint<T>
+where
+    T: Copy
+        + modmath::WideMul
+        + num_traits::ops::overflowing::OverflowingAdd
+        + num_traits::WrappingMul
+        + num_traits::WrappingAdd
+        + num_traits::WrappingSub,
+    for<'a> &'a T: core::ops::Add<&'a T, Output = T>
+        + core::ops::Sub<&'a T, Output = T>,
+{
+    let y_plus_x = lazy_mod_add(pp.1, &pp.0, p);
+    let y_minus_x = lazy_mod_sub(pp.1, &pp.0, p);
+    let d_m = ctx.to_mont(*d);
+    let dt = mont_mod_mul(d_m, &pp.3, ctx);
+    let two_dt = mont_mod_mul(ctx.two_mont, &dt, ctx);
+    (y_plus_x, y_minus_x, two_dt)
+}
+
+#[cfg(feature = "wide-mont")]
+fn point_add_niels_mont<T: BrigIntStrict>(pp: &Point<T>, niels: &NielsPoint<T>, p: &T, ctx: &MontgomeryCtx<T>) -> Point<T>
+where
+    T: Copy
+        + modmath::WideMul
+        + num_traits::ops::overflowing::OverflowingAdd
+        + num_traits::WrappingMul
+        + num_traits::WrappingAdd
+        + num_traits::WrappingSub,
+    for<'a> &'a T: core::ops::Add<&'a T, Output = T>
+        + core::ops::Sub<&'a T, Output = T>,
+{
+    let (y_plus_x, y_minus_x, two_dt) = niels;
+    // A = (Y1-X1)*(y-x)
+    let pp_y_minus_x = lazy_mod_sub(pp.1, &pp.0, p);
+    let a = mont_mod_mul(pp_y_minus_x, y_minus_x, ctx);
+    // B = (Y1+X1)*(y+x)
+    let pp_y_plus_x = lazy_mod_add(pp.1, &pp.0, p);
+    let b = mont_mod_mul(pp_y_plus_x, y_plus_x, ctx);
+    // C = T1*2dt
+    let c = mont_mod_mul(pp.3, two_dt, ctx);
+    // D = 2*Z1
+    let d_val = mont_mod_mul(ctx.two_mont, &pp.2, ctx);
+    // E = B-A, F = D-C, G = D+C, H = B+A
+    let e = lazy_mod_sub(b, &a, p);
+    let f = lazy_mod_sub(d_val, &c, p);
+    let g = lazy_mod_add(d_val, &c, p);
+    let h = lazy_mod_add(b, &a, p);
+    // Final coordinates
+    let x3 = mont_mod_mul(e, &f, ctx);
+    let y3 = mont_mod_mul(g, &h, ctx);
+    let z3 = mont_mod_mul(f, &g, ctx);
+    let t3 = mont_mod_mul(e, &h, ctx);
+    (x3, y3, z3, t3)
+}
+
+#[cfg(feature = "wide-mont")]
+fn point_equal_mont<T: BrigIntStrict>(pp: &Point<T>, qq: &Point<T>, p: &T, ctx: &MontgomeryCtx<T>) -> bool
+where
+    T: Copy
+        + modmath::WideMul
+        + num_traits::ops::overflowing::OverflowingAdd
+        + num_traits::WrappingMul
+        + num_traits::WrappingAdd
+        + num_traits::WrappingSub,
+    for<'a> &'a T: core::ops::Add<&'a T, Output = T>
+        + core::ops::Sub<&'a T, Output = T>,
+{
+    let term1 = mont_mod_mul(pp.0, &qq.2, ctx);
+    let term2 = mont_mod_mul(qq.0, &pp.2, ctx);
+    let term3 = mont_mod_mul(pp.1, &qq.2, ctx);
+    let term4 = mont_mod_mul(qq.1, &pp.2, ctx);
+    let diff1 = lazy_mod_sub(term1, &term2, p);
+    let diff2 = lazy_mod_sub(term3, &term4, p);
+    diff1 == T::zero() && diff2 == T::zero()
+}
+
+#[cfg(feature = "wide-mont")]
+fn jsf_double_scalar_mul_mont<T: BrigIntStrict>(
+    s: T,
+    g: &Point<T>,
+    h: T,
+    a: &Point<T>,
+    p: &T,
+    d: &T,
+    ctx: &MontgomeryCtx<T>,
+) -> Point<T>
+where
+    T: Copy
+        + modmath::WideMul
+        + num_traits::ops::overflowing::OverflowingAdd
+        + num_traits::WrappingMul
+        + num_traits::WrappingAdd
+        + num_traits::WrappingSub,
+    for<'a> &'a T: core::ops::BitAnd<Output = T>
+        + core::ops::Rem<&'a T, Output = T>
+        + core::ops::Add<&'a T, Output = T>
+        + core::ops::Sub<T, Output = T>
+        + core::ops::Sub<&'a T, Output = T>
+        + core::ops::Mul<&'a T, Output = T>
+        + core::ops::Div<&'a T, Output = T>,
+{
+    let jsf = crate::jsf::JsfIterator::new(s, h);
+    // Identity point in Montgomery form: (0, 1, 1, 0) -> (0_mont, 1_mont, 1_mont, 0_mont)
+    let zero_m = ctx.to_mont(T::zero());
+    let one_m = ctx.to_mont(T::one());
+    let mut result = (zero_m, one_m, one_m, zero_m);
+
+    // Convert base points to Niels form (uses Montgomery mul internally)
+    let g_niels = to_niels_mont(g, p, d, ctx);
+    let a_niels = to_niels_mont(a, p, d, ctx);
+
+    // Create negative Niels points: (Y+X, Y-X, 2dT) -> (Y-X, Y+X, -2dT)
+    let neg_g_niels = (
+        g_niels.1,
+        g_niels.0,
+        lazy_mod_sub(T::zero(), &g_niels.2, p),
+    );
+    let neg_a_niels = (
+        a_niels.1,
+        a_niels.0,
+        lazy_mod_sub(T::zero(), &a_niels.2, p),
+    );
+
+    for digit in jsf.digits_msb_first() {
+        result = point_double_mont(&result, p, ctx);
+        match digit.s_digit {
+            1 => result = point_add_niels_mont(&result, &g_niels, p, ctx),
+            -1 => result = point_add_niels_mont(&result, &neg_g_niels, p, ctx),
+            0 => {},
+            _ => unreachable!("JSF digits must be -1, 0, or 1"),
+        }
+        match digit.h_digit {
+            1 => result = point_add_niels_mont(&result, &a_niels, p, ctx),
+            -1 => result = point_add_niels_mont(&result, &neg_a_niels, p, ctx),
+            0 => {},
+            _ => unreachable!("JSF digits must be -1, 0, or 1"),
+        }
+    }
+
+    result
+}
+
+#[cfg(not(feature = "wide-mont"))]
 pub fn verify<T: BrigIntStrict>(public: [u8; 32], msg: &[u8], signature: [u8; 64]) -> bool
+where
+    for<'a> &'a T: core::ops::BitAnd<Output = T>
+        + core::ops::Rem<&'a T, Output = T>
+        + core::ops::Add<&'a T, Output = T>
+        + core::ops::Sub<T, Output = T>
+        + core::ops::Sub<&'a T, Output = T>
+        + core::ops::Mul<&'a T, Output = T>
+        + core::ops::Div<&'a T, Output = T>,
+{
+    verify_non_mont::<T>(public, msg, signature)
+}
+
+#[cfg(feature = "wide-mont")]
+pub fn verify<T: BrigIntStrict>(public: [u8; 32], msg: &[u8], signature: [u8; 64]) -> bool
+where
+    T: Copy
+        + modmath::WideMul
+        + num_traits::ops::overflowing::OverflowingAdd
+        + num_traits::WrappingMul
+        + num_traits::WrappingAdd
+        + num_traits::WrappingSub,
+    for<'a> &'a T: core::ops::BitAnd<Output = T>
+        + core::ops::Rem<&'a T, Output = T>
+        + core::ops::Add<&'a T, Output = T>
+        + core::ops::Sub<T, Output = T>
+        + core::ops::Sub<&'a T, Output = T>
+        + core::ops::Mul<&'a T, Output = T>
+        + core::ops::Div<&'a T, Output = T>,
+{
+    verify_mont::<T>(public, msg, signature)
+}
+
+#[cfg(feature = "wide-mont")]
+fn verify_mont<T: BrigIntStrict>(public: [u8; 32], msg: &[u8], signature: [u8; 64]) -> bool
+where
+    T: Copy
+        + modmath::WideMul
+        + num_traits::ops::overflowing::OverflowingAdd
+        + num_traits::WrappingMul
+        + num_traits::WrappingAdd
+        + num_traits::WrappingSub,
+    for<'a> &'a T: core::ops::BitAnd<Output = T>
+        + core::ops::Rem<&'a T, Output = T>
+        + core::ops::Add<&'a T, Output = T>
+        + core::ops::Sub<T, Output = T>
+        + core::ops::Sub<&'a T, Output = T>
+        + core::ops::Mul<&'a T, Output = T>
+        + core::ops::Div<&'a T, Output = T>,
+{
+    let total_start = std::time::Instant::now();
+
+    let p = T::from_bytes_le(&P_BYTES);
+    let d = T::from_bytes_le(&D_BYTES);
+    let q = T::from_bytes_le(&Q_BYTES);
+
+    // Precompute Montgomery context for field prime p
+    let ctx = MontgomeryCtx::new(p);
+
+    let g = (
+        T::from_bytes_le(&G_X_BYTES),
+        T::from_bytes_le(&G_Y_BYTES),
+        T::one(),
+        T::from_bytes_le(&G_T_BYTES),
+    );
+
+    let start = std::time::Instant::now();
+    let aa = decompress_edward_point_mont(public, &p, &d, &ctx);
+    info!(
+        "TIMING: decompress_edward_point(public) took {:.3}ms",
+        start.elapsed().as_secs_f64() * 1000.0
+    );
+    if aa.is_none() {
+        return false;
+    }
+    let aa = aa.unwrap();
+    let rrs: [u8; 32] = signature[0..32]
+        .try_into()
+        .expect("Invalid signature length");
+
+    let start = std::time::Instant::now();
+    let rr = decompress_edward_point_mont(rrs, &p, &d, &ctx);
+    info!(
+        "TIMING: decompress_edward_point(rrs) took {:.3}ms",
+        start.elapsed().as_secs_f64() * 1000.0
+    );
+    if rr.is_none() {
+        return false;
+    }
+    let rr = rr.unwrap();
+
+    let s_bytes: [u8; 32] = signature[32..64]
+        .try_into()
+        .expect("invalid signature length");
+
+    let s = T::from_bytes_le(&s_bytes);
+    if &s >= &q {
+        return false;
+    }
+    let rrs = rrs.as_slice();
+    let public = public.as_slice();
+    let mut storage = [0u8; 128];
+
+    let concat = concat_emul(&[rrs, public, msg], &mut storage);
+    let start = std::time::Instant::now();
+    let h = sha512_modq(&concat, &q);
+    info!(
+        "TIMING: sha512_modq took {:.3}ms",
+        start.elapsed().as_secs_f64() * 1000.0
+    );
+
+    // Convert points to Montgomery form for all coordinates
+    let g_mont = (
+        ctx.to_mont(g.0),
+        ctx.to_mont(g.1),
+        ctx.to_mont(g.2),
+        ctx.to_mont(g.3),
+    );
+    let aa_mont = (
+        ctx.to_mont(aa.0),
+        ctx.to_mont(aa.1),
+        ctx.to_mont(aa.2),
+        ctx.to_mont(aa.3),
+    );
+    let rr_mont = (
+        ctx.to_mont(rr.0),
+        ctx.to_mont(rr.1),
+        ctx.to_mont(rr.2),
+        ctx.to_mont(rr.3),
+    );
+
+    // Negate A in Montgomery form
+    let neg_aa_mont = (
+        lazy_mod_sub(T::zero(), &aa_mont.0, &p),
+        aa_mont.1,
+        aa_mont.2,
+        lazy_mod_sub(T::zero(), &aa_mont.3, &p),
+    );
+
+    let start = std::time::Instant::now();
+    let sbb_minus_haa = jsf_double_scalar_mul_mont(s, &g_mont, h, &neg_aa_mont, &p, &d, &ctx);
+    info!(
+        "TIMING: jsf_double_scalar_mul_mont(s*G - h*A) took {:.3}ms",
+        start.elapsed().as_secs_f64() * 1000.0
+    );
+
+    let start = std::time::Instant::now();
+    let result = point_equal_mont(&sbb_minus_haa, &rr_mont, &p, &ctx);
+    info!(
+        "TIMING: point_equal took {:.3}ms",
+        start.elapsed().as_secs_f64() * 1000.0
+    );
+
+    info!(
+        "TIMING: TOTAL verify() took {:.3}ms",
+        total_start.elapsed().as_secs_f64() * 1000.0
+    );
+    result
+}
+
+fn verify_non_mont<T: BrigIntStrict>(public: [u8; 32], msg: &[u8], signature: [u8; 64]) -> bool
 where
     for<'a> &'a T: core::ops::BitAnd<Output = T>
         + core::ops::Rem<&'a T, Output = T>

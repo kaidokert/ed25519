@@ -4,6 +4,10 @@ pub mod strict;
 pub mod field25519;
 pub mod jsf;
 pub mod lazy_field;
+#[cfg(feature = "wide-mont")]
+pub mod montgomery_ctx;
+#[cfg(feature = "wide-mont")]
+pub mod lazy_mont;
 
 // Common traits and types
 

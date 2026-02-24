@@ -6,8 +6,8 @@ edition = "2024"
 [dependencies]
 log = { version = "*", optional = true }
 env_logger = { version = "*", optional = true }
-modmath = "0.1.2"
-fixed-bigint = { version = "0.1.17", features=["use-unsafe"], optional=true }
+modmath = { version = "0.1.3" }
+fixed-bigint = { version = "0.2.2", features=["use-unsafe"], optional=true }
 num-traits = {  version = "0.2" , default-features = false }
 hmac-sha512 = { version = "1", features = ["opt_size"] }
 num-bigint = { version = "0.4.6", optional = true }
@@ -28,6 +28,7 @@ precomputed = []
 fixed-bigint = ["dep:fixed-bigint"]
 fixed-bigint-u64 = ["fixed-bigint"]
 montgomery = []
+wide-mont = ["fixed-bigint", "modmath/wide-mul"]
 montgomery-euclidean = ["montgomery"]
 montgomery-hensels = ["montgomery"]
 num-bigint = ["dep:num-bigint"]
@@ -49,5 +50,3 @@ name = "benchmark"
 [[bin]]
 name = "test_montgomery_performance"
 
-[patch.crates-io]
-modmath = { path = "deps/modmath-rs" }
