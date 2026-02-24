@@ -40,6 +40,8 @@ where
         + core::ops::Rem<&'a T, Output = T>,
 {
     let product = &a * b;
+    #[cfg(feature = "instrument")]
+    modmath::instrument::LAZY_MUL_REM.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
     product % p  // Single reduction on result
 }
 
@@ -48,6 +50,8 @@ pub fn force_reduce<T: BrigIntStrict>(a: T, p: &T) -> T
 where
     for<'a> &'a T: core::ops::Rem<&'a T, Output = T>,
 {
+    #[cfg(feature = "instrument")]
+    modmath::instrument::LAZY_FORCE_REDUCE.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
     a % p
 }
 

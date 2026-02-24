@@ -83,8 +83,14 @@ where
 }
 
 fn main() {
+    #[cfg(feature = "instrument")]
+    modmath::instrument::reset_all();
+
     #[cfg(all(feature = "fixed-bigint", not(feature = "fixed-bigint-u64")))]
     main_inner::<fixed_bigint::FixedUInt<u32, 16>>();
     #[cfg(all(feature = "fixed-bigint", feature = "fixed-bigint-u64"))]
     main_inner::<fixed_bigint::FixedUInt<u64, 8>>();
+
+    #[cfg(feature = "instrument")]
+    modmath::instrument::dump_nonzero();
 }
