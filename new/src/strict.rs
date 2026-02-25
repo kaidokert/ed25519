@@ -980,6 +980,7 @@ fn recover_x_mont<T: BrigIntStrict>(y: T, sign: u8, p: &T, d: T, ctx: &Montgomer
 where
     T: Copy
         + modmath::WideMul
+        + modmath::CiosMontMul
         + num_traits::ops::overflowing::OverflowingAdd
         + num_traits::WrappingMul
         + num_traits::WrappingAdd
@@ -1072,6 +1073,7 @@ fn decompress_edward_point_mont<T: BrigIntStrict>(k: [u8; 32], p: &T, d: &T, ctx
 where
     T: Copy
         + modmath::WideMul
+        + modmath::CiosMontMul
         + num_traits::ops::overflowing::OverflowingAdd
         + num_traits::WrappingMul
         + num_traits::WrappingAdd
@@ -1108,6 +1110,7 @@ fn point_double_mont<T: BrigIntStrict>(pp: &Point<T>, p: &T, ctx: &MontgomeryCtx
 where
     T: Copy
         + modmath::WideMul
+        + modmath::CiosMontMul
         + num_traits::ops::overflowing::OverflowingAdd
         + num_traits::WrappingMul
         + num_traits::WrappingAdd
@@ -1148,6 +1151,7 @@ fn to_niels_mont<T: BrigIntStrict>(pp: &Point<T>, p: &T, d: &T, ctx: &Montgomery
 where
     T: Copy
         + modmath::WideMul
+        + modmath::CiosMontMul
         + num_traits::ops::overflowing::OverflowingAdd
         + num_traits::WrappingMul
         + num_traits::WrappingAdd
@@ -1168,6 +1172,7 @@ fn point_add_niels_mont<T: BrigIntStrict>(pp: &Point<T>, niels: &NielsPoint<T>, 
 where
     T: Copy
         + modmath::WideMul
+        + modmath::CiosMontMul
         + num_traits::ops::overflowing::OverflowingAdd
         + num_traits::WrappingMul
         + num_traits::WrappingAdd
@@ -1204,6 +1209,7 @@ fn point_equal_mont<T: BrigIntStrict>(pp: &Point<T>, qq: &Point<T>, p: &T, ctx: 
 where
     T: Copy
         + modmath::WideMul
+        + modmath::CiosMontMul
         + num_traits::ops::overflowing::OverflowingAdd
         + num_traits::WrappingMul
         + num_traits::WrappingAdd
@@ -1233,6 +1239,7 @@ fn jsf_double_scalar_mul_mont<T: BrigIntStrict>(
 where
     T: Copy
         + modmath::WideMul
+        + modmath::CiosMontMul
         + num_traits::ops::overflowing::OverflowingAdd
         + num_traits::WrappingMul
         + num_traits::WrappingAdd
@@ -1305,6 +1312,7 @@ pub fn verify<T: BrigIntStrict>(public: [u8; 32], msg: &[u8], signature: [u8; 64
 where
     T: Copy
         + modmath::WideMul
+        + modmath::CiosMontMul
         + num_traits::ops::overflowing::OverflowingAdd
         + num_traits::WrappingMul
         + num_traits::WrappingAdd
@@ -1325,6 +1333,7 @@ fn verify_mont<T: BrigIntStrict>(public: [u8; 32], msg: &[u8], signature: [u8; 6
 where
     T: Copy
         + modmath::WideMul
+        + modmath::CiosMontMul
         + num_traits::ops::overflowing::OverflowingAdd
         + num_traits::WrappingMul
         + num_traits::WrappingAdd

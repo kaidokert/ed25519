@@ -8,7 +8,7 @@ use modmath::{
     compute_r_mod_n,
     compute_r2_mod_n,
     wide_redc,
-    wide_montgomery_mul,
+    CiosMontMul,
 };
 
 /// Precomputed Montgomery parameters for a fixed modulus.
@@ -28,6 +28,7 @@ where
         + PartialEq
         + PartialOrd
         + WideMul
+        + CiosMontMul
         + num_traits::ops::overflowing::OverflowingAdd
         + num_traits::WrappingMul
         + num_traits::WrappingAdd
@@ -60,10 +61,11 @@ where
         wide_redc(a_mont, T::zero(), self.modulus, self.n_prime)
     }
 
-    /// Montgomery multiplication: both inputs already in Montgomery form
+    /// Montgomery multiplication: both inputs already in Montgomery form.
+    /// Uses CIOS (Coarsely Integrated Operand Scanning) for ~25% fewer limb multiplies.
     #[inline]
     pub fn mont_mul(&self, a: T, b: T) -> T {
-        wide_montgomery_mul(a, b, self.modulus, self.n_prime)
+        CiosMontMul::cios_mont_mul(a, b, self.modulus, self.n_prime)
     }
 
     /// Montgomery exponentiation: base^exponent mod modulus

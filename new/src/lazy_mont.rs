@@ -5,7 +5,7 @@
 
 use crate::montgomery_ctx::MontgomeryCtx;
 use crate::BrigIntStrict;
-use modmath::WideMul;
+use modmath::{WideMul, CiosMontMul};
 
 /// Montgomery-domain modular multiplication.
 /// Both a and b must already be in Montgomery form.
@@ -16,6 +16,7 @@ where
     T: BrigIntStrict
         + Copy
         + WideMul
+        + CiosMontMul
         + num_traits::ops::overflowing::OverflowingAdd
         + num_traits::WrappingMul
         + num_traits::WrappingAdd

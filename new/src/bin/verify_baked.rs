@@ -42,6 +42,7 @@ fn main_inner<T: ed25519n::BrigInt>()
 where
     T: Copy
         + modmath::WideMul
+        + modmath::CiosMontMul
         + num_traits::ops::overflowing::OverflowingAdd
         + num_traits::WrappingMul
         + num_traits::WrappingAdd

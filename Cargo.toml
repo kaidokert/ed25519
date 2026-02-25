@@ -5,3 +5,4 @@ members = [ "old", "new" ]
 
 [patch.crates-io]
 modmath = { path = "deps/modmath-rs/modmath" }
+fixed-bigint = { path = "deps/fixed-bigint" }
