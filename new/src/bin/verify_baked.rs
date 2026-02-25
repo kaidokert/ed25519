@@ -87,12 +87,14 @@ fn main() {
     #[cfg(feature = "instrument")]
     modmath::instrument::reset_all();
 
-    #[cfg(all(feature = "fixed-bigint", not(feature = "fixed-bigint-u64"), not(feature = "fixed-bigint-256")))]
+    #[cfg(all(feature = "fixed-bigint", not(feature = "fixed-bigint-u64"), not(feature = "fixed-bigint-256"), not(feature = "fixed-bigint-u8")))]
     main_inner::<fixed_bigint::FixedUInt<u32, 16>>();
-    #[cfg(all(feature = "fixed-bigint", feature = "fixed-bigint-u64", not(feature = "fixed-bigint-256")))]
+    #[cfg(all(feature = "fixed-bigint", feature = "fixed-bigint-u64", not(feature = "fixed-bigint-256"), not(feature = "fixed-bigint-u8")))]
     main_inner::<fixed_bigint::FixedUInt<u64, 8>>();
-    #[cfg(all(feature = "fixed-bigint", feature = "fixed-bigint-256"))]
+    #[cfg(all(feature = "fixed-bigint", feature = "fixed-bigint-256", not(feature = "fixed-bigint-u8")))]
     main_inner::<fixed_bigint::FixedUInt<u64, 4>>();
+    #[cfg(all(feature = "fixed-bigint", feature = "fixed-bigint-u8"))]
+    main_inner::<fixed_bigint::FixedUInt<u8, 32>>();
 
     #[cfg(feature = "instrument")]
     modmath::instrument::dump_nonzero();

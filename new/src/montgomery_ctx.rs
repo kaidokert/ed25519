@@ -65,7 +65,8 @@ where
     /// Uses CIOS (Coarsely Integrated Operand Scanning) for ~25% fewer limb multiplies.
     #[inline]
     pub fn mont_mul(&self, a: T, b: T) -> T {
-        CiosMontMul::cios_mont_mul(a, b, self.modulus, self.n_prime)
+        // None only for zero-width types, which can't represent a modulus
+        CiosMontMul::cios_mont_mul(a, b, self.modulus, self.n_prime).unwrap()
     }
 
     /// Montgomery exponentiation: base^exponent mod modulus
