@@ -171,6 +171,28 @@ impl BrigIntConstrained for fixed_bigint::FixedUInt<u64, 8> {
     }
 }
 
+#[cfg(feature = "fixed-bigint")]
+impl BrigIntStrict for fixed_bigint::FixedUInt<u64, 4> {
+    fn from_bytes_le(bytes: &[u8]) -> Self {
+        fixed_bigint::FixedUInt::from_le_bytes(bytes)
+    }
+
+    fn to_bytes_le<'a>(&self, out: &'a mut [u8]) -> &'a [u8] {
+        self.to_le_bytes(out).unwrap()
+    }
+}
+
+#[cfg(feature = "fixed-bigint")]
+impl BrigIntConstrained for fixed_bigint::FixedUInt<u64, 4> {
+    fn from_bytes_le(bytes: &[u8]) -> Self {
+        fixed_bigint::FixedUInt::from_le_bytes(bytes)
+    }
+
+    fn to_bytes_le<'a>(&self, out: &'a mut [u8]) -> &'a [u8] {
+        self.to_le_bytes(out).unwrap()
+    }
+}
+
 #[cfg(feature = "bnum")]
 impl BrigIntConstrained for bnum::types::U512 {
     fn from_bytes_le(bytes: &[u8]) -> Self {

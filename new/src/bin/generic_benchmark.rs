@@ -34,12 +34,16 @@ fn benchmark_backend(backend_name: &str, mode: &str) -> Option<(f64, f64)> {
             ))
         ))]
         {
-            #[cfg(feature = "fixed-bigint-u64")]
+            #[cfg(all(feature = "fixed-bigint-u64", not(feature = "fixed-bigint-256")))]
             let _ = ed25519n::strict::verify::<fixed_bigint::FixedUInt<u64, 8>>(
                 PUBLIC_KEY, MESSAGE, SIGNATURE,
             );
-            #[cfg(not(feature = "fixed-bigint-u64"))]
+            #[cfg(not(any(feature = "fixed-bigint-u64", feature = "fixed-bigint-256")))]
             let _ = ed25519n::strict::verify::<fixed_bigint::FixedUInt<u32, 16>>(
+                PUBLIC_KEY, MESSAGE, SIGNATURE,
+            );
+            #[cfg(feature = "fixed-bigint-256")]
+            let _ = ed25519n::strict::verify::<fixed_bigint::FixedUInt<u64, 4>>(
                 PUBLIC_KEY, MESSAGE, SIGNATURE,
             );
         }
@@ -89,15 +93,21 @@ fn benchmark_backend(backend_name: &str, mode: &str) -> Option<(f64, f64)> {
                 ))
             ))]
             {
-                #[cfg(feature = "fixed-bigint-u64")]
+                #[cfg(all(feature = "fixed-bigint-u64", not(feature = "fixed-bigint-256")))]
                 {
                     ed25519n::strict::verify::<fixed_bigint::FixedUInt<u64, 8>>(
                         PUBLIC_KEY, MESSAGE, SIGNATURE,
                     )
                 }
-                #[cfg(not(feature = "fixed-bigint-u64"))]
+                #[cfg(not(any(feature = "fixed-bigint-u64", feature = "fixed-bigint-256")))]
                 {
                     ed25519n::strict::verify::<fixed_bigint::FixedUInt<u32, 16>>(
+                        PUBLIC_KEY, MESSAGE, SIGNATURE,
+                    )
+                }
+                #[cfg(feature = "fixed-bigint-256")]
+                {
+                    ed25519n::strict::verify::<fixed_bigint::FixedUInt<u64, 4>>(
                         PUBLIC_KEY, MESSAGE, SIGNATURE,
                     )
                 }
@@ -185,11 +195,15 @@ fn main() {
             ))
         ))]
         {
-            #[cfg(feature = "fixed-bigint-u64")]
+            #[cfg(feature = "fixed-bigint-256")]
+            {
+                ("fixed-bigint (u64x4, 256-bit)", "strict")
+            }
+            #[cfg(all(feature = "fixed-bigint-u64", not(feature = "fixed-bigint-256")))]
             {
                 ("fixed-bigint (u64)", "strict")
             }
-            #[cfg(not(feature = "fixed-bigint-u64"))]
+            #[cfg(not(any(feature = "fixed-bigint-u64", feature = "fixed-bigint-256")))]
             {
                 ("fixed-bigint (u32)", "strict")
             }

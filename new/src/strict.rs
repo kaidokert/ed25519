@@ -325,8 +325,32 @@ where
     let finalized = compact_sha.finalize();
     let hash = finalized.as_slice();
 
-    let result_nomodq = T::from_bytes_le(&hash[0..64]);
-    result_nomodq % q
+    // Bit-by-bit Horner reduction: processes the full 512-bit hash without
+    // requiring T to hold all 64 bytes. Works for any T >= 253 bits (> q).
+    // At each step acc < q, so 2*acc < 2q < 2^254, which fits in 256-bit T.
+    let mut acc = T::zero();
+    let one = T::one();
+    // Process from most significant bit (byte 63, bit 7) to least (byte 0, bit 0)
+    // Hash is little-endian: byte 63 is MSB
+    for byte_idx in (0..64).rev() {
+        for bit_idx in (0..8).rev() {
+            // acc = 2*acc + bit, then reduce
+            let (doubled, _overflow) = acc.overflowing_add(&acc);
+            acc = doubled;
+            if (hash[byte_idx] >> bit_idx) & 1 == 1 {
+                let (added, _) = acc.overflowing_add(&one);
+                acc = added;
+            }
+            // acc < 2q + 1 here, so at most two subtractions needed
+            if &acc >= q {
+                acc = &acc - q;
+            }
+            if &acc >= q {
+                acc = &acc - q;
+            }
+        }
+    }
+    acc
 }
 
 // LAZY Edwards point doubling for Ed25519 (a = -1)
