@@ -55,22 +55,33 @@ fn benchmark_dalek() -> (f64, f64) {
 fn benchmark_ours() -> (f64, f64) {
     // Disable logging to avoid measurement overhead
     unsafe { std::env::set_var("RUST_LOG", "off") };
-    
+
     // Warmup
     for _ in 0..10 {
+        #[cfg(feature = "fixed-bigint-256")]
+        let _ = ed25519n::strict::verify::<fixed_bigint::FixedUInt<u64, 4>>(
+            PUBLIC_KEY, MESSAGE, SIGNATURE,
+        );
+        #[cfg(not(feature = "fixed-bigint-256"))]
         let _ = ed25519n::strict::verify::<fixed_bigint::FixedUInt<u64, 8>>(
             PUBLIC_KEY, MESSAGE, SIGNATURE,
         );
     }
-    
+
     println!("Benchmarking our implementation ({} iterations)...", ITERATIONS);
     let start = Instant::now();
     let mut successes = 0;
-    
+
     for _ in 0..ITERATIONS {
-        if ed25519n::strict::verify::<fixed_bigint::FixedUInt<u64, 8>>(
+        #[cfg(feature = "fixed-bigint-256")]
+        let result = ed25519n::strict::verify::<fixed_bigint::FixedUInt<u64, 4>>(
             PUBLIC_KEY, MESSAGE, SIGNATURE,
-        ) {
+        );
+        #[cfg(not(feature = "fixed-bigint-256"))]
+        let result = ed25519n::strict::verify::<fixed_bigint::FixedUInt<u64, 8>>(
+            PUBLIC_KEY, MESSAGE, SIGNATURE,
+        );
+        if result {
             successes += 1;
         }
     }
