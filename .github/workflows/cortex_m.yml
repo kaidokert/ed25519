@@ -20,7 +20,7 @@ jobs:
     - uses: dtolnay/rust-toolchain@stable
       with:
         targets: thumbv6m-none-eabi, thumbv7m-none-eabi, thumbv7em-none-eabi
-        components: llvm-tools-preview
+        components: llvm-tools
 
     - name: Install QEMU
       run: sudo apt-get update && sudo apt-get install -y qemu-system-arm

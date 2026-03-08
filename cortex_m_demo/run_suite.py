@@ -4,6 +4,7 @@
 Generates a markdown metrics table from the results.
 """
 
+import os
 import re
 import subprocess
 import sys
@@ -46,10 +47,34 @@ def run_qemu(target, example):
     return out + err
 
 
+def find_size_tools():
+    """Return list of size tool paths to try."""
+    tools = ["arm-none-eabi-size", "llvm-size"]
+    # llvm-size from rustup llvm-tools-preview lives under the sysroot
+    try:
+        result = subprocess.run(
+            ["rustc", "--print", "sysroot"],
+            capture_output=True, text=True, timeout=10,
+        )
+        if result.returncode == 0:
+            sysroot = result.stdout.strip()
+            # Walk lib/rustlib/*/bin/ for llvm-size
+            rustlib = os.path.join(sysroot, "lib", "rustlib")
+            if os.path.isdir(rustlib):
+                for entry in os.listdir(rustlib):
+                    candidate = os.path.join(rustlib, entry, "bin", "llvm-size")
+                    if os.path.isfile(candidate):
+                        tools.append(candidate)
+                        break
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        pass
+    return tools
+
+
 def get_text_size(target, example):
     """Get .text section size from the ELF using arm-none-eabi-size."""
     elf = f"target/{target}/release/examples/{example}"
-    for tool in ["arm-none-eabi-size", "llvm-size"]:
+    for tool in find_size_tools():
         try:
             rc, out, _ = run_cmd([tool, "-A", elf])
             if rc == 0:
