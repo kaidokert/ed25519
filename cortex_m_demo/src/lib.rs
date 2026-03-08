@@ -60,4 +60,4 @@ pub fn test_fixture(testable: fn() -> bool, backend: &str) {
     }
 }
 
-use panic_halt as _;
+use panic_semihosting as _;

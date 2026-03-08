@@ -10,7 +10,7 @@ autobenches = false
 cortex-m = "0.7"
 cortex-m-rt = "0.7"
 cortex-m-semihosting = "0.5"
-panic-halt = "1"
+panic-semihosting = { version = "0.6", features = ["exit"] }
 
 ed25519_heapless = { path = "../ed25519", default-features = false, features = [
     "fixed-bigint",
