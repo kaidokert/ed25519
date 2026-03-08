@@ -22,7 +22,7 @@ def run_cmd(args, **kwargs):
 
 def build():
     """Build the example. Returns True on success."""
-    rc, out, err = run_cmd(
+    rc, _out, err = run_cmd(
         ["cargo", "build", "--release", "--example", EXAMPLE]
     )
     if rc != 0:
@@ -34,7 +34,7 @@ def build():
 
 def run_simavr():
     """Run the example via cargo run (uses .cargo/config.toml runner). Returns stdout+stderr."""
-    rc, out, err = run_cmd(
+    _rc, out, err = run_cmd(
         ["cargo", "run", "--release", "--example", EXAMPLE]
     )
     return out + err
@@ -61,10 +61,7 @@ def parse_output(output):
     """Parse AVR serial output. Returns dict with accept, stack, time_ms, ticks."""
     result = {"accepted": False, "stack": None, "time_ms": None, "ticks": None}
 
-    if "ACCEPT" in output:
-        result["accepted"] = True
-    elif "REJECT" in output:
-        result["accepted"] = False
+    result["accepted"] = "ACCEPT" in output
 
     m = re.search(r"Time:\s*(\d+)\s*ms\s*\((\d+)\s*ticks\)", output)
     if m:

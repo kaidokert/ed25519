@@ -35,5 +35,7 @@ jobs:
         restore-keys: cortex-m-
 
     - name: Run Cortex-M suite
-      run: python3 run_suite.py | tee -a "$GITHUB_STEP_SUMMARY"
+      run: |
+        set -o pipefail
+        python3 run_suite.py | tee -a "$GITHUB_STEP_SUMMARY"
       working-directory: cortex_m_demo

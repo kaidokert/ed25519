@@ -27,7 +27,7 @@ def run_cmd(args, **kwargs):
 
 def build_examples(target):
     """Build all examples for a target. Returns True on success."""
-    rc, out, err = run_cmd(
+    rc, _out, err = run_cmd(
         ["cargo", "build", "--target", target, "--release", "--examples"]
     )
     if rc != 0:
@@ -39,7 +39,7 @@ def build_examples(target):
 
 def run_qemu(target, example):
     """Run an example on QEMU via cargo run. Returns stdout."""
-    rc, out, err = run_cmd(
+    _rc, out, err = run_cmd(
         ["cargo", "run", "--target", target, "--release", "--example", example]
     )
     # QEMU output may be on stdout or stderr depending on semihosting
@@ -49,27 +49,17 @@ def run_qemu(target, example):
 def get_text_size(target, example):
     """Get .text section size from the ELF using arm-none-eabi-size."""
     elf = f"target/{target}/release/examples/{example}"
-    try:
-        rc, out, _ = run_cmd(["arm-none-eabi-size", "-A", elf])
-        if rc == 0:
-            for line in out.splitlines():
-                if line.startswith(".text"):
-                    parts = line.split()
-                    if len(parts) >= 2:
-                        return int(parts[1])
-    except (subprocess.TimeoutExpired, FileNotFoundError):
-        pass
-    # Fallback: try llvm-size
-    try:
-        rc, out, _ = run_cmd(["llvm-size", "-A", elf])
-        if rc == 0:
-            for line in out.splitlines():
-                if line.startswith(".text"):
-                    parts = line.split()
-                    if len(parts) >= 2:
-                        return int(parts[1])
-    except (subprocess.TimeoutExpired, FileNotFoundError):
-        pass
+    for tool in ["arm-none-eabi-size", "llvm-size"]:
+        try:
+            rc, out, _ = run_cmd([tool, "-A", elf])
+            if rc == 0:
+                for line in out.splitlines():
+                    if line.startswith(".text"):
+                        parts = line.split()
+                        if len(parts) >= 2:
+                            return int(parts[1])
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            pass
     return None
 
 
@@ -104,7 +94,7 @@ def main():
             try:
                 output = run_qemu(target, example)
             except subprocess.TimeoutExpired:
-                print(f"    TIMEOUT", file=sys.stderr)
+                print("    TIMEOUT", file=sys.stderr)
                 failures.append(f"Timeout: {example} on {label}")
                 continue
 
