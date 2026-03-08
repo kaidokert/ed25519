@@ -1,0 +1,35 @@
+cargo-features = ["profile-rustflags"]
+
+[package]
+name = "avr_demo"
+version = "0.1.0"
+edition = "2024"
+autobins = false
+autotests = false
+autobenches = false
+
+[dependencies]
+ed25519_heapless = { path = "../ed25519", default-features = false, features = ["fixed-bigint", "fixed-bigint-u8"] }
+fixed-bigint = { version = "0.2.5", features = ["use-unsafe"] }
+ufmt = { version = "0.2" }
+
+[dependencies.arduino-hal]
+git = "https://github.com/rahix/avr-hal"
+rev = "ravedude-0.2.0"
+features = ["arduino-mega2560"]
+
+[profile.dev]
+panic = "abort"
+lto = "fat"
+opt-level = "z"
+codegen-units = 1
+strip = "none"
+debug = "full"
+rustflags = ["-Z", "ub-checks=no"]
+
+[profile.release]
+panic = "abort"
+codegen-units = 1
+debug = true
+lto = true
+opt-level = "s"
