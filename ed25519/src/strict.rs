@@ -316,7 +316,7 @@ where
 }
 
 #[inline(never)]
-fn jsf_double_scalar_mul_mont<T>(
+fn naf_double_scalar_mul_mont<T>(
     s: T,
     g: &Point<T>,
     h: T,
@@ -342,8 +342,8 @@ where
         + core::ops::Mul<&'a T, Output = T>
         + core::ops::Div<&'a T, Output = T>,
 {
-    // Scope s, h — consumed by JsfIterator::new, dead after this
-    let jsf = { crate::jsf::JsfIterator::new(s, h) };
+    // Scope s, h — consumed by NafIterator::new, dead after this
+    let naf = { crate::jsf::NafIterator::new(s, h) };
 
     // Scope zero_m, one_m — only needed for identity point construction
     let mut result = {
@@ -358,19 +358,19 @@ where
     let neg_g_niels = (g_niels.1, g_niels.0, lazy_mod_sub(T::zero(), &g_niels.2, p));
     let neg_a_niels = (a_niels.1, a_niels.0, lazy_mod_sub(T::zero(), &a_niels.2, p));
 
-    for digit in jsf.digits_msb_first() {
+    for digit in naf.digits_msb_first() {
         result = point_double_mont(&result, p, ctx);
         match digit.s_digit {
             1 => result = point_add_niels_mont(&result, &g_niels, p, ctx),
             -1 => result = point_add_niels_mont(&result, &neg_g_niels, p, ctx),
             0 => {}
-            _ => unreachable!("JSF digits must be -1, 0, or 1"),
+            _ => unreachable!("NAF digits must be -1, 0, or 1"),
         }
         match digit.h_digit {
             1 => result = point_add_niels_mont(&result, &a_niels, p, ctx),
             -1 => result = point_add_niels_mont(&result, &neg_a_niels, p, ctx),
             0 => {}
-            _ => unreachable!("JSF digits must be -1, 0, or 1"),
+            _ => unreachable!("NAF digits must be -1, 0, or 1"),
         }
     }
 
@@ -467,7 +467,7 @@ where
         .expect("invalid signature length");
     let s = T::from_bytes_le(&s_bytes);
 
-    // Phase 3: SHA-512 hash — scope q and storage so they die before JSF
+    // Phase 3: SHA-512 hash — scope q and storage so they die before NAF
     let h = {
         let q = T::from_bytes_le(&Q_BYTES);
         if s >= q {
@@ -492,8 +492,8 @@ where
         )
     }; // g normal-form (128B) is now dead
 
-    // Phase 5: JSF double scalar multiplication
-    let sbb_minus_haa = jsf_double_scalar_mul_mont(s, &g_mont, h, &neg_aa_mont, &p, &d, &ctx);
+    // Phase 5: Paired NAF double scalar multiplication
+    let sbb_minus_haa = naf_double_scalar_mul_mont(s, &g_mont, h, &neg_aa_mont, &p, &d, &ctx);
 
     // Phase 6: Final comparison
     point_equal_mont(&sbb_minus_haa, &rr_mont, &p, &ctx)

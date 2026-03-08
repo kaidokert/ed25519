@@ -99,7 +99,7 @@ where
     /// Montgomery-based modular inverse via Fermat's little theorem.
     /// Computes a^{-1} mod p = a^{p-2} mod p (only valid when modulus is prime).
     /// Zero divisions — uses mont_exp internally.
-    pub fn mont_inv(&self, a: T) -> T
+    pub(crate) fn mont_inv(&self, a: T) -> T
     where
         T: core::ops::Sub<Output = T>
             + core::ops::Shr<usize, Output = T>

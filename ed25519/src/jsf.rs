@@ -1,20 +1,25 @@
-// Joint Sparse Form (JSF) implementation for Ed25519
-// Processes two scalars simultaneously with ~50% fewer point additions
-// No lookup tables - perfect for code-size constrained environments
+// Paired NAF (Non-Adjacent Form) recoding for double-scalar multiplication.
+// Each scalar is independently recoded into signed digits {-1, 0, 1} using NAF,
+// then the two digit streams are paired for simultaneous processing.
+// No lookup tables - perfect for code-size constrained environments.
+//
+// TODO: implement true Joint Sparse Form (JSF / Solinas) which makes joint
+// decisions when both scalars are odd, guaranteeing at most one non-zero digit
+// per position. This would reduce point additions by ~33% vs paired NAF.
 
-/// JSF digit: -1, 0, or 1
+/// NAF digit pair: -1, 0, or 1 for each of two scalars
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct JsfDigit {
+pub struct NafDigit {
     pub s_digit: i8, // For scalar s: -1, 0, or 1
     pub h_digit: i8, // For scalar h: -1, 0, or 1
 }
 
-// Max JSF digits: Ed25519 scalars are ~255 bits, carry can add 1
-const MAX_JSF_DIGITS: usize = 258;
+// Max NAF digits: Ed25519 scalars are ~255 bits, carry can add 1
+const MAX_NAF_DIGITS: usize = 258;
 
 // Packed storage: 2 bits per digit value {-1,0,1}, 4 bits per (s,h) pair, 2 pairs per byte
 // Encoding: -1 → 0b11, 0 → 0b00, 1 → 0b01 (zero-init gives all-zeros = all digit 0)
-const PACKED_JSF_BYTES: usize = MAX_JSF_DIGITS.div_ceil(2); // 129
+const PACKED_NAF_BYTES: usize = MAX_NAF_DIGITS.div_ceil(2); // 129
 
 /// Encode a digit value {-1, 0, 1} into 2 bits
 const fn encode_digit(d: i8) -> u8 {
@@ -27,16 +32,16 @@ const fn decode_digit(raw: u8) -> i8 {
     ((raw << 6) as i8) >> 6
 }
 
-/// JSF generator that produces signed digits {-1, 0, 1} for two scalars
-/// Reduces the density of non-zero digits compared to binary representation
-/// Digits are packed: 4 bits per (s,h) pair, 129 bytes total vs 516 unpacked
-pub struct JsfIterator {
-    packed: [u8; PACKED_JSF_BYTES],
+/// Paired NAF generator that produces signed digits {-1, 0, 1} for two scalars.
+/// Reduces the density of non-zero digits compared to binary representation.
+/// Digits are packed: 4 bits per (s,h) pair, 129 bytes total vs 516 unpacked.
+pub struct NafIterator {
+    packed: [u8; PACKED_NAF_BYTES],
     len: usize,
     index: usize,
 }
 
-impl JsfIterator {
+impl NafIterator {
     /// Store a digit pair at the given index
     fn pack_set(&mut self, idx: usize, s_digit: i8, h_digit: i8) {
         let byte_idx = idx / 2;
@@ -49,21 +54,21 @@ impl JsfIterator {
     }
 
     /// Read a digit pair from the given index
-    fn pack_get(&self, idx: usize) -> JsfDigit {
+    fn pack_get(&self, idx: usize) -> NafDigit {
         let byte_idx = idx / 2;
         let nibble = if idx.is_multiple_of(2) {
             self.packed[byte_idx] & 0x0F
         } else {
             self.packed[byte_idx] >> 4
         };
-        JsfDigit {
+        NafDigit {
             s_digit: decode_digit((nibble >> 2) & 0x03),
             h_digit: decode_digit(nibble & 0x03),
         }
     }
 
-    /// Generate JSF representation for two scalars
-    /// Returns iterator that processes from MSB to LSB
+    /// Generate paired NAF representation for two scalars.
+    /// Returns iterator that processes from MSB to LSB.
     pub fn new<T>(s: T, h: T) -> Self
     where
         T: num_traits::Zero
@@ -77,8 +82,8 @@ impl JsfIterator {
             + core::ops::Add<&'a T, Output = T>
             + core::ops::Sub<&'a T, Output = T>,
     {
-        let mut iter = JsfIterator {
-            packed: [0u8; PACKED_JSF_BYTES],
+        let mut iter = NafIterator {
+            packed: [0u8; PACKED_NAF_BYTES],
             len: 0,
             index: 0,
         };
@@ -93,13 +98,13 @@ impl JsfIterator {
         let two = one + one;
         let three = two + one;
 
-        // Process scalars bit by bit to generate JSF digits
+        // Process scalars bit by bit to generate NAF digits
         while s_working > zero || h_working > zero {
             // Extract low bits from both scalars
             let s_bit = (&s_working & &one) == one;
             let h_bit = (&h_working & &one) == one;
 
-            // JSF recoding rules to minimize non-zero digits
+            // NAF recoding rules to minimize non-zero digits
             let (s_digit, s_carry) = if s_bit {
                 let s_low_2bits = &s_working & &three; // & 3
                 if s_low_2bits == one || s_low_2bits == two {
@@ -122,7 +127,7 @@ impl JsfIterator {
                 (0i8, false)
             };
 
-            if iter.len < MAX_JSF_DIGITS {
+            if iter.len < MAX_NAF_DIGITS {
                 iter.pack_set(iter.len, s_digit, h_digit);
                 iter.len += 1;
             }
@@ -143,13 +148,13 @@ impl JsfIterator {
     }
 
     /// Iterate from MSB to LSB (reverse order for scalar multiplication)
-    pub fn digits_msb_first(&self) -> impl Iterator<Item = JsfDigit> + '_ {
+    pub fn digits_msb_first(&self) -> impl Iterator<Item = NafDigit> + '_ {
         (0..self.len).rev().map(move |i| self.pack_get(i))
     }
 }
 
-impl Iterator for JsfIterator {
-    type Item = JsfDigit;
+impl Iterator for NafIterator {
+    type Item = NafDigit;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.index < self.len {
@@ -167,15 +172,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_jsf_basic() {
+    fn test_naf_basic() {
         // Test with small values
         let s = 5u64; // Binary: 101
         let h = 3u64; // Binary: 11
 
-        let jsf = JsfIterator::new(s, h);
-        let digits: Vec<_> = jsf.digits_msb_first().collect();
+        let naf = NafIterator::new(s, h);
+        let digits: Vec<_> = naf.digits_msb_first().collect();
 
-        // Should generate some JSF digits
+        // Should generate some NAF digits
         assert!(!digits.is_empty());
 
         // All digits should be in range [-1, 0, 1]
@@ -186,7 +191,7 @@ mod tests {
     }
 
     #[test]
-    fn test_jsf_encode_decode_roundtrip() {
+    fn test_naf_encode_decode_roundtrip() {
         for d in [-1i8, 0, 1] {
             let encoded = encode_digit(d);
             let decoded = decode_digit(encoded);
@@ -195,9 +200,9 @@ mod tests {
     }
 
     #[test]
-    fn test_jsf_pack_roundtrip() {
-        let mut iter = JsfIterator {
-            packed: [0u8; PACKED_JSF_BYTES],
+    fn test_naf_pack_roundtrip() {
+        let mut iter = NafIterator {
+            packed: [0u8; PACKED_NAF_BYTES],
             len: 0,
             index: 0,
         };
