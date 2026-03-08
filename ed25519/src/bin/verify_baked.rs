@@ -16,34 +16,26 @@ where
         + core::ops::Div<&'a T, Output = T>
         + core::ops::Sub<T, Output = T>,
 {
-    let args: Vec<String> = std::env::args().collect();
+    env_logger::Builder::from_default_env()
+        .filter_level(log::LevelFilter::Debug)
+        .format_timestamp_micros()
+        .init();
 
-    if args.len() != 4 {
-        eprintln!("Usage: {} pkfile datafile sigfile", args[0]);
-        std::process::exit(1);
-    }
-
-    let pk_path = &args[1];
-    let data_path = &args[2];
-    let sig_path = &args[3];
-
-    let pk = std::fs::read(pk_path).unwrap_or_else(|e| {
-        eprintln!("Error reading '{}': {}", pk_path, e);
-        std::process::exit(1);
-    });
-    let data = std::fs::read(data_path).unwrap_or_else(|e| {
-        eprintln!("Error reading '{}': {}", data_path, e);
-        std::process::exit(1);
-    });
-    let signature = std::fs::read(sig_path).unwrap_or_else(|e| {
-        eprintln!("Error reading '{}': {}", sig_path, e);
-        std::process::exit(1);
-    });
-
-    let pk: [u8; 32] = pk.try_into().expect("public key is not 32 bytes");
-    let signature: [u8; 64] = signature.try_into().expect("signature is not 64 bytes");
-
-    let verification = ed25519_heapless::verify::<T>(pk, &data, signature);
+    let pk = [
+        0x33, 0xbc, 0x91, 0xa3, 0xca, 0xb8, 0x87, 0xc8, 0xbf, 0x3c, 0x63, 0x61, 0x46, 0xd2, 0xe3,
+        0x8d, 0x58, 0xd0, 0xca, 0xf3, 0x3b, 0x77, 0x86, 0x25, 0xc7, 0x95, 0x2b, 0xc7, 0x6f, 0xc0,
+        0x73, 0xac,
+    ];
+    let signature = [
+        0x2f, 0xec, 0x62, 0xdf, 0x49, 0x4f, 0xf5, 0x70, 0x5f, 0x5c, 0xee, 0x45, 0xbc, 0x5e, 0x89,
+        0xc2, 0x32, 0xc1, 0x61, 0x88, 0x37, 0x87, 0xce, 0x50, 0xa2, 0x9b, 0xe8, 0x8c, 0xb1, 0x92,
+        0xc8, 0x81, 0x25, 0x62, 0x74, 0xed, 0xd7, 0x67, 0x2a, 0xa5, 0x52, 0x79, 0x57, 0xeb, 0x0d,
+        0xdc, 0x0e, 0x60, 0x95, 0x23, 0x74, 0x36, 0x22, 0x32, 0x85, 0xf6, 0xd9, 0x30, 0x6b, 0x96,
+        0x63, 0x14, 0x86, 0x02,
+    ];
+    let d_str = "Hello world!\n";
+    let data = d_str.as_bytes();
+    let verification = ed25519_heapless::verify::<T>(pk, data, signature);
 
     if verification {
         println!("ACCEPT");

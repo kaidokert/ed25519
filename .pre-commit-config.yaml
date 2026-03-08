@@ -17,5 +17,5 @@ repos:
     rev: v1.0
     hooks:
     -   id: fmt
-        name: Fmt for ed25519
+        name: Fmt for ed25519_heapless
         args: ['--manifest-path=ed25519/Cargo.toml', '--']

@@ -8,3 +8,5 @@ todo.txt
 *.sig
 *.py
 Cargo.lock
+deps/
+testdata/

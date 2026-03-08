@@ -1,25 +1,40 @@
 [package]
-name = "ed25519"
+name = "ed25519_heapless"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
+description = "Ed25519 signature verification, generic over bigint backends"
+license = "GPL-3.0-only"
+repository = "https://github.com/kaidokert/ed25519"
+keywords = ["ed25519", "signature", "verification", "no_std", "embedded"]
+categories = ["cryptography", "no-std"]
+
+[dependencies]
+log = { version = "0.4", optional = true }
+env_logger = { version = "0.11", optional = true }
+modmath = { version = "0.1.5", features = ["wide-mul"] }
+fixed-bigint = { version = "0.2.5", features=["use-unsafe"], optional=true }
+num-traits = {  version = "0.2" , default-features = false }
+hmac-sha512 = { version = "1", default-features = false, features = ["opt_size"] }
 
 [features]
 default = ["std"]
-std=[]
+std = ["log", "env_logger"]
+defmt = []
+fixed-bigint = ["dep:fixed-bigint"]
+fixed-bigint-u64 = ["fixed-bigint"]
+fixed-bigint-256 = ["fixed-bigint"]
+fixed-bigint-u8 = ["fixed-bigint"]
 
-[dependencies]
-num-traits = { version = "0.2.18", default-features = false }
-# lazy_static depends on spin, which has "portable_atomic" < i need to pull this
-lazy_static = { version = "1.4.0", default-features = false, features = ["spin_no_std"] }
-rand = { version = "0.9", default-features = false }
-sha2 = { version = "=0.11.0-pre.4", default-features = false, features = ["oid"] }
-# sha2 = { version = "0.10.8", default-features = false }
-fixed-bigint = { version = "0.1.14", features=["use-unsafe"]}
-modmath = { version = "0.1.0", default-features = false }
+[[bin]]
+name = "verify_baked"
+required-features = ["fixed-bigint"]
 
-[dev-dependencies]
-# intentionally empty
+[[bin]]
+name = "verify"
+required-features = ["fixed-bigint"]
+
+[[bin]]
+name = "sign"
 
 [[bin]]
 name = "keygen"
-required-features = ["thread_rng"]
