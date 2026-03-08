@@ -123,7 +123,7 @@ impl From<i32> for BigInt {
     }
 }
 impl From<i64> for BigInt {
-    fn from(value: i64) -> Self {
+    fn from(_value: i64) -> Self {
         todo!()
     }
 }
