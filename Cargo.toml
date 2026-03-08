@@ -2,3 +2,4 @@
 resolver = "2"
 
 members = [ "ed25519" ]
+exclude = [ "avr_demo" ]
