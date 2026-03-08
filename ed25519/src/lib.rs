@@ -24,21 +24,21 @@ pub mod hex {
     use lazy_static::lazy_static;
 
     lazy_static! {
-        pub static ref P: BigInt = BigInt::from(2).pow(255) - BigInt::from(19);
-        pub static ref A24: BigInt = BigInt::from(121666);
-/*
-        pub static ref D: BigInt = (BigInt::from(-121665)
-            * modp_inv(&BigInt::from(121666), &P.clone()))
-        .rem_euclid(&P.clone());
-*/
-        pub static ref D: BigInt = {
-            let p = P.clone();
-            // Replace -121665 with (P - 121665) to avoid negatives
-            let numerator = &p - BigInt::from(121665); 
-            let inv_121666 = modp_inv(&A24, &p); // A24 is 121666, so reuse it
-            (numerator * inv_121666).rem_euclid(&p)
-        };        
-    }
+            pub static ref P: BigInt = BigInt::from(2).pow(255) - BigInt::from(19);
+            pub static ref A24: BigInt = BigInt::from(121666);
+    /*
+            pub static ref D: BigInt = (BigInt::from(-121665)
+                * modp_inv(&BigInt::from(121666), &P.clone()))
+            .rem_euclid(&P.clone());
+    */
+            pub static ref D: BigInt = {
+                let p = P.clone();
+                // Replace -121665 with (P - 121665) to avoid negatives
+                let numerator = &p - BigInt::from(121665);
+                let inv_121666 = modp_inv(&A24, &p); // A24 is 121666, so reuse it
+                (numerator * inv_121666).rem_euclid(&p)
+            };
+        }
 
     // Extract the keys from the hex string
     pub fn decode(hexstr: &str) -> Result<BigInt, num_bigint::ParseBigIntError> {
@@ -298,38 +298,38 @@ pub mod ed25519 {
     pub type Point = (BigInt, BigInt, BigInt, BigInt);
 
     lazy_static! {
-        pub static ref P: BigInt = BigInt::from(2).pow(255) - BigInt::from(19);
-        pub static ref A24: BigInt = BigInt::from(121666);
-/*
-        pub static ref D: BigInt = (BigInt::from(-121665)
-            * super::hex::modp_inv(&BigInt::from(121666), &P.clone()))
-        .rem_euclid(&P.clone());
- */
-        pub static ref D: BigInt = {
-            let p = P.clone();
-            // Replace -121665 with (P - 121665) to avoid negatives
-            let numerator = &p - BigInt::from(121665); 
-            let inv_121666 = super::hex::modp_inv(&A24, &p); // A24 is 121666, so reuse it
-            (numerator * inv_121666).rem_euclid(&p)
-        };        
-        pub static ref G_Y: BigInt = (BigInt::from(4)
-            * super::hex::modp_inv(&BigInt::from(5), &P.clone()))
-        .rem_euclid(&P.clone());
-        pub static ref G_X: BigInt = super::hex::recover_x(&G_Y.clone(), 0, P.clone(), D.clone())
-            .expect("Error in recover_x or modp_inv");
-        pub static ref G: Point = (
-            G_X.clone(),
-            G_Y.clone(),
-            BigInt::from(1),
-            (G_X.clone() * G_Y.clone()).rem_euclid(&P.clone())
-        );
-        pub static ref Q: BigInt = BigInt::from(2).pow(252)
-            + BigInt::from_str_radix("27742317777372353535851937790883648493", 10)
-                .expect("Error in group order q constant");
-    }
+            pub static ref P: BigInt = BigInt::from(2).pow(255) - BigInt::from(19);
+            pub static ref A24: BigInt = BigInt::from(121666);
+    /*
+            pub static ref D: BigInt = (BigInt::from(-121665)
+                * super::hex::modp_inv(&BigInt::from(121666), &P.clone()))
+            .rem_euclid(&P.clone());
+     */
+            pub static ref D: BigInt = {
+                let p = P.clone();
+                // Replace -121665 with (P - 121665) to avoid negatives
+                let numerator = &p - BigInt::from(121665);
+                let inv_121666 = super::hex::modp_inv(&A24, &p); // A24 is 121666, so reuse it
+                (numerator * inv_121666).rem_euclid(&p)
+            };
+            pub static ref G_Y: BigInt = (BigInt::from(4)
+                * super::hex::modp_inv(&BigInt::from(5), &P.clone()))
+            .rem_euclid(&P.clone());
+            pub static ref G_X: BigInt = super::hex::recover_x(&G_Y.clone(), 0, P.clone(), D.clone())
+                .expect("Error in recover_x or modp_inv");
+            pub static ref G: Point = (
+                G_X.clone(),
+                G_Y.clone(),
+                BigInt::from(1),
+                (G_X.clone() * G_Y.clone()).rem_euclid(&P.clone())
+            );
+            pub static ref Q: BigInt = BigInt::from(2).pow(252)
+                + BigInt::from_str_radix("27742317777372353535851937790883648493", 10)
+                    .expect("Error in group order q constant");
+        }
 
     pub fn point_equal(pp: Point, qq: Point, p: &BigInt) -> bool {
-        let term1= &pp.0 * &qq.2;
+        let term1 = &pp.0 * &qq.2;
         let term2 = &qq.0 * &pp.2;
 
         let term3 = &pp.1 * &qq.2;
@@ -570,7 +570,7 @@ pub mod elliptic {
         p: &BigInt,
     ) -> (BigInt, BigInt) {
         // Compute u = (x_p - z_p) * (x_q + z_q) mod p (with safe subtraction)
-        let term1 = x_p.mod_sub( &z_p, p);
+        let term1 = x_p.mod_sub(&z_p, p);
         let term2 = (&x_q + &z_q) % p; // Addition is safe since inputs are mod p
         let u = (term1 * term2) % p;
 
@@ -581,7 +581,7 @@ pub mod elliptic {
 
         // Compute upv² and umv² with safe operations
         let upv = u.mod_add(&v, p); // Ensure (u + v) mod p
-        let umv = u.mod_sub( &v, p); // Ensure (u - v) mod p
+        let umv = u.mod_sub(&v, p); // Ensure (u - v) mod p
         let upv2 = (&upv * &upv) % p; // upv² mod p
         let umv2 = (&umv * &umv) % p; // umv² mod p
 

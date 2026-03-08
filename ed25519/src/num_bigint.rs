@@ -2,12 +2,12 @@ use fixed_bigint::FixedUInt;
 
 type Inner = FixedUInt<u32, 64>;
 
+use num_traits::Euclid;
 use num_traits::Num;
+use num_traits::One;
 use num_traits::PrimInt;
 use num_traits::ToBytes;
 use num_traits::Zero;
-use num_traits::One;
-use num_traits::Euclid;
 
 #[derive(PartialEq)]
 pub enum Sign {
@@ -31,10 +31,18 @@ impl BigInt {
     }
 
     pub fn mod_sub(self, rhs: &Self, modulus: &Self) -> Self {
-        Self::from_self(modmath::strict_mod_sub(self.inner, &rhs.inner, &modulus.inner))
+        Self::from_self(modmath::strict_mod_sub(
+            self.inner,
+            &rhs.inner,
+            &modulus.inner,
+        ))
     }
     pub fn mod_add(self, rhs: &Self, modulus: &Self) -> Self {
-        Self::from_self(modmath::strict_mod_add(self.inner, &rhs.inner, &modulus.inner))
+        Self::from_self(modmath::strict_mod_add(
+            self.inner,
+            &rhs.inner,
+            &modulus.inner,
+        ))
     }
 
     fn from_self(value: Inner) -> Self {
@@ -59,21 +67,21 @@ impl BigInt {
         (self.inner >> n as usize) & Inner::one() == Inner::one()
     }
     pub fn to_le_bytes(&self) -> [u8; 32] {
-        let f= <Inner as ToBytes>::to_le_bytes(&self.inner);
+        let f = <Inner as ToBytes>::to_le_bytes(&self.inner);
         let res = f.as_ref();
         let mut output = [0u8; 32];
         let len = output.len();
         output.copy_from_slice(&res[..len]);
         output
     }
-    pub fn to_signed_bytes_le(&self) -> [u8; 32] { 
+    pub fn to_signed_bytes_le(&self) -> [u8; 32] {
         self.to_le_bytes()
     }
     pub fn pow(&self, exp: u64) -> Self {
         Self::from_self(self.inner.pow(exp as u32))
     }
     pub fn modpow(&self, exp: &Self, modulus: &Self) -> Self {
-        let mp = modmath::strict_mod_exp ( self.inner, &exp.inner, &modulus.inner);
+        let mp = modmath::strict_mod_exp(self.inner, &exp.inner, &modulus.inner);
         Self::from_self(mp)
     }
     pub fn div_euclid(&self, rhs: &Self) -> Self {
