@@ -2,19 +2,18 @@ import platform
 import subprocess
 import sys
 import os
-import argparse
 import shlex
 
 def run_simavr_posix(binary, simavr_args, timeout_seconds=None):
-    """Run simavr directly on Linux with all arguments passed through."""
+    """Run simavr directly on Linux/macOS with all arguments passed through."""
     cmd = ["simavr"] + simavr_args + [binary]
 
-    if timeout_seconds:
-        cmd = ["timeout", str(timeout_seconds)] + cmd
-
     try:
-        result = subprocess.run(cmd, check=False)
+        result = subprocess.run(cmd, check=False, timeout=timeout_seconds)
         return result.returncode
+    except subprocess.TimeoutExpired:
+        print(f"Error: simavr timed out after {timeout_seconds}s", file=sys.stderr)
+        return 124  # Match GNU timeout exit code
     except FileNotFoundError:
         print("Error: simavr not found. Please ensure it's installed and in PATH.", file=sys.stderr)
         return 1
@@ -50,8 +49,6 @@ def run_simavr_windows(binary, simavr_args, timeout_seconds=None):
         return 1
 
 def main():
-    # Custom parsing needed because argparse can't handle mixed arguments properly
-    # We need to extract -t/--timeout but pass everything else to simavr
     timeout_seconds = None
     simavr_args = []
     binary = None
