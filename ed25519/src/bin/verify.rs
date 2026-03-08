@@ -1,40 +1,33 @@
 fn main() {
     let args: Vec<String> = std::env::args().collect();
 
-    if args.len() < 4 || args.len() > 4 {
+    if args.len() != 4 {
         eprintln!("Usage: {} pkfile datafile sigfile", args[0]);
         std::process::exit(1);
     }
 
-    let filename = args[1].clone();
-    let datafile = args[2].clone();
-    let sigfile = args[3].clone();
+    let pk_path = &args[1];
+    let data_path = &args[2];
+    let sig_path = &args[3];
 
-    let pk_relative_path = filename.clone();
-
-    if !std::fs::metadata(&pk_relative_path).is_ok() {
-        eprintln!("File '{}' is not accessible.", pk_relative_path);
+    let pk = std::fs::read(pk_path).unwrap_or_else(|e| {
+        eprintln!("Error reading '{}': {}", pk_path, e);
         std::process::exit(1);
-    }
-
-    if !std::fs::metadata(&datafile).is_ok() {
-        eprintln!("File '{}' is not accessible.", datafile);
+    });
+    let data = std::fs::read(data_path).unwrap_or_else(|e| {
+        eprintln!("Error reading '{}': {}", data_path, e);
         std::process::exit(1);
-    }
-
-    if !std::fs::metadata(&sigfile).is_ok() {
-        eprintln!("File '{}' is not accessible.", datafile);
+    });
+    let signature = std::fs::read(sig_path).unwrap_or_else(|e| {
+        eprintln!("Error reading '{}': {}", sig_path, e);
         std::process::exit(1);
-    }
-
-    let pk = std::fs::read(pk_relative_path).unwrap();
-    let data = std::fs::read(datafile).unwrap();
-    let signature = std::fs::read(sigfile).unwrap();
+    });
 
     let pk: [u8; 32] = pk.try_into().expect("public key is not 32 bytes");
     let signature: [u8; 64] = signature.try_into().expect("signature is not 64 bytes");
 
-    let verification = ed25519::ed25519::verify(pk, &data, signature);
+    let verification =
+        ed25519_heapless::verify::<fixed_bigint::FixedUInt<u32, 16>>(pk, &data, signature);
 
     if verification {
         println!("ACCEPT");

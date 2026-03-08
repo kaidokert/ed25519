@@ -5,6 +5,9 @@ on:
     branches: ["*"]
   pull_request:
     branches: [ "main" ]
+  workflow_dispatch:
+  schedule:
+    - cron: '0 6 * * 1'  # Weekly on Monday at 06:00 UTC
 
 env:
   CARGO_TERM_COLOR: always
@@ -19,18 +22,30 @@ jobs:
         components: rustfmt, clippy, llvm-tools-preview
     - uses: pre-commit/action@v3.0.1
 
-  build:
-
+  host:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: ed25519
-
     steps:
     - uses: actions/checkout@v4
+
+    - name: Format check
+      run: cargo fmt -p ed25519_heapless -- --check
+
+    - name: Clippy
+      run: cargo clippy -p ed25519_heapless -- -D warnings
+
     - name: Build
-      run: cargo build --verbose
+      run: cargo build -p ed25519_heapless --verbose
+
     - name: Run tests
-      run: cargo test --lib --bins --verbose
+      run: cargo test -p ed25519_heapless --verbose
+
+    - name: Test with fixed-bigint (integration tests)
+      run: cargo test -p ed25519_heapless --features fixed-bigint --verbose
+
     - name: Build for no_std
-      run: cargo build --no-default-features
+      run: cargo build -p ed25519_heapless --no-default-features
+
+    - name: Run verify_baked
+      run: |
+        cargo run -p ed25519_heapless --bin verify_baked --features fixed-bigint 2>&1 | tee /tmp/verify_output.txt
+        grep -q "ACCEPT" /tmp/verify_output.txt
