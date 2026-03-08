@@ -16,11 +16,11 @@ fn main() {
     };
 
     // Put `memory.x` in output directory and add to linker search path
-    let out = &PathBuf::from(env::var_os("OUT_DIR").unwrap());
+    let out = &PathBuf::from(env::var_os("OUT_DIR").expect("OUT_DIR not set"));
     File::create(out.join("memory.x"))
-        .unwrap()
+        .expect("Failed to create memory.x")
         .write_all(include_bytes)
-        .unwrap();
+        .expect("Failed to write memory.x");
     println!("cargo:rustc-link-search={}", out.display());
     println!("cargo:rerun-if-changed={}", memory_file);
 
