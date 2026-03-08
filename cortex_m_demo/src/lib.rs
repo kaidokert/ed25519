@@ -41,7 +41,11 @@ pub fn test_fixture(testable: fn() -> bool, backend: &str) {
         target_arch_name(),
         backend
     );
-    debug::exit(debug::EXIT_SUCCESS);
+    if result {
+        debug::exit(debug::EXIT_SUCCESS);
+    } else {
+        debug::exit(debug::EXIT_FAILURE);
+    }
 }
 
 use panic_halt as _;

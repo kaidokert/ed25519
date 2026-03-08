@@ -22,8 +22,10 @@ pub fn paint_stack_inner<const SAFE: usize>() {
         let stack_end: *mut u8 = stack_start.offset(-(stack_size as isize));
         let safe_stack_end = stack_end.offset(SAFE as isize);
 
-        let bytes_to_write = stack_size - (2 * SAFE);
-        core::ptr::write_bytes(safe_stack_end, 0xAA, bytes_to_write);
+        if stack_size > 2 * SAFE {
+            let bytes_to_write = stack_size - (2 * SAFE);
+            core::ptr::write_bytes(safe_stack_end, 0xAA, bytes_to_write);
+        }
     }
 }
 
