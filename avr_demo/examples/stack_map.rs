@@ -53,7 +53,8 @@ fn print_stack_map(serial: &mut impl ufmt::uWrite) {
         }
 
         // '#' = mostly used, '.' = mostly unused, ':' = partial
-        if watermark_count == chunk_size {
+        let actual_chunk_size = chunk_end_addr - (addr as u16);
+        if watermark_count == actual_chunk_size {
             ufmt::uwrite!(serial, ".").ok();
         } else if watermark_count == 0 {
             ufmt::uwrite!(serial, "#").ok();

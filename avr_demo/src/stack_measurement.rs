@@ -10,13 +10,17 @@ unsafe extern "C" {
 }
 
 /// Read the current stack pointer via inline assembly.
+/// Interrupts are disabled around the two-byte read to prevent a race
+/// between SPL and SPH if an ISR fires in between.
 #[inline(always)]
 fn read_sp() -> u16 {
     let lo: u8;
     let hi: u8;
     unsafe {
+        core::arch::asm!("cli"); // disable interrupts
         core::arch::asm!("in {}, 0x3D", out(reg) lo); // SPL
         core::arch::asm!("in {}, 0x3E", out(reg) hi); // SPH
+        core::arch::asm!("sei"); // re-enable interrupts
     }
     (hi as u16) << 8 | lo as u16
 }
@@ -47,7 +51,7 @@ pub unsafe fn measure_stack_usage() -> u16 {
 
     unsafe {
         let mut current_ptr = stack_start_ptr;
-        while current_ptr < stack_end_ptr {
+        while current_ptr <= stack_end_ptr {
             if core::ptr::read_volatile(current_ptr) != STACK_WATERMARK {
                 return (stack_end_ptr as u16) - (current_ptr as u16);
             }
