@@ -4,7 +4,6 @@
 Generates a markdown metrics table from the results.
 """
 
-import os
 import re
 import subprocess
 import sys
@@ -41,43 +40,37 @@ def run_simavr():
     return out + err
 
 
-def find_size_tools():
-    """Return list of size tool paths to try."""
-    tools = ["avr-size", "llvm-size"]
-    # llvm-size from rustup llvm-tools lives under the sysroot
-    try:
-        result = subprocess.run(
-            ["rustc", "--print", "sysroot"],
-            capture_output=True, text=True, timeout=10,
-        )
-        if result.returncode == 0:
-            sysroot = result.stdout.strip()
-            rustlib = os.path.join(sysroot, "lib", "rustlib")
-            if os.path.isdir(rustlib):
-                for entry in os.listdir(rustlib):
-                    candidate = os.path.join(rustlib, entry, "bin", "llvm-size")
-                    if os.path.isfile(candidate):
-                        tools.append(candidate)
-                        break
-    except (subprocess.TimeoutExpired, FileNotFoundError):
-        pass
-    return tools
+def parse_text_size(output):
+    """Parse .text size from size -A output."""
+    for line in output.splitlines():
+        if line.startswith(".text"):
+            parts = line.split()
+            if len(parts) >= 2:
+                return int(parts[1])
+    return None
 
 
 def get_text_size():
-    """Get .text section size from the ELF using avr-size."""
+    """Get .text section size via cargo-size, falling back to avr-size."""
+    # cargo-size wraps llvm-size from the toolchain
+    try:
+        rc, out, _ = run_cmd([
+            "cargo", "size", "--release", "--example", EXAMPLE, "--", "-A",
+        ])
+        if rc == 0:
+            size = parse_text_size(out)
+            if size is not None:
+                return size
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        pass
+    # Fallback: try avr-size directly on the ELF
     elf = f"target/avr-none/release/examples/{EXAMPLE}.elf"
-    for tool in find_size_tools():
-        try:
-            rc, out, _ = run_cmd([tool, "-A", elf])
-            if rc == 0:
-                for line in out.splitlines():
-                    if line.startswith(".text"):
-                        parts = line.split()
-                        if len(parts) >= 2:
-                            return int(parts[1])
-        except (subprocess.TimeoutExpired, FileNotFoundError):
-            pass
+    try:
+        rc, out, _ = run_cmd(["avr-size", "-A", elf])
+        if rc == 0:
+            return parse_text_size(out)
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        pass
     return None
 
 

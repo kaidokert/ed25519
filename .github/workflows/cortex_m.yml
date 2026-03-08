@@ -25,6 +25,18 @@ jobs:
     - name: Install QEMU
       run: sudo apt-get update && sudo apt-get install -y qemu-system-arm
 
+    - name: Cache cargo binaries
+      uses: actions/cache@v4
+      with:
+        path: ~/.cargo/bin/cargo-size
+        key: ${{ runner.os }}-cargo-binutils-v1
+
+    - name: Install cargo-binutils
+      run: |
+        if ! command -v cargo-size &> /dev/null; then
+          cargo install cargo-binutils --locked
+        fi
+
     - uses: actions/cache@v4
       with:
         path: |
