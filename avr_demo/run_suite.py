@@ -9,13 +9,14 @@ import subprocess
 import sys
 
 EXAMPLE = "test_verify"
-TIMEOUT = 120  # seconds per simavr run
+TIMEOUT_RUN = 120  # seconds per simavr run
+TIMEOUT_BUILD = 600  # seconds for cargo build
 
 
-def run_cmd(args, **kwargs):
+def run_cmd(args, timeout=TIMEOUT_RUN, **kwargs):
     """Run a command, return (returncode, stdout, stderr)."""
     result = subprocess.run(
-        args, capture_output=True, text=True, timeout=TIMEOUT, **kwargs
+        args, capture_output=True, text=True, timeout=timeout, **kwargs
     )
     return result.returncode, result.stdout, result.stderr
 
@@ -23,7 +24,8 @@ def run_cmd(args, **kwargs):
 def build():
     """Build the example. Returns True on success."""
     rc, _out, err = run_cmd(
-        ["cargo", "build", "--release", "--example", EXAMPLE]
+        ["cargo", "build", "--release", "--example", EXAMPLE],
+        timeout=TIMEOUT_BUILD,
     )
     if rc != 0:
         print("BUILD FAILED:", file=sys.stderr)
@@ -34,10 +36,14 @@ def build():
 
 def run_simavr():
     """Run the example via cargo run (uses .cargo/config.toml runner). Returns stdout+stderr."""
-    _rc, out, err = run_cmd(
+    rc, out, err = run_cmd(
         ["cargo", "run", "--release", "--example", EXAMPLE]
     )
-    return out + err
+    combined = out + err
+    if rc != 0 and "ACCEPT" not in combined and "REJECT" not in combined:
+        print(f"    cargo run failed (rc={rc}):", file=sys.stderr)
+        print(combined, file=sys.stderr)
+    return combined
 
 
 def parse_text_size(output):
@@ -61,16 +67,16 @@ def get_text_size():
             size = parse_text_size(out)
             if size is not None:
                 return size
-    except (subprocess.TimeoutExpired, FileNotFoundError):
-        pass
+    except (subprocess.TimeoutExpired, FileNotFoundError) as e:
+        print(f"    cargo-size not available: {e}", file=sys.stderr)
     # Fallback: try avr-size directly on the ELF
     elf = f"target/avr-none/release/examples/{EXAMPLE}.elf"
     try:
         rc, out, _ = run_cmd(["avr-size", "-A", elf])
         if rc == 0:
             return parse_text_size(out)
-    except (subprocess.TimeoutExpired, FileNotFoundError):
-        pass
+    except (subprocess.TimeoutExpired, FileNotFoundError) as e:
+        print(f"    avr-size not available: {e}", file=sys.stderr)
     return None
 
 
@@ -110,6 +116,16 @@ def main():
     status = "ACCEPT" if result["accepted"] else "REJECT"
     print(f"    {status}", file=sys.stderr)
 
+    missing = []
+    if result["stack"] is None:
+        missing.append("stack")
+    if result["time_ms"] is None:
+        missing.append("time")
+    if text_size is None:
+        missing.append(".text size")
+    if missing:
+        print(f"    Missing metrics: {', '.join(missing)}", file=sys.stderr)
+
     # Generate markdown table
     stack = str(result["stack"]) if result["stack"] is not None else "-"
     time_ms = str(result["time_ms"]) if result["time_ms"] is not None else "-"
@@ -123,6 +139,9 @@ def main():
 
     if not result["accepted"]:
         print("\nFailure: signature REJECT", file=sys.stderr)
+        return 1
+    if missing:
+        print(f"\nFailure: missing metrics: {', '.join(missing)}", file=sys.stderr)
         return 1
     return 0
 

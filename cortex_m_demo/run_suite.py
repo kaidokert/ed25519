@@ -14,13 +14,14 @@ TARGETS = [
     ("thumbv7m-none-eabi", "M3"),
     ("thumbv7em-none-eabi", "M4"),
 ]
-TIMEOUT = 120  # seconds per QEMU run
+TIMEOUT_RUN = 120  # seconds per QEMU run
+TIMEOUT_BUILD = 600  # seconds for cargo build
 
 
-def run_cmd(args, **kwargs):
+def run_cmd(args, timeout=TIMEOUT_RUN, **kwargs):
     """Run a command, return (returncode, stdout, stderr)."""
     result = subprocess.run(
-        args, capture_output=True, text=True, timeout=TIMEOUT, **kwargs
+        args, capture_output=True, text=True, timeout=timeout, **kwargs
     )
     return result.returncode, result.stdout, result.stderr
 
@@ -28,7 +29,8 @@ def run_cmd(args, **kwargs):
 def build_examples(target):
     """Build all examples for a target. Returns True on success."""
     rc, _out, err = run_cmd(
-        ["cargo", "build", "--target", target, "--release", "--examples"]
+        ["cargo", "build", "--target", target, "--release", "--examples"],
+        timeout=TIMEOUT_BUILD,
     )
     if rc != 0:
         print(f"BUILD FAILED for {target}:", file=sys.stderr)
@@ -38,12 +40,15 @@ def build_examples(target):
 
 
 def run_qemu(target, example):
-    """Run an example on QEMU via cargo run. Returns stdout."""
-    _rc, out, err = run_cmd(
+    """Run an example on QEMU via cargo run. Returns stdout+stderr."""
+    rc, out, err = run_cmd(
         ["cargo", "run", "--target", target, "--release", "--example", example]
     )
-    # QEMU output may be on stdout or stderr depending on semihosting
-    return out + err
+    combined = out + err
+    if rc != 0 and "ACCEPT" not in combined and "REJECT" not in combined:
+        print(f"    cargo run failed (rc={rc}):", file=sys.stderr)
+        print(combined, file=sys.stderr)
+    return combined
 
 
 def parse_text_size(output):
@@ -68,16 +73,16 @@ def get_text_size(target, example):
             size = parse_text_size(out)
             if size is not None:
                 return size
-    except (subprocess.TimeoutExpired, FileNotFoundError):
-        pass
+    except (subprocess.TimeoutExpired, FileNotFoundError) as e:
+        print(f"    cargo-size not available: {e}", file=sys.stderr)
     # Fallback: try arm-none-eabi-size directly on the ELF
     elf = f"target/{target}/release/examples/{example}"
     try:
         rc, out, _ = run_cmd(["arm-none-eabi-size", "-A", elf])
         if rc == 0:
             return parse_text_size(out)
-    except (subprocess.TimeoutExpired, FileNotFoundError):
-        pass
+    except (subprocess.TimeoutExpired, FileNotFoundError) as e:
+        print(f"    arm-none-eabi-size not available: {e}", file=sys.stderr)
     return None
 
 
@@ -120,6 +125,13 @@ def main():
             metric = parse_metric(output)
             text_size = get_text_size(target, example)
 
+            if not metric:
+                print(f"    METRIC line missing", file=sys.stderr)
+                failures.append(f"Missing METRIC: {example} on {label}")
+            if text_size is None:
+                print(f"    .text size unavailable", file=sys.stderr)
+                failures.append(f"Missing .text size: {example} on {label}")
+
             results[key] = {
                 "accepted": accepted,
                 "stack": metric["stack"] if metric else None,
@@ -139,7 +151,7 @@ def main():
 
     print()
     print(f"| Backend | Metric | {' | '.join(target_labels)} |")
-    print(f"|---------|--------|{'|'.join(['------|'] * len(TARGETS))}")
+    print(f"|---------|--------|{' | '.join(['------'] * len(TARGETS))} |")
 
     for example in EXAMPLES:
         backend = backends[example]
