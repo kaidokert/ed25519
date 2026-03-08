@@ -417,6 +417,11 @@ where
         + core::ops::Mul<&'a T, Output = T>
         + core::ops::Div<&'a T, Output = T>,
 {
+    // Guard: T must be at least 256 bits wide for Ed25519 constants
+    if modmath::type_bit_width::<T>() < 256 {
+        return false;
+    }
+
     let p = T::from_bytes_le(&P_BYTES);
     let d = T::from_bytes_le(&D_BYTES);
 
