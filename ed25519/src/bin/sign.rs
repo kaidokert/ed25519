@@ -1,3 +1,3 @@
 fn main() {
-    todo!("sign is not yet implemented")
+    unimplemented!("sign is not yet implemented")
 }

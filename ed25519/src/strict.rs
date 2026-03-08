@@ -176,18 +176,16 @@ where
     k_list[k.len() - 1] &= 0b01111111;
     let y = T::from_bytes_le(&k_list[0..32]);
 
-    if &y > p {
+    if &y >= p {
         None
     } else {
-        let d_owned = d + &T::zero();
-        let y_owned = y + T::zero();
-        let x = recover_x_mont(y, sign, p, d_owned, ctx);
+        let x = recover_x_mont(y, sign, p, *d, ctx);
         x.map(|x_val| {
             // Compute T = x*y using Montgomery mul, but return point in normal form
             let x_m = ctx.to_mont(x_val);
-            let y_m = ctx.to_mont(y_owned);
+            let y_m = ctx.to_mont(y);
             let t = ctx.from_mont(ctx.mont_mul(&x_m, &y_m));
-            (x_val, y_owned, T::one(), t)
+            (x_val, y, T::one(), t)
         })
     }
 }
@@ -354,29 +352,23 @@ where
         (zero_m, one_m, one_m, zero_m)
     };
 
-    // Convert base points to Niels form (uses Montgomery mul internally)
+    // Convert base points to Niels form and precompute negations
     let g_niels = to_niels_mont(g, p, d, ctx);
     let a_niels = to_niels_mont(a, p, d, ctx);
+    let neg_g_niels = (g_niels.1, g_niels.0, lazy_mod_sub(T::zero(), &g_niels.2, p));
+    let neg_a_niels = (a_niels.1, a_niels.0, lazy_mod_sub(T::zero(), &a_niels.2, p));
 
     for digit in jsf.digits_msb_first() {
         result = point_double_mont(&result, p, ctx);
-        // Compute negative Niels on-the-fly: (Y+X, Y-X, 2dT) -> (Y-X, Y+X, -2dT)
-        // Avoids storing two 96B neg_niels points for entire loop
         match digit.s_digit {
             1 => result = point_add_niels_mont(&result, &g_niels, p, ctx),
-            -1 => {
-                let neg = (g_niels.1, g_niels.0, lazy_mod_sub(T::zero(), &g_niels.2, p));
-                result = point_add_niels_mont(&result, &neg, p, ctx);
-            }
+            -1 => result = point_add_niels_mont(&result, &neg_g_niels, p, ctx),
             0 => {}
             _ => unreachable!("JSF digits must be -1, 0, or 1"),
         }
         match digit.h_digit {
             1 => result = point_add_niels_mont(&result, &a_niels, p, ctx),
-            -1 => {
-                let neg = (a_niels.1, a_niels.0, lazy_mod_sub(T::zero(), &a_niels.2, p));
-                result = point_add_niels_mont(&result, &neg, p, ctx);
-            }
+            -1 => result = point_add_niels_mont(&result, &neg_a_niels, p, ctx),
             0 => {}
             _ => unreachable!("JSF digits must be -1, 0, or 1"),
         }
@@ -429,7 +421,8 @@ where
     let d = T::from_bytes_le(&D_BYTES);
 
     // Precompute Montgomery context for field prime p
-    let ctx = MontgomeryCtx::new(p);
+    // Ed25519 prime is always odd and non-zero
+    let ctx = MontgomeryCtx::new(p).unwrap();
 
     // Phase 1: Decompress public key -> neg_aa_mont (aa scoped to die here)
     let neg_aa_mont = {

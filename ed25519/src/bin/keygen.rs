@@ -1,3 +1,3 @@
 fn main() {
-    todo!("keygen is not yet implemented")
+    unimplemented!("keygen is not yet implemented")
 }

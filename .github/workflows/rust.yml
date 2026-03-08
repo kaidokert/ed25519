@@ -47,5 +47,6 @@ jobs:
 
     - name: Run verify_baked
       run: |
+        set -o pipefail
         cargo run -p ed25519_heapless --bin verify_baked --features fixed-bigint 2>&1 | tee /tmp/verify_output.txt
         grep -q "ACCEPT" /tmp/verify_output.txt

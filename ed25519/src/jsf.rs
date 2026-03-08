@@ -68,6 +68,7 @@ impl JsfIterator {
     where
         T: num_traits::Zero
             + num_traits::One
+            + Copy
             + PartialOrd
             + PartialEq
             + core::ops::ShrAssign<usize>
@@ -86,40 +87,38 @@ impl JsfIterator {
         let mut s_working = s;
         let mut h_working = h;
 
+        // Hoist loop-invariant constants
+        let zero = T::zero();
+        let one = T::one();
+        let two = one + one;
+        let three = two + one;
+
         // Process scalars bit by bit to generate JSF digits
-        while s_working > T::zero() || h_working > T::zero() {
+        while s_working > zero || h_working > zero {
             // Extract low bits from both scalars
-            let s_bit = (&s_working & &T::one()) == T::one();
-            let h_bit = (&h_working & &T::one()) == T::one();
+            let s_bit = (&s_working & &one) == one;
+            let h_bit = (&h_working & &one) == one;
 
             // JSF recoding rules to minimize non-zero digits
             let (s_digit, s_carry) = if s_bit {
-                // s is odd
-                let s_low_2bits = &s_working & &(T::one() + T::one() + T::one()); // & 3
-                if s_low_2bits == T::one() || s_low_2bits == (T::one() + T::one()) {
-                    // s ≡ 1 or 2 (mod 4) -> use +1
-                    (1i8, false)
+                let s_low_2bits = &s_working & &three; // & 3
+                if s_low_2bits == one || s_low_2bits == two {
+                    (1i8, false) // s ≡ 1 or 2 (mod 4)
                 } else {
-                    // s ≡ 3 (mod 4) -> use -1 and carry
-                    (-1i8, true)
+                    (-1i8, true) // s ≡ 3 (mod 4)
                 }
             } else {
-                // s is even -> digit 0
                 (0i8, false)
             };
 
             let (h_digit, h_carry) = if h_bit {
-                // h is odd
-                let h_low_2bits = &h_working & &(T::one() + T::one() + T::one()); // & 3
-                if h_low_2bits == T::one() || h_low_2bits == (T::one() + T::one()) {
-                    // h ≡ 1 or 2 (mod 4) -> use +1
-                    (1i8, false)
+                let h_low_2bits = &h_working & &three; // & 3
+                if h_low_2bits == one || h_low_2bits == two {
+                    (1i8, false) // h ≡ 1 or 2 (mod 4)
                 } else {
-                    // h ≡ 3 (mod 4) -> use -1 and carry
-                    (-1i8, true)
+                    (-1i8, true) // h ≡ 3 (mod 4)
                 }
             } else {
-                // h is even -> digit 0
                 (0i8, false)
             };
 
@@ -133,10 +132,10 @@ impl JsfIterator {
             h_working >>= 1;
 
             if s_carry {
-                s_working = s_working + T::one();
+                s_working = s_working + one;
             }
             if h_carry {
-                h_working = h_working + T::one();
+                h_working = h_working + one;
             }
         }
 

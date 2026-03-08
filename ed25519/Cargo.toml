@@ -9,8 +9,8 @@ keywords = ["ed25519", "signature", "verification", "no_std", "embedded"]
 categories = ["cryptography", "no-std"]
 
 [dependencies]
-log = { version = "*", optional = true }
-env_logger = { version = "*", optional = true }
+log = { version = "0.4", optional = true }
+env_logger = { version = "0.11", optional = true }
 modmath = { version = "0.1.5", features = ["wide-mul"] }
 fixed-bigint = { version = "0.2.5", features=["use-unsafe"], optional=true }
 num-traits = {  version = "0.2" , default-features = false }

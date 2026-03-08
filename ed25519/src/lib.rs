@@ -54,7 +54,10 @@ pub trait UnsignedModularInt:
     + for<'a> core::ops::Sub<&'a Self, Output = Self>
     + for<'a> core::ops::AddAssign<&'a Self>
 {
+    /// Deserialize from little-endian bytes. Reads up to the type's width from `bytes`.
     fn from_bytes_le(bytes: &[u8]) -> Self;
+    /// Serialize to little-endian bytes. `out` must be at least as large as the type's
+    /// byte width, otherwise the implementation may panic.
     fn to_bytes_le<'a>(&self, out: &'a mut [u8]) -> &'a [u8];
 }
 
@@ -134,7 +137,7 @@ pub const G_T_BYTES: [u8; 32] = [
 
 // Precomputed modp_sqrt_m1 = 2^((p-1)/4) mod p for Ed25519
 // This is sqrt(-1) mod p used in point decompression
-// Value: b0a00e4a271beec478e42fad0618432fa7d7fb3d99004d2b0bdfc14f8024832b (hex, big-endian)
+// Value: 2b8324804fc1df0b2b4d00993dfbd7a72f431806ad2fe478c4ee1b274a0ea0b0 (hex, big-endian)
 pub const MODP_SQRT_M1_BYTES: [u8; 32] = [
     0xb0, 0xa0, 0x0e, 0x4a, 0x27, 0x1b, 0xee, 0xc4, 0x78, 0xe4, 0x2f, 0xad, 0x06, 0x18, 0x43, 0x2f,
     0xa7, 0xd7, 0xfb, 0x3d, 0x99, 0x00, 0x4d, 0x2b, 0x0b, 0xdf, 0xc1, 0x4f, 0x80, 0x24, 0x83, 0x2b,

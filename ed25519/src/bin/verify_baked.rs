@@ -1,6 +1,7 @@
-fn main_inner<T: ed25519_heapless::UnsignedModularInt>()
+fn main_inner<T>()
 where
-    T: Copy
+    T: ed25519_heapless::UnsignedModularInt
+        + Copy
         + modmath::WideMul
         + modmath::CiosMontMul
         + num_traits::ops::overflowing::OverflowingAdd

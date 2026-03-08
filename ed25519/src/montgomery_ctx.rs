@@ -27,21 +27,25 @@ where
         + num_traits::WrappingMul
         + num_traits::WrappingAdd
         + num_traits::WrappingSub
-        + core::ops::Add<Output = T>,
+        + core::ops::Add<Output = T>
+        + core::ops::BitAnd<Output = T>,
 {
     /// Precompute all Montgomery parameters for the given modulus.
-    /// Modulus must be odd and non-zero.
-    pub fn new(modulus: T) -> Self {
+    /// Returns `None` if the modulus is zero or even (Montgomery form requires an odd modulus).
+    pub fn new(modulus: T) -> Option<Self> {
+        if modulus == T::zero() || (modulus & T::one()) == T::zero() {
+            return None;
+        }
         let w = type_bit_width::<T>();
         let n_prime = compute_n_prime_newton(modulus, w);
         let r_mod_n = compute_r_mod_n(modulus, w);
         let r2_mod_n = compute_r2_mod_n(r_mod_n, modulus, w);
-        MontgomeryCtx {
+        Some(MontgomeryCtx {
             modulus,
             n_prime,
             r_mod_n,
             r2_mod_n,
-        }
+        })
     }
 
     /// Convert a value to Montgomery form: REDC(a * R²)
