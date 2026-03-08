@@ -20,7 +20,6 @@ jobs:
     - uses: dtolnay/rust-toolchain@stable
       with:
         targets: thumbv6m-none-eabi, thumbv7m-none-eabi, thumbv7em-none-eabi
-        components: llvm-tools
 
     - name: Install QEMU
       run: sudo apt-get update && sudo apt-get install -y qemu-system-arm
@@ -28,13 +27,13 @@ jobs:
     - name: Cache cargo binaries
       uses: actions/cache@v4
       with:
-        path: ~/.cargo/bin/cargo-size
-        key: ${{ runner.os }}-cargo-binutils-v1
+        path: ~/.cargo/bin/cargo-bloat
+        key: ${{ runner.os }}-cargo-bloat-v1
 
-    - name: Install cargo-binutils
+    - name: Install cargo-bloat
       run: |
-        if ! command -v cargo-size &> /dev/null; then
-          cargo install cargo-binutils --locked
+        if ! command -v cargo-bloat &> /dev/null; then
+          cargo install cargo-bloat --locked
         fi
 
     - uses: actions/cache@v4

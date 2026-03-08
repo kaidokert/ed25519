@@ -4,6 +4,7 @@
 Generates a markdown metrics table from the results.
 """
 
+import json
 import re
 import subprocess
 import sys
@@ -51,38 +52,24 @@ def run_qemu(target, example):
     return combined
 
 
-def parse_text_size(output):
-    """Parse .text size from size -A output."""
-    for line in output.splitlines():
-        if line.startswith(".text"):
-            parts = line.split()
-            if len(parts) >= 2:
-                return int(parts[1])
-    return None
-
-
 def get_text_size(target, example):
-    """Get .text section size via cargo-size, falling back to arm-none-eabi-size."""
-    # cargo-size wraps llvm-size from the toolchain
+    """Get .text section size via cargo-bloat JSON output."""
     try:
-        rc, out, _ = run_cmd([
-            "cargo", "size", "--release", "--target", target,
-            "--example", example, "--", "-A",
-        ])
+        rc, out, err = run_cmd([
+            "cargo", "bloat", "--release", "--target", target,
+            "--example", example, "--message-format=json",
+        ], timeout=TIMEOUT_BUILD)
         if rc == 0:
-            size = parse_text_size(out)
-            if size is not None:
-                return size
+            # JSON is on the last line of output
+            json_line = out.strip().split('\n')[-1]
+            data = json.loads(json_line)
+            return data.get("text-section-size")
+        else:
+            print(f"    cargo-bloat failed (rc={rc}): {err.strip()}", file=sys.stderr)
     except (subprocess.TimeoutExpired, FileNotFoundError) as e:
-        print(f"    cargo-size not available: {e}", file=sys.stderr)
-    # Fallback: try arm-none-eabi-size directly on the ELF
-    elf = f"target/{target}/release/examples/{example}"
-    try:
-        rc, out, _ = run_cmd(["arm-none-eabi-size", "-A", elf])
-        if rc == 0:
-            return parse_text_size(out)
-    except (subprocess.TimeoutExpired, FileNotFoundError) as e:
-        print(f"    arm-none-eabi-size not available: {e}", file=sys.stderr)
+        print(f"    cargo-bloat not available: {e}", file=sys.stderr)
+    except (json.JSONDecodeError, IndexError) as e:
+        print(f"    cargo-bloat JSON parse error: {e}", file=sys.stderr)
     return None
 
 
