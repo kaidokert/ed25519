@@ -105,23 +105,23 @@ impl NafIterator {
             let h_bit = (&h_working & &one) == one;
 
             // NAF recoding rules to minimize non-zero digits
+            // s is odd → s & 3 is 1 or 3; use +1 for ≡1, use -1 (with carry) for ≡3
             let (s_digit, s_carry) = if s_bit {
-                let s_low_2bits = &s_working & &three; // & 3
-                if s_low_2bits == one || s_low_2bits == two {
-                    (1i8, false) // s ≡ 1 or 2 (mod 4)
+                if (&s_working & &three) == one {
+                    (1i8, false)
                 } else {
-                    (-1i8, true) // s ≡ 3 (mod 4)
+                    (-1i8, true)
                 }
             } else {
                 (0i8, false)
             };
 
+            // h is odd → h & 3 is 1 or 3; same logic
             let (h_digit, h_carry) = if h_bit {
-                let h_low_2bits = &h_working & &three; // & 3
-                if h_low_2bits == one || h_low_2bits == two {
-                    (1i8, false) // h ≡ 1 or 2 (mod 4)
+                if (&h_working & &three) == one {
+                    (1i8, false)
                 } else {
-                    (-1i8, true) // h ≡ 3 (mod 4)
+                    (-1i8, true)
                 }
             } else {
                 (0i8, false)
