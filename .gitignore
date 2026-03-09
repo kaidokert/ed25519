@@ -6,10 +6,6 @@ todo.txt
 *.pk
 *.sk
 *.sig
-*.py
-!avr_demo/simavr_wrapper.py
-!avr_demo/run_suite.py
-!cortex_m_demo/run_suite.py
 Cargo.lock
 deps/
 testdata/

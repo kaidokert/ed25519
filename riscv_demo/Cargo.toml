@@ -1,0 +1,21 @@
+[package]
+name = "riscv_demo"
+version = "0.1.0"
+edition = "2024"
+autobins = false
+autotests = false
+autobenches = false
+
+[dependencies]
+riscv-rt = "0.13"
+
+ed25519_heapless = { path = "../ed25519", default-features = false, features = [
+    "fixed-bigint-u8",
+] }
+fixed-bigint = { version = "0.2.5", features = ["use-unsafe"] }
+
+[profile.release]
+codegen-units = 1
+debug = true
+lto = true
+opt-level = "s"
