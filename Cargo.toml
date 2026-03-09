@@ -2,4 +2,4 @@
 resolver = "2"
 
 members = [ "ed25519" ]
-exclude = [ "avr_demo", "cortex_m_demo" ]
+exclude = [ "avr_demo", "cortex_m_demo", "riscv_demo" ]
