@@ -25,7 +25,7 @@
 pub(crate) mod jsf;
 pub(crate) mod lazy_field;
 pub(crate) mod montgomery_ctx;
-pub mod strict;
+pub(crate) mod strict;
 
 /// Trait for unsigned integer types supporting modular arithmetic and byte serialization.
 ///
@@ -151,5 +151,4 @@ pub const MODP_SQRT_M1_BYTES: [u8; 32] = [
 /// - `public` — 32-byte Ed25519 public key
 /// - `msg` — message bytes (arbitrary length)
 /// - `signature` — 64-byte Ed25519 signature
-pub use strict::verify as verify_strict;
-pub use verify_strict as verify;
+pub use strict::verify;

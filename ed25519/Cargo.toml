@@ -1,12 +1,13 @@
 [package]
 name = "ed25519_heapless"
-version = "0.1.0"
+version = "0.0.1"
 edition = "2024"
 description = "Ed25519 signature verification, generic over bigint backends"
 license = "GPL-3.0-only"
 repository = "https://github.com/kaidokert/ed25519"
+readme = "../README.md"
 keywords = ["ed25519", "signature", "verification", "no_std", "embedded"]
-categories = ["cryptography", "no-std"]
+categories = ["cryptography", "no-std", "no-std::no-alloc"]
 
 [dependencies]
 log = { version = "0.4", optional = true }
