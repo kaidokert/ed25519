@@ -48,7 +48,7 @@ def main():
                 accepted = True
             if "ed25519 REJECT" in line:
                 accepted = False
-            if line.startswith("METRIC "):
+            if line.startswith("METRIC ") or line.startswith("PANIC:"):
                 proc.terminate()
                 break
     finally:

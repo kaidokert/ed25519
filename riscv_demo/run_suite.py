@@ -108,10 +108,11 @@ def main():
         print(f"    {status}", file=sys.stderr)
 
         if not metric:
-            print(f"    METRIC line missing", file=sys.stderr)
+            print("    METRIC line missing", file=sys.stderr)
             failures.append(f"Missing METRIC: {example}")
         if text_size is None:
-            print(f"    .text size unavailable", file=sys.stderr)
+            print("    .text size unavailable", file=sys.stderr)
+            failures.append(f"Missing .text size: {example}")
         if not accepted:
             failures.append(f"REJECT: {example}")
 

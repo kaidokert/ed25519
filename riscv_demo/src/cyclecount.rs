@@ -7,9 +7,15 @@ fn read_mcycle() -> u64 {
         let lo: u32;
         let hi2: u32;
         unsafe {
-            asm!("csrr {}, mcycleh", out(reg) hi1);
-            asm!("csrr {}, mcycle", out(reg) lo);
-            asm!("csrr {}, mcycleh", out(reg) hi2);
+            asm!(
+                "csrr {}, mcycleh",
+                "csrr {}, mcycle",
+                "csrr {}, mcycleh",
+                out(reg) hi1,
+                out(reg) lo,
+                out(reg) hi2,
+                options(nostack, nomem),
+            );
         }
         if hi1 == hi2 {
             return ((hi1 as u64) << 32) | (lo as u64);

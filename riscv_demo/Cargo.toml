@@ -10,7 +10,6 @@ autobenches = false
 riscv-rt = "0.13"
 
 ed25519_heapless = { path = "../ed25519", default-features = false, features = [
-    "fixed-bigint",
     "fixed-bigint-u8",
 ] }
 fixed-bigint = { version = "0.2.5", features = ["use-unsafe"] }
