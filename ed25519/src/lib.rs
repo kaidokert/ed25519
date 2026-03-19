@@ -182,6 +182,30 @@ impl<T> From<[u8; 32]> for VerifyingKey<T> {
     }
 }
 
+impl<T> Copy for VerifyingKey<T> {}
+
+impl<T> Clone for VerifyingKey<T> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<T> PartialEq for VerifyingKey<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.public == other.public
+    }
+}
+
+impl<T> Eq for VerifyingKey<T> {}
+
+impl<T> core::fmt::Debug for VerifyingKey<T> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("VerifyingKey")
+            .field("public", &self.public)
+            .finish()
+    }
+}
+
 fn parse_signature(signature: &[u8]) -> Result<[u8; 64], signature::Error> {
     signature.try_into().map_err(|_| signature::Error::new())
 }
@@ -208,37 +232,6 @@ where
     fn verify(&self, msg: &[u8], signature: &S) -> Result<(), signature::Error> {
         let signature = parse_signature(signature.as_ref())?;
         if verify::<T>(self.public, msg, signature) {
-            Ok(())
-        } else {
-            Err(signature::Error::new())
-        }
-    }
-}
-
-impl<T, D, S> signature::DigestVerifier<D, S> for VerifyingKey<T>
-where
-    D: signature::digest::Digest,
-    S: AsRef<[u8]>,
-    T: UnsignedModularInt
-        + Copy
-        + modmath::WideMul
-        + modmath::CiosMontMul
-        + num_traits::ops::overflowing::OverflowingAdd
-        + num_traits::WrappingMul
-        + num_traits::WrappingAdd
-        + num_traits::WrappingSub,
-    for<'a> &'a T: core::ops::BitAnd<Output = T>
-        + core::ops::Rem<&'a T, Output = T>
-        + core::ops::Add<&'a T, Output = T>
-        + core::ops::Sub<T, Output = T>
-        + core::ops::Sub<&'a T, Output = T>
-        + core::ops::Mul<&'a T, Output = T>
-        + core::ops::Div<&'a T, Output = T>,
-{
-    fn verify_digest(&self, digest: D, signature: &S) -> Result<(), signature::Error> {
-        let prehashed_msg = digest.finalize();
-        let signature = parse_signature(signature.as_ref())?;
-        if verify::<T>(self.public, prehashed_msg.as_ref(), signature) {
             Ok(())
         } else {
             Err(signature::Error::new())

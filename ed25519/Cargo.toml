@@ -16,7 +16,7 @@ modmath = { version = "0.1.5", features = ["wide-mul"] }
 fixed-bigint = { version = "0.2.5", features=["use-unsafe"], optional=true }
 num-traits = {  version = "0.2" , default-features = false }
 hmac-sha512 = { version = "1", default-features = false, features = ["opt_size"] }
-signature = { version = "2.2", default-features = false, features = ["digest"] }
+signature = { version = "2.2", default-features = false }
 
 [features]
 default = ["std"]
@@ -26,9 +26,6 @@ fixed-bigint = ["dep:fixed-bigint"]
 fixed-bigint-u64 = ["fixed-bigint"]
 fixed-bigint-256 = ["fixed-bigint"]
 fixed-bigint-u8 = ["fixed-bigint"]
-
-[dev-dependencies]
-sha2 = { version = "0.10", default-features = false }
 
 [[bin]]
 name = "verify_baked"

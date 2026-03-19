@@ -5,8 +5,7 @@
 #![cfg(feature = "fixed-bigint")]
 
 use ed25519_heapless::VerifyingKey;
-use sha2::Digest;
-use signature::{DigestVerifier, Verifier};
+use signature::Verifier;
 
 type T = fixed_bigint::FixedUInt<u32, 16>;
 
@@ -56,13 +55,4 @@ fn verifier_rejects_signature_with_invalid_length() {
     let signature = SigWrapper(vec![0u8; 63]);
 
     assert!(verifying_key.verify(b"", &signature).is_err());
-}
-
-#[test]
-fn digest_verifier_rejects_signature_with_invalid_length() {
-    let verifying_key = VerifyingKey::<T>::from_bytes(rfc_test1_public_key());
-    let signature = SigWrapper(vec![0u8; 63]);
-    let digest = sha2::Sha512::new();
-
-    assert!(verifying_key.verify_digest(digest, &signature).is_err());
 }
