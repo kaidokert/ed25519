@@ -1,6 +1,6 @@
 [package]
 name = "ed25519_heapless"
-version = "0.0.1"
+version = "0.0.2"
 edition = "2024"
 description = "Ed25519 signature verification, generic over bigint backends"
 license = "GPL-3.0-only"
@@ -16,6 +16,7 @@ modmath = { version = "0.1.5", features = ["wide-mul"] }
 fixed-bigint = { version = "0.2.5", features=["use-unsafe"], optional=true }
 num-traits = {  version = "0.2" , default-features = false }
 hmac-sha512 = { version = "1", default-features = false, features = ["opt_size"] }
+signature = { version = "2.2", default-features = false }
 
 [features]
 default = ["std"]

@@ -27,6 +27,8 @@ pub(crate) mod lazy_field;
 pub(crate) mod montgomery_ctx;
 pub(crate) mod strict;
 
+use core::marker::PhantomData;
+
 /// Trait for unsigned integer types supporting modular arithmetic and byte serialization.
 ///
 /// This is the main generic constraint for Ed25519 verification.
@@ -152,3 +154,87 @@ pub const MODP_SQRT_M1_BYTES: [u8; 32] = [
 /// - `msg` — message bytes (arbitrary length)
 /// - `signature` — 64-byte Ed25519 signature
 pub use strict::verify;
+
+/// Verifying key wrapper that implements `signature` crate traits.
+pub struct VerifyingKey<T> {
+    public: [u8; 32],
+    _marker: PhantomData<T>,
+}
+
+impl<T> VerifyingKey<T> {
+    /// Construct a verifying key from raw Ed25519 public key bytes.
+    pub const fn from_bytes(public: [u8; 32]) -> Self {
+        Self {
+            public,
+            _marker: PhantomData,
+        }
+    }
+
+    /// Return the wrapped public key bytes.
+    pub const fn to_bytes(&self) -> [u8; 32] {
+        self.public
+    }
+}
+
+impl<T> From<[u8; 32]> for VerifyingKey<T> {
+    fn from(public: [u8; 32]) -> Self {
+        Self::from_bytes(public)
+    }
+}
+
+impl<T> Copy for VerifyingKey<T> {}
+
+impl<T> Clone for VerifyingKey<T> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<T> PartialEq for VerifyingKey<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.public == other.public
+    }
+}
+
+impl<T> Eq for VerifyingKey<T> {}
+
+impl<T> core::fmt::Debug for VerifyingKey<T> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("VerifyingKey")
+            .field("public", &self.public)
+            .finish()
+    }
+}
+
+fn parse_signature(signature: &[u8]) -> Result<[u8; 64], signature::Error> {
+    signature.try_into().map_err(|_| signature::Error::new())
+}
+
+impl<T, S> signature::Verifier<S> for VerifyingKey<T>
+where
+    S: AsRef<[u8]>,
+    T: UnsignedModularInt
+        + Copy
+        + modmath::WideMul
+        + modmath::CiosMontMul
+        + num_traits::ops::overflowing::OverflowingAdd
+        + num_traits::WrappingMul
+        + num_traits::WrappingAdd
+        + num_traits::WrappingSub,
+    for<'a> &'a T: core::ops::BitAnd<Output = T>
+        + core::ops::Rem<&'a T, Output = T>
+        + core::ops::Add<&'a T, Output = T>
+        + core::ops::Sub<T, Output = T>
+        + core::ops::Sub<&'a T, Output = T>
+        + core::ops::Mul<&'a T, Output = T>
+        + core::ops::Div<&'a T, Output = T>,
+{
+    fn verify(&self, msg: &[u8], signature: &S) -> Result<(), signature::Error> {
+        let signature = parse_signature(signature.as_ref())?;
+        if verify::<T>(self.public, msg, signature) {
+            Ok(())
+        } else {
+            Err(signature::Error::new())
+        }
+    }
+}
