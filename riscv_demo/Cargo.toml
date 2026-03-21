@@ -18,4 +18,4 @@ fixed-bigint = { version = "0.2.5", features = ["use-unsafe"] }
 codegen-units = 1
 debug = true
 lto = true
-opt-level = "s"
+opt-level = "z"

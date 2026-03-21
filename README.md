@@ -13,10 +13,10 @@ The implementation balances code size, stack usage and execution speed rather th
 
 | Target | Backend | .text (KiB) | Stack (bytes) |
 | ------ | ------- | ----------: | ------------: |
-| AVR ATmega2560 | u8×32 | 21.9 | 3323 |
-| Cortex-M0 | u8×32 | 16.4 | 3588 |
-| Cortex-M3 | u8×32 | 16.2 | 3588 |
-| Cortex-M0 | u32×16 | 17.4 | 6676 |
-| Cortex-M3 | u32×16 | 17.0 | 6608 |
-| RV32IMAC | u8×32 | 18.8 | 3464 |
-| RV32IMAC | u32×16 | 19.3 | 6472 |
+| AVR ATmega2560 | u8×32 | 20.1 | 3062 |
+| Cortex-M0 | u8×32 | 15.9 | 3348 |
+| Cortex-M3 | u8×32 | 15.2 | 3252 |
+| Cortex-M0 | u32×16 | 16.2 | 6092 |
+| Cortex-M3 | u32×16 | 15.2 | 6012 |
+| RV32IMAC | u8×32 | 18.7 | 3144 |
+| RV32IMAC | u32×16 | 18.6 | 5896 |
