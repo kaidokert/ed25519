@@ -13,10 +13,15 @@ The implementation balances code size, stack usage and execution speed rather th
 
 | Target | Backend | .text (KiB) | Stack (bytes) |
 | ------ | ------- | ----------: | ------------: |
-| AVR ATmega2560 | u8×32 | 20.1 | 3062 |
-| Cortex-M0 | u8×32 | 15.9 | 3348 |
-| Cortex-M3 | u8×32 | 15.2 | 3252 |
-| Cortex-M0 | u32×16 | 16.2 | 6092 |
-| Cortex-M3 | u32×16 | 15.2 | 6012 |
-| RV32IMAC | u8×32 | 18.7 | 3144 |
-| RV32IMAC | u32×16 | 18.6 | 5896 |
+| AVR ATmega2560 | u8×32 | 17.7 | 2960 |
+| Cortex-M0 | u8×32 | 11.1 | 3092 |
+| Cortex-M3 | u8×32 | 11.1 | 2996 |
+| Cortex-M0 | u32×16 | 11.4 | 5836 |
+| Cortex-M3 | u32×16 | 11.1 | 5756 |
+| RV32IMAC | u8×32 | 13.5 | 2888 |
+| RV32IMAC | u32×16 | 13.5 | 5640 |
+
+
+
+The .text values represent the incremental flash used by signature verification itself, measured as verify-minus-baseline in the demo harnesses.
+The stack values represent the corresponding incremental stack usage attributable to signature verification, not the total stack footprint of the whole binary.
