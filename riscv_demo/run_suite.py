@@ -121,11 +121,7 @@ def main():
         build_status[feature_key] = build_ok
         if not build_ok:
             joined_variants = ", ".join(sorted(set(variants)))
-            failures = [f"Build failed: {joined_variants}"]
-            print(f"\nFailures: {len(failures)}", file=sys.stderr)
-            for f in failures:
-                print(f"  {f}", file=sys.stderr)
-            return 1
+            failures.append(f"Build failed: {joined_variants}")
 
     for example, backend, variant, features in EXAMPLES:
         feature_key = tuple(features)
@@ -182,7 +178,12 @@ def main():
             formatter=lambda value: f"{value / 1024:.1f}",
         )
         delta_stack = delta(verify, baseline, "stack")
-        delta_cycles = delta(verify, baseline, "cycles")
+        delta_cycles = delta(
+            verify,
+            baseline,
+            "cycles",
+            formatter=lambda value: f"{value / 1000:.1f}",
+        )
         print(f"| sifive_e (RV32) | {backend} | {delta_text} | {delta_stack} | {delta_cycles} |")
 
     print()
