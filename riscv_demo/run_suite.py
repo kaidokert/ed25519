@@ -96,20 +96,41 @@ def parse_metric(output):
     return None
 
 
+def delta(verify_row, baseline_row, key, formatter=str):
+    verify_value = verify_row.get(key)
+    baseline_value = baseline_row.get(key)
+    if verify_value is None or baseline_value is None:
+        return "-"
+    return formatter(verify_value - baseline_value)
+
+
 def main():
     results = {}  # example -> {accepted, stack, cycles, text_size}
     failures = []
 
     print("Building for RISC-V...", file=sys.stderr)
+    feature_variants = {}
     for _, _, variant, features in EXAMPLES:
-        if not build(features):
-            failures = [f"Build failed: {variant}"]
+        feature_key = tuple(features)
+        feature_variants.setdefault(feature_key, []).append(variant)
+
+    build_status = {}
+    for feature_key, variants in feature_variants.items():
+        feature_list = list(feature_key)
+        build_ok = build(feature_list)
+        build_status[feature_key] = build_ok
+        if not build_ok:
+            joined_variants = ", ".join(sorted(set(variants)))
+            failures = [f"Build failed: {joined_variants}"]
             print(f"\nFailures: {len(failures)}", file=sys.stderr)
             for f in failures:
                 print(f"  {f}", file=sys.stderr)
             return 1
 
     for example, backend, variant, features in EXAMPLES:
+        feature_key = tuple(features)
+        if not build_status.get(feature_key, False):
+            continue
         print(f"  Running {example} on QEMU sifive_e...", file=sys.stderr)
         try:
             output = run_qemu(example, features)
@@ -154,18 +175,14 @@ def main():
         if verify is None or baseline is None:
             print(f"| sifive_e (RV32) | {backend} | - | - | - |")
             continue
-        delta_text = (
-            f"{(verify['text_size'] - baseline['text_size']) / 1024:.1f}"
-            if verify["text_size"] is not None and baseline["text_size"] is not None else "-"
+        delta_text = delta(
+            verify,
+            baseline,
+            "text_size",
+            formatter=lambda value: f"{value / 1024:.1f}",
         )
-        delta_stack = (
-            str(verify["stack"] - baseline["stack"])
-            if verify["stack"] is not None and baseline["stack"] is not None else "-"
-        )
-        delta_cycles = (
-            str(verify["cycles"] - baseline["cycles"])
-            if verify["cycles"] is not None and baseline["cycles"] is not None else "-"
-        )
+        delta_stack = delta(verify, baseline, "stack")
+        delta_cycles = delta(verify, baseline, "cycles")
         print(f"| sifive_e (RV32) | {backend} | {delta_text} | {delta_stack} | {delta_cycles} |")
 
     print()

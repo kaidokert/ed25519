@@ -20,7 +20,8 @@ pub const MESSAGE: &[u8] = b"Hello world!\n";
 #[inline(never)]
 pub fn fake_verify(public: [u8; 32], msg: &[u8], signature: [u8; 64]) -> bool {
     let folded = public[0] ^ signature[0] ^ signature[32] ^ (msg.len() as u8);
-    black_box(folded) != 0
+    black_box(folded);
+    true
 }
 
 // Panic handler - registered automatically when crate is imported

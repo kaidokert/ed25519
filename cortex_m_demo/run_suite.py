@@ -10,9 +10,9 @@ import subprocess
 import sys
 
 EXAMPLES = [
-    ("ed25519_u8", "u8", "placebo", ["baseline"]),
+    ("ed25519_u8", "u8", "baseline", ["baseline"]),
     ("ed25519_u8", "u8", "verify", []),
-    ("ed25519_u32", "u32", "placebo", ["baseline"]),
+    ("ed25519_u32", "u32", "baseline", ["baseline"]),
     ("ed25519_u32", "u32", "verify", []),
 ]
 TARGETS = [
@@ -102,17 +102,36 @@ def parse_metric(output):
     return None
 
 
+def delta(verify_row, baseline_row, key, formatter=str):
+    verify_value = verify_row.get(key)
+    baseline_value = baseline_row.get(key)
+    if verify_value is None or baseline_value is None:
+        return "-"
+    return formatter(verify_value - baseline_value)
+
+
 def main():
     results = {}  # (example, target) -> {stack, cycles, text_size, accepted}
     failures = []
 
     for target, label in TARGETS:
         print(f"Building for {target}...", file=sys.stderr)
+        build_status = {}
+        feature_variants = {}
         for _, _, variant, features in EXAMPLES:
-            if not build_examples(target, features):
-                failures.append(f"Build failed: {target} ({variant})")
-                continue
+            feature_key = tuple(features)
+            feature_variants.setdefault(feature_key, []).append(variant)
+        for feature_key, variants in feature_variants.items():
+            feature_list = list(feature_key)
+            build_ok = build_examples(target, feature_list)
+            build_status[feature_key] = build_ok
+            if not build_ok:
+                joined_variants = ", ".join(sorted(set(variants)))
+                failures.append(f"Build failed: {target} ({joined_variants})")
         for example, backend, variant, features in EXAMPLES:
+            feature_key = tuple(features)
+            if not build_status.get(feature_key, False):
+                continue
             key = (backend, variant, target)
             print(f"  Running {example} on {label}...", file=sys.stderr)
             try:
@@ -155,22 +174,18 @@ def main():
     for target, label in TARGETS:
         for backend in ("u8", "u32"):
             verify_row = results.get((backend, "verify", target))
-            placebo_row = results.get((backend, "placebo", target))
-            if verify_row is None or placebo_row is None:
+            baseline_row = results.get((backend, "baseline", target))
+            if verify_row is None or baseline_row is None:
                 print(f"| {label} | {backend} | - | - | - |")
                 continue
-            delta_text = (
-                f"{(verify_row['text_size'] - placebo_row['text_size']) / 1024:.1f}"
-                if verify_row["text_size"] is not None and placebo_row["text_size"] is not None else "-"
+            delta_text = delta(
+                verify_row,
+                baseline_row,
+                "text_size",
+                formatter=lambda value: f"{value / 1024:.1f}",
             )
-            delta_stack = (
-                str(verify_row["stack"] - placebo_row["stack"])
-                if verify_row["stack"] is not None and placebo_row["stack"] is not None else "-"
-            )
-            delta_cycles = (
-                str(verify_row["cycles"] - placebo_row["cycles"])
-                if verify_row["cycles"] is not None and placebo_row["cycles"] is not None else "-"
-            )
+            delta_stack = delta(verify_row, baseline_row, "stack")
+            delta_cycles = delta(verify_row, baseline_row, "cycles")
             print(f"| {label} | {backend} | {delta_text} | {delta_stack} | {delta_cycles} |")
 
     print()

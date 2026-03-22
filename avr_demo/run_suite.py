@@ -25,9 +25,9 @@ def run_cmd(args, timeout=TIMEOUT_RUN, **kwargs):
     return result.returncode, result.stdout, result.stderr
 
 
-def build(features):
+def build(example, features):
     """Build the examples. Returns True on success."""
-    args = ["cargo", "build", "--release", "--example", "test_verify"]
+    args = ["cargo", "build", "--release", "--example", example]
     if features:
         args.extend(["--features", ",".join(features)])
     rc, _out, err = run_cmd(
@@ -97,10 +97,18 @@ def parse_output(output):
     return result
 
 
+def delta(verify_row, baseline_row, key, formatter=str):
+    verify_value = verify_row.get(key)
+    baseline_value = baseline_row.get(key)
+    if verify_value is None or baseline_value is None:
+        return "-"
+    return formatter(verify_value - baseline_value)
+
+
 def main():
     print("Building for AVR...", file=sys.stderr)
-    for _, variant, features in EXAMPLES:
-        if not build(features):
+    for example, variant, features in EXAMPLES:
+        if not build(example, features):
             print("\nFailures: 1", file=sys.stderr)
             print(f"  Build failed: {variant}", file=sys.stderr)
             return 1
@@ -108,12 +116,13 @@ def main():
     results = {}
     failures = []
     for example, variant, features in EXAMPLES:
-        print(f"  Running {example} on simavr...", file=sys.stderr)
+        example_variant = f"{example}:{variant}"
+        print(f"  Running {example_variant} on simavr...", file=sys.stderr)
         try:
             output = run_simavr(example, features)
         except subprocess.TimeoutExpired:
             print("    TIMEOUT", file=sys.stderr)
-            failures.append(f"Timeout: {example}")
+            failures.append(f"Timeout: {example_variant}")
             continue
 
         result = parse_output(output)
@@ -130,9 +139,9 @@ def main():
             missing.append(".text size")
         if missing:
             print(f"    Missing metrics: {', '.join(missing)}", file=sys.stderr)
-            failures.append(f"Missing metrics for {example}: {', '.join(missing)}")
+            failures.append(f"Missing metrics for {example_variant}: {', '.join(missing)}")
         if not result["accepted"]:
-            failures.append(f"REJECT: {example}")
+            failures.append(f"REJECT: {example_variant}")
 
         results[variant] = {
             "accepted": result["accepted"],
@@ -151,18 +160,14 @@ def main():
     print("| Target | Backend | .text (KiB) | Stack (bytes) | Approx time (ms) |")
     print("|--------|---------|-------------|---------------|------------------|")
     if baseline and verify:
-        delta_text = (
-            f"{(verify['text_size'] - baseline['text_size']) / 1024:.1f}"
-            if verify["text_size"] is not None and baseline["text_size"] is not None else "-"
+        delta_text = delta(
+            verify,
+            baseline,
+            "text_size",
+            formatter=lambda value: f"{value / 1024:.1f}",
         )
-        delta_stack = (
-            str(verify["stack"] - baseline["stack"])
-            if verify["stack"] is not None and baseline["stack"] is not None else "-"
-        )
-        delta_time = (
-            str(verify["time_ms"] - baseline["time_ms"])
-            if verify["time_ms"] is not None and baseline["time_ms"] is not None else "-"
-        )
+        delta_stack = delta(verify, baseline, "stack")
+        delta_time = delta(verify, baseline, "time_ms")
         print(f"| ATmega2560 | u8 | {delta_text} | {delta_stack} | {delta_time} |")
     else:
         print("| ATmega2560 | u8 | - | - | - |")
