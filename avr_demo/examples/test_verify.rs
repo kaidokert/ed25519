@@ -3,8 +3,8 @@
 #![feature(asm_experimental_arch)]
 
 use avr_demo as _;
-use avr_demo::{MESSAGE, PUBLIC_KEY, SIGNATURE};
 use avr_demo::stack_measurement::*;
+use avr_demo::{MESSAGE, PUBLIC_KEY, SIGNATURE};
 #[cfg(not(feature = "baseline"))]
 use fixed_bigint::FixedUInt;
 

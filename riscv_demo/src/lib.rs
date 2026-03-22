@@ -1,7 +1,7 @@
 #![no_std]
 
-use core::hint::black_box;
 use core::fmt::Write;
+use core::hint::black_box;
 
 pub mod cyclecount;
 pub mod stack;
