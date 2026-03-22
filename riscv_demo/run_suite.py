@@ -9,7 +9,12 @@ import re
 import subprocess
 import sys
 
-EXAMPLES = ["ed25519_u8", "ed25519_u32"]
+EXAMPLES = [
+    ("ed25519_u8", "u8", "baseline", ["baseline"]),
+    ("ed25519_u8", "u8", "verify", []),
+    ("ed25519_u32", "u32", "baseline", ["baseline"]),
+    ("ed25519_u32", "u32", "verify", []),
+]
 TIMEOUT_RUN = 120  # seconds per QEMU run
 TIMEOUT_BUILD = 600  # seconds for cargo build
 
@@ -22,10 +27,13 @@ def run_cmd(args, timeout=TIMEOUT_RUN, **kwargs):
     return result.returncode, result.stdout, result.stderr
 
 
-def build():
+def build(features):
     """Build all examples. Returns True on success."""
+    args = ["cargo", "build", "--release", "--examples"]
+    if features:
+        args.extend(["--features", ",".join(features)])
     rc, _out, err = run_cmd(
-        ["cargo", "build", "--release", "--examples"],
+        args,
         timeout=TIMEOUT_BUILD,
     )
     if rc != 0:
@@ -35,10 +43,13 @@ def build():
     return True
 
 
-def run_qemu(example):
+def run_qemu(example, features):
     """Run an example via cargo run (uses .cargo/config.toml runner). Returns stdout+stderr."""
+    args = ["cargo", "run", "--release", "--example", example]
+    if features:
+        args.extend(["--features", ",".join(features)])
     rc, out, err = run_cmd(
-        ["cargo", "run", "--release", "--example", example]
+        args
     )
     combined = out + err
     if rc != 0 and "ACCEPT" not in combined and "REJECT" not in combined:
@@ -47,13 +58,16 @@ def run_qemu(example):
     return combined
 
 
-def get_text_size(example):
+def get_text_size(example, features):
     """Get .text section size via cargo-bloat JSON output."""
     try:
-        rc, out, err = run_cmd([
+        args = [
             "cargo", "bloat", "--release",
             "--example", example, "--message-format=json",
-        ], timeout=TIMEOUT_BUILD)
+        ]
+        if features:
+            args.extend(["--features", ",".join(features)])
+        rc, out, err = run_cmd(args, timeout=TIMEOUT_BUILD)
         if rc == 0:
             json_line = out.strip().split('\n')[-1]
             data = json.loads(json_line)
@@ -82,19 +96,40 @@ def parse_metric(output):
     return None
 
 
+def delta(verify_row, baseline_row, key, formatter=str):
+    verify_value = verify_row.get(key)
+    baseline_value = baseline_row.get(key)
+    if verify_value is None or baseline_value is None:
+        return "-"
+    return formatter(verify_value - baseline_value)
+
+
 def main():
     results = {}  # example -> {accepted, stack, cycles, text_size}
     failures = []
 
     print("Building for RISC-V...", file=sys.stderr)
-    if not build():
-        return 1
+    feature_variants = {}
+    for _, _, variant, features in EXAMPLES:
+        feature_key = tuple(features)
+        feature_variants.setdefault(feature_key, []).append(variant)
 
-    for example in EXAMPLES:
-        backend = example.replace("ed25519_", "")
+    build_status = {}
+    for feature_key, variants in feature_variants.items():
+        feature_list = list(feature_key)
+        build_ok = build(feature_list)
+        build_status[feature_key] = build_ok
+        if not build_ok:
+            joined_variants = ", ".join(sorted(set(variants)))
+            failures.append(f"Build failed: {joined_variants}")
+
+    for example, backend, variant, features in EXAMPLES:
+        feature_key = tuple(features)
+        if not build_status.get(feature_key, False):
+            continue
         print(f"  Running {example} on QEMU sifive_e...", file=sys.stderr)
         try:
-            output = run_qemu(example)
+            output = run_qemu(example, features)
         except subprocess.TimeoutExpired:
             print("    TIMEOUT", file=sys.stderr)
             failures.append(f"Timeout: {example}")
@@ -102,7 +137,7 @@ def main():
 
         accepted = "ed25519 ACCEPT" in output
         metric = parse_metric(output)
-        text_size = get_text_size(example)
+        text_size = get_text_size(example, features)
 
         status = "ACCEPT" if accepted else "REJECT"
         print(f"    {status}", file=sys.stderr)
@@ -116,7 +151,7 @@ def main():
         if not accepted:
             failures.append(f"REJECT: {example}")
 
-        results[example] = {
+        results[(backend, variant)] = {
             "accepted": accepted,
             "stack": metric["stack"] if metric else None,
             "cycles": metric["cycles"] if metric else None,
@@ -125,19 +160,34 @@ def main():
 
     # Generate markdown table
     print()
-    print("| Target | Backend | .text (KiB) | Stack (bytes) | Cycles (k) |")
-    print("|--------|---------|-------------|---------------|------------|")
+    print("Metrics below are verify-minus-baseline deltas: the incremental flash, stack, and approximate cycle cost of signature verification.")
+    print()
+    print("| Target | Backend | .text (KiB) | Stack (bytes) | Approx cycles (k) |")
+    print("|--------|---------|-------------|---------------|-------------------|")
 
-    for example in EXAMPLES:
-        backend = example.replace("ed25519_", "")
-        r = results.get(example)
-        if r is None:
+    for backend in ("u8", "u32"):
+        verify = results.get((backend, "verify"))
+        baseline = results.get((backend, "baseline"))
+        if verify is None or baseline is None:
             print(f"| sifive_e (RV32) | {backend} | - | - | - |")
             continue
-        stack = str(r["stack"]) if r["stack"] is not None else "-"
-        cycles = str(r["cycles"]) if r["cycles"] is not None else "-"
-        text_kib = f"{r['text_size'] / 1024:.1f}" if r["text_size"] is not None else "-"
-        print(f"| sifive_e (RV32) | {backend} | {text_kib} | {stack} | {cycles} |")
+        delta_text = delta(
+            verify,
+            baseline,
+            "text_size",
+            formatter=lambda value: f"{value / 1024:.1f}",
+        )
+        delta_stack = delta(verify, baseline, "stack")
+        delta_cycles = delta(
+            verify,
+            baseline,
+            "cycles",
+            formatter=lambda value: f"{value / 1000:.1f}",
+        )
+        print(f"| sifive_e (RV32) | {backend} | {delta_text} | {delta_stack} | {delta_cycles} |")
+
+    print()
+    print("Approx cycles are derived from the demo harness counters and should be treated as a rough instruction-cost proxy, not a precise benchmark.")
 
     if failures:
         print(f"\nFailures: {len(failures)}", file=sys.stderr)
