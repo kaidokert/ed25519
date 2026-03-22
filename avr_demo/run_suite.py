@@ -9,7 +9,10 @@ import re
 import subprocess
 import sys
 
-EXAMPLE = "test_verify"
+EXAMPLES = [
+    ("test_verify", "baseline", ["baseline"]),
+    ("test_verify", "verify", []),
+]
 TIMEOUT_RUN = 120  # seconds per simavr run
 TIMEOUT_BUILD = 600  # seconds for cargo build
 
@@ -22,10 +25,13 @@ def run_cmd(args, timeout=TIMEOUT_RUN, **kwargs):
     return result.returncode, result.stdout, result.stderr
 
 
-def build():
-    """Build the example. Returns True on success."""
+def build(features):
+    """Build the examples. Returns True on success."""
+    args = ["cargo", "build", "--release", "--example", "test_verify"]
+    if features:
+        args.extend(["--features", ",".join(features)])
     rc, _out, err = run_cmd(
-        ["cargo", "build", "--release", "--example", EXAMPLE],
+        args,
         timeout=TIMEOUT_BUILD,
     )
     if rc != 0:
@@ -35,10 +41,13 @@ def build():
     return True
 
 
-def run_simavr():
+def run_simavr(example, features):
     """Run the example via cargo run (uses .cargo/config.toml runner). Returns stdout+stderr."""
+    args = ["cargo", "run", "--release", "--example", example]
+    if features:
+        args.extend(["--features", ",".join(features)])
     rc, out, err = run_cmd(
-        ["cargo", "run", "--release", "--example", EXAMPLE]
+        args
     )
     combined = out + err
     if rc != 0 and "ACCEPT" not in combined and "REJECT" not in combined:
@@ -47,13 +56,16 @@ def run_simavr():
     return combined
 
 
-def get_text_size():
+def get_text_size(example, features):
     """Get .text section size via cargo-bloat JSON output."""
     try:
-        rc, out, err = run_cmd([
-            "cargo", "bloat", "--release", "--example", EXAMPLE,
+        args = [
+            "cargo", "bloat", "--release", "--example", example,
             "--message-format=json",
-        ], timeout=TIMEOUT_BUILD)
+        ]
+        if features:
+            args.extend(["--features", ",".join(features)])
+        rc, out, err = run_cmd(args, timeout=TIMEOUT_BUILD)
         if rc == 0:
             json_line = out.strip().split('\n')[-1]
             data = json.loads(json_line)
@@ -87,48 +99,81 @@ def parse_output(output):
 
 def main():
     print("Building for AVR...", file=sys.stderr)
-    if not build():
-        return 1
+    for _, variant, features in EXAMPLES:
+        if not build(features):
+            print("\nFailures: 1", file=sys.stderr)
+            print(f"  Build failed: {variant}", file=sys.stderr)
+            return 1
 
-    print("  Running test_verify on simavr...", file=sys.stderr)
-    try:
-        output = run_simavr()
-    except subprocess.TimeoutExpired:
-        print("    TIMEOUT", file=sys.stderr)
-        return 1
+    results = {}
+    failures = []
+    for example, variant, features in EXAMPLES:
+        print(f"  Running {example} on simavr...", file=sys.stderr)
+        try:
+            output = run_simavr(example, features)
+        except subprocess.TimeoutExpired:
+            print("    TIMEOUT", file=sys.stderr)
+            failures.append(f"Timeout: {example}")
+            continue
 
-    result = parse_output(output)
-    text_size = get_text_size()
+        result = parse_output(output)
+        text_size = get_text_size(example, features)
+        status = "ACCEPT" if result["accepted"] else "REJECT"
+        print(f"    {status}", file=sys.stderr)
 
-    status = "ACCEPT" if result["accepted"] else "REJECT"
-    print(f"    {status}", file=sys.stderr)
+        missing = []
+        if result["stack"] is None:
+            missing.append("stack")
+        if result["time_ms"] is None:
+            missing.append("time")
+        if text_size is None:
+            missing.append(".text size")
+        if missing:
+            print(f"    Missing metrics: {', '.join(missing)}", file=sys.stderr)
+            failures.append(f"Missing metrics for {example}: {', '.join(missing)}")
+        if not result["accepted"]:
+            failures.append(f"REJECT: {example}")
 
-    missing = []
-    if result["stack"] is None:
-        missing.append("stack")
-    if result["time_ms"] is None:
-        missing.append("time")
-    if text_size is None:
-        missing.append(".text size")
-    if missing:
-        print(f"    Missing metrics: {', '.join(missing)}", file=sys.stderr)
+        results[variant] = {
+            "accepted": result["accepted"],
+            "stack": result["stack"],
+            "time_ms": result["time_ms"],
+            "ticks": result["ticks"],
+            "text_size": text_size,
+        }
 
-    # Generate markdown table
-    stack = str(result["stack"]) if result["stack"] is not None else "-"
-    time_ms = str(result["time_ms"]) if result["time_ms"] is not None else "-"
-    ticks = str(result["ticks"]) if result["ticks"] is not None else "-"
-    text_kib = f"{text_size / 1024:.1f}" if text_size is not None else "-"
+    baseline = results.get("baseline")
+    verify = results.get("verify")
 
     print()
-    print("| Target | Backend | .text (KiB) | Stack (bytes) | Time (ms) | Ticks |")
-    print("|--------|---------|-------------|---------------|-----------|-------|")
-    print(f"| ATmega2560 | u8 | {text_kib} | {stack} | {time_ms} | {ticks} |")
+    print("Metrics below are verify-minus-baseline deltas: the incremental flash, stack, and approximate runtime cost of signature verification.")
+    print()
+    print("| Target | Backend | .text (KiB) | Stack (bytes) | Approx time (ms) |")
+    print("|--------|---------|-------------|---------------|------------------|")
+    if baseline and verify:
+        delta_text = (
+            f"{(verify['text_size'] - baseline['text_size']) / 1024:.1f}"
+            if verify["text_size"] is not None and baseline["text_size"] is not None else "-"
+        )
+        delta_stack = (
+            str(verify["stack"] - baseline["stack"])
+            if verify["stack"] is not None and baseline["stack"] is not None else "-"
+        )
+        delta_time = (
+            str(verify["time_ms"] - baseline["time_ms"])
+            if verify["time_ms"] is not None and baseline["time_ms"] is not None else "-"
+        )
+        print(f"| ATmega2560 | u8 | {delta_text} | {delta_stack} | {delta_time} |")
+    else:
+        print("| ATmega2560 | u8 | - | - | - |")
 
-    if not result["accepted"]:
-        print("\nFailure: signature REJECT", file=sys.stderr)
-        return 1
-    if missing:
-        print(f"\nFailure: missing metrics: {', '.join(missing)}", file=sys.stderr)
+    print()
+    print("Approx time is measured by the demo harness timer and should be treated as a rough runtime proxy, not a precise benchmark.")
+
+    if failures:
+        print(f"\nFailures: {len(failures)}", file=sys.stderr)
+        for failure in failures:
+            print(f"  {failure}", file=sys.stderr)
         return 1
     return 0
 

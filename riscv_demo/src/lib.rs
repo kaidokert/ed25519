@@ -1,5 +1,6 @@
 #![no_std]
 
+use core::hint::black_box;
 use core::fmt::Write;
 
 pub mod cyclecount;
@@ -47,6 +48,12 @@ pub fn test_fixture(testable: fn() -> bool, backend: &str) -> ! {
     loop {
         unsafe { core::arch::asm!("wfi") }
     }
+}
+
+#[inline(never)]
+pub fn fake_verify(public: [u8; 32], msg: &[u8], signature: [u8; 64]) -> bool {
+    let folded = public[0] ^ signature[0] ^ signature[32] ^ (msg.len() as u8);
+    black_box(folded) != 0
 }
 
 #[panic_handler]

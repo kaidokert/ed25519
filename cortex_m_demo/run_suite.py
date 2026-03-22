@@ -9,7 +9,12 @@ import re
 import subprocess
 import sys
 
-EXAMPLES = ["ed25519_u8", "ed25519_u32"]
+EXAMPLES = [
+    ("ed25519_u8", "u8", "placebo", ["baseline"]),
+    ("ed25519_u8", "u8", "verify", []),
+    ("ed25519_u32", "u32", "placebo", ["baseline"]),
+    ("ed25519_u32", "u32", "verify", []),
+]
 TARGETS = [
     ("thumbv6m-none-eabi", "M0"),
     ("thumbv7m-none-eabi", "M3"),
@@ -27,10 +32,13 @@ def run_cmd(args, timeout=TIMEOUT_RUN, **kwargs):
     return result.returncode, result.stdout, result.stderr
 
 
-def build_examples(target):
+def build_examples(target, features):
     """Build all examples for a target. Returns True on success."""
+    args = ["cargo", "build", "--target", target, "--release", "--examples"]
+    if features:
+        args.extend(["--features", ",".join(features)])
     rc, _out, err = run_cmd(
-        ["cargo", "build", "--target", target, "--release", "--examples"],
+        args,
         timeout=TIMEOUT_BUILD,
     )
     if rc != 0:
@@ -40,10 +48,13 @@ def build_examples(target):
     return True
 
 
-def run_qemu(target, example):
+def run_qemu(target, example, features):
     """Run an example on QEMU via cargo run. Returns stdout+stderr."""
+    args = ["cargo", "run", "--target", target, "--release", "--example", example]
+    if features:
+        args.extend(["--features", ",".join(features)])
     rc, out, err = run_cmd(
-        ["cargo", "run", "--target", target, "--release", "--example", example]
+        args
     )
     combined = out + err
     if rc != 0 and "ACCEPT" not in combined and "REJECT" not in combined:
@@ -52,13 +63,16 @@ def run_qemu(target, example):
     return combined
 
 
-def get_text_size(target, example):
+def get_text_size(target, example, features):
     """Get .text section size via cargo-bloat JSON output."""
     try:
-        rc, out, err = run_cmd([
+        args = [
             "cargo", "bloat", "--release", "--target", target,
             "--example", example, "--message-format=json",
-        ], timeout=TIMEOUT_BUILD)
+        ]
+        if features:
+            args.extend(["--features", ",".join(features)])
+        rc, out, err = run_cmd(args, timeout=TIMEOUT_BUILD)
         if rc == 0:
             # JSON is on the last line of output
             json_line = out.strip().split('\n')[-1]
@@ -94,15 +108,15 @@ def main():
 
     for target, label in TARGETS:
         print(f"Building for {target}...", file=sys.stderr)
-        if not build_examples(target):
-            failures.append(f"Build failed: {target}")
-            continue
-
-        for example in EXAMPLES:
-            key = (example, target)
+        for _, _, variant, features in EXAMPLES:
+            if not build_examples(target, features):
+                failures.append(f"Build failed: {target} ({variant})")
+                continue
+        for example, backend, variant, features in EXAMPLES:
+            key = (backend, variant, target)
             print(f"  Running {example} on {label}...", file=sys.stderr)
             try:
-                output = run_qemu(target, example)
+                output = run_qemu(target, example, features)
             except subprocess.TimeoutExpired:
                 print("    TIMEOUT", file=sys.stderr)
                 failures.append(f"Timeout: {example} on {label}")
@@ -110,7 +124,7 @@ def main():
 
             accepted = "ed25519 ACCEPT" in output
             metric = parse_metric(output)
-            text_size = get_text_size(target, example)
+            text_size = get_text_size(target, example, features)
 
             if not metric:
                 print(f"    METRIC line missing", file=sys.stderr)
@@ -121,6 +135,8 @@ def main():
 
             results[key] = {
                 "accepted": accepted,
+                "backend": backend,
+                "variant": variant,
                 "stack": metric["stack"] if metric else None,
                 "cycles": metric["cycles"] if metric else None,
                 "text_size": text_size,
@@ -131,33 +147,34 @@ def main():
             if not accepted:
                 failures.append(f"REJECT: {example} on {label}")
 
-    # Generate markdown table
-    backends = {"ed25519_u8": "u8", "ed25519_u32": "u32"}
-    metrics = ["Stack (bytes)", "Cycles (k)", ".text (KiB)"]
-    target_labels = [label for _, label in TARGETS]
+    print()
+    print("Metrics below are verify-minus-baseline deltas: the incremental flash, stack, and approximate cycle cost of signature verification.")
+    print()
+    print("| Target | Backend | .text (KiB) | Stack (bytes) | Approx cycles (k) |")
+    print("|--------|---------|-------------|---------------|-------------------|")
+    for target, label in TARGETS:
+        for backend in ("u8", "u32"):
+            verify_row = results.get((backend, "verify", target))
+            placebo_row = results.get((backend, "placebo", target))
+            if verify_row is None or placebo_row is None:
+                print(f"| {label} | {backend} | - | - | - |")
+                continue
+            delta_text = (
+                f"{(verify_row['text_size'] - placebo_row['text_size']) / 1024:.1f}"
+                if verify_row["text_size"] is not None and placebo_row["text_size"] is not None else "-"
+            )
+            delta_stack = (
+                str(verify_row["stack"] - placebo_row["stack"])
+                if verify_row["stack"] is not None and placebo_row["stack"] is not None else "-"
+            )
+            delta_cycles = (
+                str(verify_row["cycles"] - placebo_row["cycles"])
+                if verify_row["cycles"] is not None and placebo_row["cycles"] is not None else "-"
+            )
+            print(f"| {label} | {backend} | {delta_text} | {delta_stack} | {delta_cycles} |")
 
     print()
-    print(f"| Backend | Metric | {' | '.join(target_labels)} |")
-    print(f"|---------|--------|{' | '.join(['------'] * len(TARGETS))} |")
-
-    for example in EXAMPLES:
-        backend = backends[example]
-        for metric_name in metrics:
-            cells = []
-            for target, _ in TARGETS:
-                r = results.get((example, target))
-                if r is None:
-                    cells.append("-")
-                elif metric_name == "Stack (bytes)":
-                    cells.append(str(r["stack"]) if r["stack"] is not None else "-")
-                elif metric_name == "Cycles (k)":
-                    cells.append(str(r["cycles"]) if r["cycles"] is not None else "-")
-                elif metric_name == ".text (KiB)":
-                    if r["text_size"] is not None:
-                        cells.append(f"{r['text_size'] / 1024:.1f}")
-                    else:
-                        cells.append("-")
-            print(f"| {backend} | {metric_name} | {' | '.join(cells)} |")
+    print("Approx cycles are derived from the demo harness counters and should be treated as a rough instruction-cost proxy, not a precise benchmark.")
 
     if failures:
         print(f"\nFailures: {len(failures)}", file=sys.stderr)

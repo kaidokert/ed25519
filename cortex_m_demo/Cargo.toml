@@ -6,6 +6,9 @@ autobins = false
 autotests = false
 autobenches = false
 
+[features]
+baseline = []
+
 [dependencies]
 cortex-m = "0.7"
 cortex-m-rt = "0.7"

@@ -6,6 +6,9 @@ autobins = false
 autotests = false
 autobenches = false
 
+[features]
+baseline = []
+
 [dependencies]
 riscv-rt = "0.13"
 
