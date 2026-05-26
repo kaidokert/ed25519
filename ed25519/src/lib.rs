@@ -26,6 +26,15 @@
 //! - `std` (default) — enables logging and timing
 //! - `fixed-bigint` — enables the `fixed-bigint` backend
 //! - `no_std` compatible with `--no-default-features`
+//!
+//! # Constant-time scope
+//!
+//! Ed25519 verification operates on public data only; constant-time isn't a
+//! requirement there. For X25519 the secret scalar is sensitive: the ladder's
+//! conditional swap is branchless, but the underlying field arithmetic
+//! (`MontgomeryCtx`, `lazy_field`) has not been audited as constant-time and
+//! may exhibit data-dependent timing on some backends. Suitable for embedded
+//! bring-up; not yet hardened against side-channel adversaries.
 
 #![cfg_attr(not(feature = "std"), no_std)]
 

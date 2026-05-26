@@ -8,6 +8,11 @@
 //! All field arithmetic is done in Montgomery form via `MontgomeryCtx`.
 //! Add / sub remain plain modular operations (`lazy_field`); only the
 //! multiplications and squarings go through Montgomery REDC.
+//!
+//! The ladder's conditional swap is branchless (constant-time with respect
+//! to the secret scalar). The surrounding field operations (`MontgomeryCtx`,
+//! `lazy_field`) are not formally audited as constant-time and may exhibit
+//! data-dependent timing on some backends.
 
 use crate::lazy_field::{lazy_mod_add, lazy_mod_sub};
 use crate::montgomery_ctx::MontgomeryCtx;
@@ -29,6 +34,11 @@ pub const BASE_U_BYTES: [u8; 32] = [
     9, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 ];
 
+/// Backends wider than this are rejected at runtime. 64 bytes covers all
+/// currently registered `FixedUInt` impls (u32×16, u64×8, u64×4, u8×32) and
+/// bounds the scratch buffers below.
+const MAX_T_BYTES: usize = 64;
+
 /// Apply the RFC 7748 scalar clamp: clear the bottom three bits of byte 0,
 /// clear the top bit of byte 31, and set bit 254.
 pub const fn clamp(mut k: [u8; 32]) -> [u8; 32] {
@@ -36,6 +46,36 @@ pub const fn clamp(mut k: [u8; 32]) -> [u8; 32] {
     k[31] &= 127;
     k[31] |= 64;
     k
+}
+
+// Branchless helpers for constant-time conditional swap.
+
+/// Build an all-ones (mask = 0xFF..FF) or all-zeros T-typed mask from a `u8`
+/// known to be 0 or 1 — without branching on the bit. The bit is materialized
+/// as a `T` via `from_bytes_le`, then negated with `wrapping_sub` so that
+/// `mask = 0 - bit`.
+#[inline(always)]
+fn mask_from_bit<T>(bit: u8) -> T
+where
+    T: UnsignedModularInt + num_traits::WrappingSub,
+{
+    let mut buf = [0u8; MAX_T_BYTES];
+    buf[0] = bit & 1;
+    let bit_t = T::from_bytes_le(&buf);
+    T::zero().wrapping_sub(&bit_t)
+}
+
+/// Constant-time conditional swap: when `mask` is all-ones, swap `a` and `b`;
+/// when `mask` is all-zeros, leave them unchanged. Uses XOR rather than a
+/// branch so control flow does not depend on the mask bit.
+#[inline(always)]
+fn cswap<T>(mask: T, a: &mut T, b: &mut T)
+where
+    T: Copy + core::ops::BitAnd<Output = T> + core::ops::BitXor<Output = T>,
+{
+    let diff = mask & (*a ^ *b);
+    *a = *a ^ diff;
+    *b = *b ^ diff;
 }
 
 /// Compute `k * G` where `G` is the X25519 base point (u = 9).
@@ -49,7 +89,8 @@ where
         + num_traits::ops::overflowing::OverflowingAdd
         + num_traits::WrappingMul
         + num_traits::WrappingAdd
-        + num_traits::WrappingSub,
+        + num_traits::WrappingSub
+        + core::ops::BitXor<Output = T>,
     for<'a> &'a T: core::ops::BitAnd<Output = T>
         + core::ops::Rem<&'a T, Output = T>
         + core::ops::Add<&'a T, Output = T>
@@ -69,6 +110,13 @@ where
 ///
 /// The scalar is clamped and the high bit of `u_in[31]` is masked here, so
 /// callers do not need to pre-process either input (RFC 7748 §5).
+///
+/// # Panics
+///
+/// Panics if `T` is narrower than 256 bits (cannot hold a Curve25519 field
+/// element) or wider than 512 bits (exceeds the internal scratch buffers).
+/// Both conditions indicate a backend-selection bug and would otherwise
+/// produce a meaningless result.
 #[inline(never)]
 pub fn x25519<T>(k: [u8; 32], u_in: [u8; 32]) -> [u8; 32]
 where
@@ -79,7 +127,8 @@ where
         + num_traits::ops::overflowing::OverflowingAdd
         + num_traits::WrappingMul
         + num_traits::WrappingAdd
-        + num_traits::WrappingSub,
+        + num_traits::WrappingSub
+        + core::ops::BitXor<Output = T>,
     for<'a> &'a T: core::ops::BitAnd<Output = T>
         + core::ops::Rem<&'a T, Output = T>
         + core::ops::Add<&'a T, Output = T>
@@ -88,10 +137,23 @@ where
         + core::ops::Mul<&'a T, Output = T>
         + core::ops::Div<&'a T, Output = T>,
 {
-    // Guard: T must be wide enough to hold 256-bit field elements
-    if modmath::type_bit_width::<T>() < 256 {
-        return [0u8; 32];
-    }
+    // Guard: T must be wide enough to hold a 256-bit Curve25519 field element
+    // *and* narrow enough to fit in the fixed-size scratch buffers used by
+    // the ladder's cswap mask and the final serialization step. Failing
+    // either is a backend-selection bug, not a runtime input error — panic so
+    // it surfaces immediately rather than silently producing a wrong secret.
+    let bits = modmath::type_bit_width::<T>();
+    assert!(
+        bits >= 256,
+        "x25519: backend T is {} bits, need at least 256",
+        bits
+    );
+    assert!(
+        bits <= MAX_T_BYTES * 8,
+        "x25519: backend T is {} bits, exceeds supported maximum of {}",
+        bits,
+        MAX_T_BYTES * 8
+    );
 
     let p = T::from_bytes_le(&P_BYTES);
     let ctx = MontgomeryCtx::new(p).unwrap();
@@ -117,14 +179,15 @@ where
     let mut z3 = one_m;
     let mut swap: u8 = 0;
 
-    // Process scalar bits 254..=0 (255 iterations).
+    // Process scalar bits 254..=0 (255 iterations). The conditional swap is
+    // performed with a branchless cswap so iteration control flow is
+    // identical regardless of the secret scalar.
     for t in (0..255).rev() {
         let k_t = (k[t >> 3] >> (t & 7)) & 1;
         swap ^= k_t;
-        if swap == 1 {
-            core::mem::swap(&mut x2, &mut x3);
-            core::mem::swap(&mut z2, &mut z3);
-        }
+        let mask = mask_from_bit::<T>(swap);
+        cswap(mask, &mut x2, &mut x3);
+        cswap(mask, &mut z2, &mut z3);
         swap = k_t;
 
         // RFC 7748 §5 doubling-and-differential-addition step.
@@ -153,11 +216,10 @@ where
         z2 = ctx.mont_mul(&e, &aa_plus_a24e);
     }
 
-    // Final conditional swap based on the last scalar bit
-    if swap == 1 {
-        core::mem::swap(&mut x2, &mut x3);
-        core::mem::swap(&mut z2, &mut z3);
-    }
+    // Final conditional swap based on the last scalar bit — branchless.
+    let final_mask = mask_from_bit::<T>(swap);
+    cswap(final_mask, &mut x2, &mut x3);
+    cswap(final_mask, &mut z2, &mut z3);
 
     // Return x2 * z2^{-1} mod p, encoded little-endian.
     // mont_inv expects normal form and returns normal form, so round-trip z2.
@@ -167,10 +229,10 @@ where
     let result_m = ctx.mont_mul(&x2, &z2_inv_m);
     let result = ctx.from_mont(result_m);
 
-    // T can be wider than 32 bytes (e.g. FixedUInt<u32, 16> is 64 bytes). Serialize
-    // into a max-width scratch buffer and copy out the low 32 bytes — the field
-    // element is < p < 2^255 so the high half is zero.
-    let mut scratch = [0u8; 64];
+    // T can be wider than 32 bytes (e.g. FixedUInt<u32, 16> is 64 bytes). The
+    // MAX_T_BYTES guard above bounds the scratch size; copy out the low 32
+    // bytes — the field element is < p < 2^255 so the high half is zero.
+    let mut scratch = [0u8; MAX_T_BYTES];
     let bytes = result.to_bytes_le(&mut scratch);
     let mut out = [0u8; 32];
     out.copy_from_slice(&bytes[..32]);

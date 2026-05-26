@@ -55,6 +55,8 @@ pub fn test_fixture(testable: fn() -> bool, algo: &str, backend: &str) {
     paint_stack();
     let counter = CycleCounter::new();
     let result = testable();
+    // Cycle counts are printed in thousands so the METRIC line stays compact;
+    // consumers (run_suite.py) treat the `cycles:` field as "k" units.
     let elapsed = counter.elapsed() / 1000;
     let stack = check_stack_high_water_mark();
     if result {

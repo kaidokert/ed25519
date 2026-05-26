@@ -46,7 +46,14 @@ def build_examples(target, features):
     args = ["cargo", "build", "--target", target, "--release", "--examples"]
     if features:
         args.extend(["--features", ",".join(features)])
-    rc, _out, err = run_cmd(args, timeout=TIMEOUT_BUILD)
+    try:
+        rc, _out, err = run_cmd(args, timeout=TIMEOUT_BUILD)
+    except subprocess.TimeoutExpired:
+        print(
+            f"BUILD TIMEOUT for {target} (features={features}) after {TIMEOUT_BUILD}s",
+            file=sys.stderr,
+        )
+        return False
     if rc != 0:
         print(f"BUILD FAILED for {target} (features={features}):", file=sys.stderr)
         print(err, file=sys.stderr)
@@ -157,6 +164,41 @@ def main():
             if not metric:
                 print("    METRIC line missing", file=sys.stderr)
                 failures.append(f"Missing METRIC: {example} [{variant}] on {label}")
+            else:
+                # Defensive: confirm the METRIC line was emitted by the binary
+                # we believe we just ran. Mislabeled or stale output would
+                # otherwise be silently attributed to the wrong row.
+                expected_target_cfg = target.split("-")[0]
+                if metric.get("target") != expected_target_cfg:
+                    print(
+                        f"    METRIC target mismatch (got {metric.get('target')},"
+                        f" expected {expected_target_cfg})",
+                        file=sys.stderr,
+                    )
+                    failures.append(
+                        f"Mismatched METRIC target: {example} [{variant}] on {label}"
+                    )
+                    metric = None
+                elif metric.get("backend") != backend:
+                    print(
+                        f"    METRIC backend mismatch (got {metric.get('backend')},"
+                        f" expected {backend})",
+                        file=sys.stderr,
+                    )
+                    failures.append(
+                        f"Mismatched METRIC backend: {example} [{variant}] on {label}"
+                    )
+                    metric = None
+                elif metric.get("algo") not in (None, algo):
+                    print(
+                        f"    METRIC algo mismatch (got {metric.get('algo')},"
+                        f" expected {algo})",
+                        file=sys.stderr,
+                    )
+                    failures.append(
+                        f"Mismatched METRIC algo: {example} [{variant}] on {label}"
+                    )
+                    metric = None
             if text_size is None:
                 print("    .text size unavailable", file=sys.stderr)
                 failures.append(f"Missing .text size: {example} [{variant}] on {label}")
@@ -199,6 +241,9 @@ def main():
                 formatter=lambda v: f"{v / 1024:.1f}",
             )
             dstack = delta(verify_row, baseline_row, "stack")
+            # Rust test_fixture already divides cycle counts by 1000 before
+            # emitting the METRIC line, so verify-minus-baseline is already
+            # expressed in thousands of cycles — matching the "(k)" header.
             dcycles = delta(verify_row, baseline_row, "cycles")
             print(f"| {label} | {algo} | {backend} | {dtext} | {dstack} | {dcycles} |")
 
