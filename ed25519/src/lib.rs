@@ -1,17 +1,24 @@
-//! Ed25519 signature verification, generic over bigint backends.
+//! Curve25519 primitives for embedded targets, generic over bigint backends.
 //!
-//! This crate provides Ed25519 signature verification using trait-generic
-//! arithmetic, allowing the same verify code to work with different bigint
-//! backends (e.g., `fixed-bigint` with various word sizes).
+//! Provides two operations on top of a shared field machinery:
+//!
+//! - **Ed25519 signature verification** (`verify`, `VerifyingKey`) — twisted
+//!   Edwards form, SHA-512 challenge, NAF double-scalar multiplication.
+//! - **X25519 ECDH key exchange** (`x25519`, `x25519_base`) — Montgomery form,
+//!   x-only ladder, RFC 7748.
+//!
+//! Both curves live in F_p where p = 2^255 - 19, so they share the same
+//! `UnsignedModularInt` trait, `MontgomeryCtx`, and lazy-reduction helpers.
 //!
 //! # Usage
 //!
 //! ```ignore
-//! use ed25519_heapless::verify;
+//! use ed25519_heapless::{verify, x25519};
 //! use fixed_bigint::FixedUInt;
 //!
 //! type T = FixedUInt<u32, 16>;
-//! let valid = verify::<T>(public_key, message, signature);
+//! let valid  = verify::<T>(public_key, message, signature);
+//! let shared = x25519::<T>(my_secret, peer_public);
 //! ```
 //!
 //! # Features
@@ -26,6 +33,7 @@ pub(crate) mod jsf;
 pub(crate) mod lazy_field;
 pub(crate) mod montgomery_ctx;
 pub(crate) mod strict;
+pub(crate) mod x25519;
 
 use core::marker::PhantomData;
 
@@ -154,6 +162,14 @@ pub const MODP_SQRT_M1_BYTES: [u8; 32] = [
 /// - `msg` — message bytes (arbitrary length)
 /// - `signature` — 64-byte Ed25519 signature
 pub use strict::verify;
+
+/// Compute the X25519 shared secret `k * u` (RFC 7748 §5).
+///
+/// Both `k` and `u_in` are 32-byte little-endian encodings. The scalar `k`
+/// is clamped per RFC 7748 and the high bit of `u_in[31]` is masked off
+/// before the ladder runs, so callers do not need to pre-process either
+/// input.
+pub use x25519::{A24_BYTES, BASE_U_BYTES, clamp, x25519, x25519_base};
 
 /// Verifying key wrapper that implements `signature` crate traits.
 pub struct VerifyingKey<T> {

@@ -19,6 +19,7 @@ fn main() -> ! {
                 ed25519_heapless::verify::<FixedUInt<u8, 32>>(PUBLIC_KEY, MESSAGE, SIGNATURE)
             }
         },
+        "ed25519",
         "u8",
     );
     loop {}

@@ -9,3 +9,5 @@ todo.txt
 Cargo.lock
 deps/
 testdata/
+notes/
+CLAUDE.md
