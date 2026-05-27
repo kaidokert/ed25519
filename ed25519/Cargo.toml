@@ -2,11 +2,11 @@
 name = "ed25519_heapless"
 version = "0.0.2"
 edition = "2024"
-description = "Ed25519 signature verification, generic over bigint backends"
+description = "Ed25519 signature verification and X25519 key exchange, generic over bigint backends"
 license = "GPL-3.0-only"
 repository = "https://github.com/kaidokert/ed25519"
 readme = "../README.md"
-keywords = ["ed25519", "signature", "verification", "no_std", "embedded"]
+keywords = ["ed25519", "x25519", "curve25519", "no_std", "embedded"]
 categories = ["cryptography", "no-std", "no-std::no-alloc"]
 
 [dependencies]
