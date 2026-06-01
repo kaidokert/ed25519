@@ -1,35 +1,64 @@
-use crate::lazy_field::{lazy_mod_add, lazy_mod_sub};
+use crate::UnsignedModularInt;
+use crate::curve25519_field::Curve25519Field;
+use modmath::ResidueNct;
 
-use crate::montgomery_ctx::MontgomeryCtx;
+// Tuples of field residues. Lifetime `'f` binds them to the producing
+// `Curve25519Field` instance — the type system prevents mixing residues
+// from a different field (e.g. a `Curve25519FieldCt` used by x25519).
+type EdPoint<'f, T> = (
+    ResidueNct<'f, T>,
+    ResidueNct<'f, T>,
+    ResidueNct<'f, T>,
+    ResidueNct<'f, T>,
+);
 
-use crate::{Point, UnsignedModularInt};
+// Niels coordinates: (Y+X, Y-X, 2dT) — optimized for point additions.
+// Reduces point addition from 10M to 8M multiplications.
+type NielsPoint<'f, T> = (ResidueNct<'f, T>, ResidueNct<'f, T>, ResidueNct<'f, T>);
 
-// Niels coordinates: (Y+X, Y-X, 2dT) - optimized for point additions
-// Reduces point addition from 10M to 8M multiplications
-type NielsPoint<T> = (T, T, T);
-use crate::{D_BYTES, G_T_BYTES, G_X_BYTES, G_Y_BYTES, MODP_SQRT_M1_BYTES, P_BYTES, Q_BYTES};
+use crate::{D_BYTES, G_T_BYTES, G_X_BYTES, G_Y_BYTES, MODP_SQRT_M1_BYTES, Q_BYTES};
 
 #[inline(never)]
 fn sha512_modq<T: UnsignedModularInt>(parts: &[&[u8]], q: &T) -> T
 where
-    for<'a> &'a T: core::ops::BitAnd<Output = T>
-        + core::ops::Rem<&'a T, Output = T>
-        + core::ops::Add<&'a T, Output = T>
-        + core::ops::Sub<T, Output = T>
-        + core::ops::Sub<&'a T, Output = T>
-        + core::ops::Mul<&'a T, Output = T>
-        + core::ops::Div<&'a T, Output = T>,
+    for<'a> &'a T: core::ops::Add<&'a T, Output = T> + core::ops::Sub<&'a T, Output = T>,
 {
-    let mut compact_sha = hmac_sha512::Hash::new();
-    for part in parts {
-        compact_sha.update(part);
-    }
-    let finalized = compact_sha.finalize();
-    let hash = finalized.as_slice();
+    // Enforce "exactly one" SHA-512 backend at compile time. Two
+    // mutually-exclusive arms + two compile_error! guards cover all four
+    // feature-flag combinations cleanly.
+    #[cfg(all(feature = "sha512-hmac-sha512", feature = "sha512-sha2"))]
+    compile_error!(
+        "ed25519_heapless: enable at most one SHA-512 backend feature — both `sha512-hmac-sha512` and `sha512-sha2` were enabled"
+    );
+    #[cfg(not(any(feature = "sha512-hmac-sha512", feature = "sha512-sha2")))]
+    compile_error!(
+        "ed25519_heapless: enable exactly one of the SHA-512 backend features `sha512-hmac-sha512` or `sha512-sha2`"
+    );
+    #[cfg(all(feature = "sha512-hmac-sha512", not(feature = "sha512-sha2")))]
+    let hash: [u8; 64] = {
+        let mut compact_sha = hmac_sha512::Hash::new();
+        for part in parts {
+            compact_sha.update(part);
+        }
+        compact_sha.finalize()
+    };
+    #[cfg(all(feature = "sha512-sha2", not(feature = "sha512-hmac-sha512")))]
+    let hash: [u8; 64] = {
+        use sha2::Digest;
+        let mut compact_sha = sha2::Sha512::new();
+        for part in parts {
+            compact_sha.update(part);
+        }
+        compact_sha.finalize().into()
+    };
+    let hash = hash.as_slice();
 
-    // Bit-by-bit Horner reduction: processes the full 512-bit hash without
-    // requiring T to hold all 64 bytes. Works for any T >= 253 bits (> q).
-    // At each step acc < q, so 2*acc < 2q < 2^254, which fits in 256-bit T.
+    // Bit-by-bit Horner reduction modulo q (the scalar/group order, *not*
+    // the field prime p — that's why this stays as raw `T` arithmetic
+    // rather than going through `Field`). Processes the full 512-bit hash
+    // without requiring T to hold all 64 bytes. Works for any T >= 253 bits
+    // (> q). At each step acc < q, so 2*acc < 2q < 2^254, which fits in
+    // 256-bit T.
     let mut acc = T::zero();
     let one = T::one();
     // Process from most significant bit (byte 63, bit 7) to least (byte 0, bit 0)
@@ -56,14 +85,20 @@ where
 }
 
 // =========================================================================
-// Montgomery-domain point operations
+// Edwards point operations
 // =========================================================================
-// All multiplications use wide-REDC Montgomery multiplication instead of
-// (a * b) % p. Add/sub remain unchanged.
-// All point coordinates are kept in Montgomery form throughout.
+// All point coordinates are `Residue<'f, T>` values — internally Montgomery
+// form, but that's opaque to this code. Add/sub/mul/inv all go through the
+// `Field<T>` methods, which keep things in Montgomery form between calls so
+// there's no round-trip cost across chains of operations.
 
 #[inline(never)]
-fn recover_x_mont<T>(y: T, sign: u8, p: &T, d: T, ctx: &MontgomeryCtx<T>) -> Option<T>
+fn recover_x<'f, T>(
+    y_raw: T,
+    sign: u8,
+    d_raw: T,
+    field: &'f Curve25519Field<T>,
+) -> Option<ResidueNct<'f, T>>
 where
     T: UnsignedModularInt
         + Copy
@@ -72,88 +107,80 @@ where
         + num_traits::ops::overflowing::OverflowingAdd
         + num_traits::WrappingMul
         + num_traits::WrappingAdd
-        + num_traits::WrappingSub,
-    for<'a> &'a T: core::ops::BitAnd<Output = T>
-        + core::ops::Rem<&'a T, Output = T>
-        + core::ops::Add<&'a T, Output = T>
+        + num_traits::WrappingSub
+        + core::ops::Sub<Output = T>,
+    for<'a> &'a T: core::ops::Add<&'a T, Output = T>
         + core::ops::Sub<T, Output = T>
-        + core::ops::Sub<&'a T, Output = T>
-        + core::ops::Mul<&'a T, Output = T>
-        + core::ops::Div<&'a T, Output = T>,
+        + core::ops::Sub<&'a T, Output = T>,
 {
-    let one = T::one();
-
-    // Phase 1: Compute x² = (y²-1) / (d*y²+1) — scope all intermediates
+    // Phase 1: x² = (y² − 1) / (d·y² + 1)
     let x2 = {
-        let y_m = ctx.to_mont(y);
-        let d_m = ctx.to_mont(d);
-        let y2_m = ctx.mont_mul(&y_m, &y_m);
-        let y2 = ctx.from_mont(y2_m);
-        let left = lazy_mod_sub(y2, &one, p);
-        let denom_raw = ctx.from_mont(ctx.mont_mul(&d_m, &y2_m));
-        let denom = lazy_mod_add(denom_raw, &one, p);
-        let inv_denom = ctx.mont_inv(denom);
-        let left_m = ctx.to_mont(left);
-        let inv_denom_m = ctx.to_mont(inv_denom);
-        ctx.from_mont(ctx.mont_mul(&left_m, &inv_denom_m))
-    }; // y_m, d_m, y2_m, y2, left, denom, inv_denom, etc. all dead
+        let y = field.reduce(&y_raw);
+        let d = field.reduce(&d_raw);
+        let y2 = field.mul(&y, &y);
+        let one = field.one();
+        let numerator = field.sub(&y2, &one);
+        let dy2 = field.mul(&d, &y2);
+        let denominator = field.add(&dy2, &one);
+        let inv_denom = field.inv(&denominator);
+        field.mul(&numerator, &inv_denom)
+    };
 
-    if x2 == T::zero() {
-        return if sign > 0 { None } else { Some(T::zero()) };
+    let zero = field.zero();
+    if x2 == zero {
+        return if sign > 0 { None } else { Some(zero) };
     }
 
-    // Phase 2: Compute exponent (p+3)/8 — scope arithmetic temps
+    // Phase 2: exponent (p+3)/8. p = 2^255 − 19 → (p+3)/8 = 2^252 − 2,
+    // exactly divisible by 8 so we use `>> 3` (no division on T required).
     let exp = {
-        let two = one + one;
-        let three = two + one;
-        let p3 = p + &three;
-        let four = two + two;
-        let eight = four + four;
-        p3 / &eight
-    }; // two, three, four, eight, p3 all dead
+        let three = T::one() + T::one() + T::one();
+        let p3 = field.modulus() + &three;
+        p3 >> 3
+    };
 
-    // Phase 3: Square root via Montgomery exponentiation
-    let mut x = ctx.mont_exp(x2, exp);
-    // exp is dead
+    // Phase 3: candidate square root via Fermat: x = x²^((p+3)/8)
+    let mut x = field.exp(&x2, &exp);
 
-    // Phase 4: Verification — x² == x2? If not, multiply by sqrt(-1)
+    // Phase 4: verify x² = x2; if not, multiply by sqrt(−1).
     {
-        let x_m = ctx.to_mont(x);
-        let tmp1 = ctx.from_mont(ctx.mont_mul(&x_m, &x_m));
-        let tmp2 = lazy_mod_sub(tmp1, &x2, p);
-        if tmp2 != T::zero() {
-            let sqrt_m1_m = ctx.to_mont(T::from_bytes_le(&MODP_SQRT_M1_BYTES));
-            let x_m2 = ctx.to_mont(x);
-            x = ctx.from_mont(ctx.mont_mul(&x_m2, &sqrt_m1_m));
+        let check = field.mul(&x, &x);
+        let diff = field.sub(&check, &x2);
+        if diff != zero {
+            let sqrt_m1 = field.reduce(&T::from_bytes_le(&MODP_SQRT_M1_BYTES));
+            x = field.mul(&x, &sqrt_m1);
         }
-    } // x_m, tmp1, tmp2, sqrt_m1_m all dead
+    }
 
-    // Phase 5: Final check — x² == x2?
+    // Phase 5: final check — if still wrong, reject.
     {
-        let x_m = ctx.to_mont(x);
-        let tmp1 = ctx.from_mont(ctx.mont_mul(&x_m, &x_m));
-        let tmp2 = lazy_mod_sub(tmp1, &x2, p);
-        if tmp2 != T::zero() {
+        let check = field.mul(&x, &x);
+        let diff = field.sub(&check, &x2);
+        if diff != zero {
             return None;
         }
-    } // x_m, tmp1, tmp2 all dead
-
-    if (x & one == one) as u8 != sign {
-        x = p - x;
     }
+
+    // Phase 6: choose sign. Parity is a property of the *normal-form* value,
+    // not the Montgomery encoding, so round-trip through `into_raw`.
+    let x_raw = field.into_raw(&x);
+    let parity = (x_raw & T::one()) == T::one();
+    let x = if (parity as u8) != sign {
+        let reduced = field.reduce(&x_raw);
+        field.sub(&zero, &reduced)
+    } else {
+        field.reduce(&x_raw)
+    };
 
     Some(x)
 }
 
-// decompress_edward_point_mont uses recover_x_mont for the sqrt but returns
-// points in NORMAL form. The caller (verify_mont) converts to Montgomery form.
 #[inline(never)]
-fn decompress_edward_point_mont<T>(
-    k: [u8; 32],
-    p: &T,
-    d: &T,
-    ctx: &MontgomeryCtx<T>,
-) -> Option<Point<T>>
+fn decompress_edward_point<'f, T>(
+    encoded: [u8; 32],
+    d_raw: T,
+    field: &'f Curve25519Field<T>,
+) -> Option<EdPoint<'f, T>>
 where
     T: UnsignedModularInt
         + Copy
@@ -162,36 +189,30 @@ where
         + num_traits::ops::overflowing::OverflowingAdd
         + num_traits::WrappingMul
         + num_traits::WrappingAdd
-        + num_traits::WrappingSub,
-    for<'a> &'a T: core::ops::BitAnd<Output = T>
-        + core::ops::Rem<&'a T, Output = T>
-        + core::ops::Add<&'a T, Output = T>
+        + num_traits::WrappingSub
+        + core::ops::Sub<Output = T>,
+    for<'a> &'a T: core::ops::Add<&'a T, Output = T>
         + core::ops::Sub<T, Output = T>
-        + core::ops::Sub<&'a T, Output = T>
-        + core::ops::Mul<&'a T, Output = T>
-        + core::ops::Div<&'a T, Output = T>,
+        + core::ops::Sub<&'a T, Output = T>,
 {
-    let mut k_list = k;
-    let sign = k_list[k.len() - 1] >> 7;
-    k_list[k.len() - 1] &= 0b01111111;
-    let y = T::from_bytes_le(&k_list[0..32]);
+    let mut bytes = encoded;
+    let sign = bytes[31] >> 7;
+    bytes[31] &= 0b0111_1111;
+    let y_raw = T::from_bytes_le(&bytes[0..32]);
 
-    if &y >= p {
-        None
-    } else {
-        let x = recover_x_mont(y, sign, p, *d, ctx);
-        x.map(|x_val| {
-            // Compute T = x*y using Montgomery mul, but return point in normal form
-            let x_m = ctx.to_mont(x_val);
-            let y_m = ctx.to_mont(y);
-            let t = ctx.from_mont(ctx.mont_mul(&x_m, &y_m));
-            (x_val, y, T::one(), t)
-        })
+    if &y_raw >= field.modulus() {
+        return None;
     }
+
+    let x = recover_x(y_raw, sign, d_raw, field)?;
+    let y = field.reduce(&y_raw);
+    let one = field.one();
+    let t = field.mul(&x, &y);
+    Some((x, y, one, t))
 }
 
 #[inline(never)]
-fn point_double_mont<T>(pp: &Point<T>, p: &T, ctx: &MontgomeryCtx<T>) -> Point<T>
+fn point_double<'f, T>(pp: &EdPoint<'f, T>, field: &'f Curve25519Field<T>) -> EdPoint<'f, T>
 where
     T: UnsignedModularInt
         + Copy
@@ -203,35 +224,36 @@ where
         + num_traits::WrappingSub,
     for<'a> &'a T: core::ops::Add<&'a T, Output = T> + core::ops::Sub<&'a T, Output = T>,
 {
-    // A = X^2
-    let a = ctx.mont_mul(&pp.0, &pp.0);
-    // B = Y^2
-    let b = ctx.mont_mul(&pp.1, &pp.1);
-    // C = 2*Z^2
-    let z_squared = ctx.mont_mul(&pp.2, &pp.2);
-    let c = lazy_mod_add(z_squared, &z_squared, p);
-    // D = -A (since a = -1 for Ed25519)
-    let d_val = lazy_mod_sub(T::zero(), &a, p);
-    // E = (X+Y)^2 - A - B
-    let x_plus_y = lazy_mod_add(pp.0, &pp.1, p);
-    let x_plus_y_squared = ctx.mont_mul(&x_plus_y, &x_plus_y);
-    let e_temp = lazy_mod_sub(x_plus_y_squared, &a, p);
-    let e = lazy_mod_sub(e_temp, &b, p);
-    // G = D + B
-    let g = lazy_mod_add(d_val, &b, p);
-    // F = G - C
-    let f = lazy_mod_sub(g, &c, p);
-    // H = D - B
-    let h = lazy_mod_sub(d_val, &b, p);
-    // Final coordinates
-    let x2 = ctx.mont_mul(&e, &f);
-    let y2 = ctx.mont_mul(&g, &h);
-    let z2 = ctx.mont_mul(&f, &g);
-    let t2 = ctx.mont_mul(&e, &h);
-    (x2, y2, z2, t2)
+    // Edwards curve doubling on extended-twisted coordinates.
+    // A = X²; B = Y²; C = 2·Z²; D = −A (a = −1 for Ed25519)
+    // E = (X+Y)² − A − B; G = D + B; F = G − C; H = D − B
+    // X' = E·F; Y' = G·H; Z' = F·G; T' = E·H
+    let a = field.mul(&pp.0, &pp.0);
+    let b = field.mul(&pp.1, &pp.1);
+    let z_sq = field.mul(&pp.2, &pp.2);
+    let c = field.add(&z_sq, &z_sq);
+    let zero = field.zero();
+    let d = field.sub(&zero, &a);
+    let x_plus_y = field.add(&pp.0, &pp.1);
+    let xy_sq = field.mul(&x_plus_y, &x_plus_y);
+    let e_tmp = field.sub(&xy_sq, &a);
+    let e = field.sub(&e_tmp, &b);
+    let g = field.add(&d, &b);
+    let f = field.sub(&g, &c);
+    let h = field.sub(&d, &b);
+    (
+        field.mul(&e, &f),
+        field.mul(&g, &h),
+        field.mul(&f, &g),
+        field.mul(&e, &h),
+    )
 }
 
-fn to_niels_mont<T>(pp: &Point<T>, p: &T, d: &T, ctx: &MontgomeryCtx<T>) -> NielsPoint<T>
+fn to_niels<'f, T>(
+    pp: &EdPoint<'f, T>,
+    d_raw: T,
+    field: &'f Curve25519Field<T>,
+) -> NielsPoint<'f, T>
 where
     T: UnsignedModularInt
         + Copy
@@ -243,21 +265,20 @@ where
         + num_traits::WrappingSub,
     for<'a> &'a T: core::ops::Add<&'a T, Output = T> + core::ops::Sub<&'a T, Output = T>,
 {
-    let y_plus_x = lazy_mod_add(pp.1, &pp.0, p);
-    let y_minus_x = lazy_mod_sub(pp.1, &pp.0, p);
-    let d_m = ctx.to_mont(*d);
-    let dt = ctx.mont_mul(&d_m, &pp.3);
-    let two_dt = lazy_mod_add(dt, &dt, p);
+    let y_plus_x = field.add(&pp.1, &pp.0);
+    let y_minus_x = field.sub(&pp.1, &pp.0);
+    let d = field.reduce(&d_raw);
+    let dt = field.mul(&d, &pp.3);
+    let two_dt = field.add(&dt, &dt);
     (y_plus_x, y_minus_x, two_dt)
 }
 
 #[inline(never)]
-fn point_add_niels_mont<T>(
-    pp: &Point<T>,
-    niels: &NielsPoint<T>,
-    p: &T,
-    ctx: &MontgomeryCtx<T>,
-) -> Point<T>
+fn point_add_niels<'f, T>(
+    pp: &EdPoint<'f, T>,
+    niels: &NielsPoint<'f, T>,
+    field: &'f Curve25519Field<T>,
+) -> EdPoint<'f, T>
 where
     T: UnsignedModularInt
         + Copy
@@ -269,32 +290,33 @@ where
         + num_traits::WrappingSub,
     for<'a> &'a T: core::ops::Add<&'a T, Output = T> + core::ops::Sub<&'a T, Output = T>,
 {
-    let (y_plus_x, y_minus_x, two_dt) = niels;
-    // A = (Y1-X1)*(y-x)
-    let pp_y_minus_x = lazy_mod_sub(pp.1, &pp.0, p);
-    let a = ctx.mont_mul(&pp_y_minus_x, y_minus_x);
-    // B = (Y1+X1)*(y+x)
-    let pp_y_plus_x = lazy_mod_add(pp.1, &pp.0, p);
-    let b = ctx.mont_mul(&pp_y_plus_x, y_plus_x);
-    // C = T1*2dt
-    let c = ctx.mont_mul(&pp.3, two_dt);
-    // D = 2*Z1
-    let d_val = lazy_mod_add(pp.2, &pp.2, p);
-    // E = B-A, F = D-C, G = D+C, H = B+A
-    let e = lazy_mod_sub(b, &a, p);
-    let f = lazy_mod_sub(d_val, &c, p);
-    let g = lazy_mod_add(d_val, &c, p);
-    let h = lazy_mod_add(b, &a, p);
-    // Final coordinates
-    let x3 = ctx.mont_mul(&e, &f);
-    let y3 = ctx.mont_mul(&g, &h);
-    let z3 = ctx.mont_mul(&f, &g);
-    let t3 = ctx.mont_mul(&e, &h);
-    (x3, y3, z3, t3)
+    let &(y_plus_x, y_minus_x, two_dt) = niels;
+    // A = (Y₁−X₁)·(y−x); B = (Y₁+X₁)·(y+x); C = T₁·2dt; D = 2·Z₁
+    let pp_y_minus_x = field.sub(&pp.1, &pp.0);
+    let a = field.mul(&pp_y_minus_x, &y_minus_x);
+    let pp_y_plus_x = field.add(&pp.1, &pp.0);
+    let b = field.mul(&pp_y_plus_x, &y_plus_x);
+    let c = field.mul(&pp.3, &two_dt);
+    let d = field.add(&pp.2, &pp.2);
+    // E = B − A; F = D − C; G = D + C; H = B + A
+    let e = field.sub(&b, &a);
+    let f = field.sub(&d, &c);
+    let g = field.add(&d, &c);
+    let h = field.add(&b, &a);
+    (
+        field.mul(&e, &f),
+        field.mul(&g, &h),
+        field.mul(&f, &g),
+        field.mul(&e, &h),
+    )
 }
 
 #[inline(never)]
-fn point_equal_mont<T>(pp: &Point<T>, qq: &Point<T>, p: &T, ctx: &MontgomeryCtx<T>) -> bool
+fn point_equal<'f, T>(
+    pp: &EdPoint<'f, T>,
+    qq: &EdPoint<'f, T>,
+    field: &'f Curve25519Field<T>,
+) -> bool
 where
     T: UnsignedModularInt
         + Copy
@@ -306,25 +328,24 @@ where
         + num_traits::WrappingSub,
     for<'a> &'a T: core::ops::Add<&'a T, Output = T> + core::ops::Sub<&'a T, Output = T>,
 {
-    let term1 = ctx.mont_mul(&pp.0, &qq.2);
-    let term2 = ctx.mont_mul(&qq.0, &pp.2);
-    let term3 = ctx.mont_mul(&pp.1, &qq.2);
-    let term4 = ctx.mont_mul(&qq.1, &pp.2);
-    let diff1 = lazy_mod_sub(term1, &term2, p);
-    let diff2 = lazy_mod_sub(term3, &term4, p);
-    diff1 == T::zero() && diff2 == T::zero()
+    // Projective equality: X₁/Z₁ = X₂/Z₂ ↔ X₁·Z₂ = X₂·Z₁ (and same for Y).
+    let t1 = field.mul(&pp.0, &qq.2);
+    let t2 = field.mul(&qq.0, &pp.2);
+    let t3 = field.mul(&pp.1, &qq.2);
+    let t4 = field.mul(&qq.1, &pp.2);
+    let zero = field.zero();
+    field.sub(&t1, &t2) == zero && field.sub(&t3, &t4) == zero
 }
 
 #[inline(never)]
-fn naf_double_scalar_mul_mont<T>(
+fn naf_double_scalar_mul<'f, T>(
     s: T,
-    g: &Point<T>,
+    g: &EdPoint<'f, T>,
     h: T,
-    a: &Point<T>,
-    p: &T,
-    d: &T,
-    ctx: &MontgomeryCtx<T>,
-) -> Point<T>
+    a: &EdPoint<'f, T>,
+    d_raw: T,
+    field: &'f Curve25519Field<T>,
+) -> EdPoint<'f, T>
 where
     T: UnsignedModularInt
         + Copy
@@ -335,40 +356,34 @@ where
         + num_traits::WrappingAdd
         + num_traits::WrappingSub,
     for<'a> &'a T: core::ops::BitAnd<Output = T>
-        + core::ops::Rem<&'a T, Output = T>
         + core::ops::Add<&'a T, Output = T>
-        + core::ops::Sub<T, Output = T>
-        + core::ops::Sub<&'a T, Output = T>
-        + core::ops::Mul<&'a T, Output = T>
-        + core::ops::Div<&'a T, Output = T>,
+        + core::ops::Sub<&'a T, Output = T>,
 {
-    // Scope s, h — consumed by NafIterator::new, dead after this
-    let naf = { crate::jsf::NafIterator::new(s, h) };
+    // NAF operates on raw scalars (s, h ∈ Z_q), not field elements.
+    let naf = crate::jsf::NafIterator::new(s, h);
 
-    // Scope zero_m, one_m — only needed for identity point construction
-    let mut result = {
-        let zero_m = ctx.to_mont(T::zero());
-        let one_m = ctx.to_mont(T::one());
-        (zero_m, one_m, one_m, zero_m)
-    };
+    // Identity in extended-twisted Edwards: (0, 1, 1, 0).
+    let one = field.one();
+    let zero = field.zero();
+    let mut result: EdPoint<'f, T> = (zero, one, one, zero);
 
-    // Convert base points to Niels form and precompute negations
-    let g_niels = to_niels_mont(g, p, d, ctx);
-    let a_niels = to_niels_mont(a, p, d, ctx);
-    let neg_g_niels = (g_niels.1, g_niels.0, lazy_mod_sub(T::zero(), &g_niels.2, p));
-    let neg_a_niels = (a_niels.1, a_niels.0, lazy_mod_sub(T::zero(), &a_niels.2, p));
+    // Precompute Niels form of base points + their negations.
+    let g_niels = to_niels(g, d_raw, field);
+    let a_niels = to_niels(a, d_raw, field);
+    let neg_g_niels = (g_niels.1, g_niels.0, field.sub(&zero, &g_niels.2));
+    let neg_a_niels = (a_niels.1, a_niels.0, field.sub(&zero, &a_niels.2));
 
     for digit in naf.digits_msb_first() {
-        result = point_double_mont(&result, p, ctx);
+        result = point_double(&result, field);
         match digit.s_digit {
-            1 => result = point_add_niels_mont(&result, &g_niels, p, ctx),
-            -1 => result = point_add_niels_mont(&result, &neg_g_niels, p, ctx),
+            1 => result = point_add_niels(&result, &g_niels, field),
+            -1 => result = point_add_niels(&result, &neg_g_niels, field),
             0 => {}
             _ => unreachable!("NAF digits must be -1, 0, or 1"),
         }
         match digit.h_digit {
-            1 => result = point_add_niels_mont(&result, &a_niels, p, ctx),
-            -1 => result = point_add_niels_mont(&result, &neg_a_niels, p, ctx),
+            1 => result = point_add_niels(&result, &a_niels, field),
+            -1 => result = point_add_niels(&result, &neg_a_niels, field),
             0 => {}
             _ => unreachable!("NAF digits must be -1, 0, or 1"),
         }
@@ -377,6 +392,14 @@ where
     result
 }
 
+/// Verify an Ed25519 signature.
+///
+/// Convenience entry point — builds a fresh [`Curve25519Field`] internally,
+/// which costs ~150k cycles on Cortex-M3 (R mod N + R² mod N precompute).
+/// Callers that verify more than once against the same curve (TLS chains,
+/// batch verification, anything walking a cert tree) should build the
+/// field once via [`Curve25519Field::curve25519`] and call
+/// [`verify_with_field`] instead, amortizing the precompute.
 pub fn verify<T>(public: [u8; 32], msg: &[u8], signature: [u8; 64]) -> bool
 where
     T: UnsignedModularInt
@@ -388,18 +411,38 @@ where
         + num_traits::WrappingAdd
         + num_traits::WrappingSub,
     for<'a> &'a T: core::ops::BitAnd<Output = T>
-        + core::ops::Rem<&'a T, Output = T>
         + core::ops::Add<&'a T, Output = T>
         + core::ops::Sub<T, Output = T>
-        + core::ops::Sub<&'a T, Output = T>
-        + core::ops::Mul<&'a T, Output = T>
-        + core::ops::Div<&'a T, Output = T>,
+        + core::ops::Sub<&'a T, Output = T>,
 {
-    verify_mont::<T>(public, msg, signature)
+    // Guard: T must be at least 256 bits wide for Ed25519 constants. We
+    // mirror this guard here so single-shot callers don't pay for an
+    // unusable Field construction.
+    if modmath::type_bit_width::<T>() < 256 {
+        return false;
+    }
+    let field = Curve25519Field::curve25519();
+    verify_with_field::<T>(&field, public, msg, signature)
 }
 
-#[inline(never)]
-fn verify_mont<T>(public: [u8; 32], msg: &[u8], signature: [u8; 64]) -> bool
+/// Verify with a caller-supplied [`Curve25519Field`], skipping the
+/// per-call precompute. Build the field once (e.g. at firmware boot, or
+/// at the top of a TLS handshake) and reuse across every verify against
+/// the same curve.
+///
+/// ```ignore
+/// use ed25519_heapless::{Curve25519Field, verify_with_field};
+/// let field = Curve25519Field::<MyT>::curve25519();
+/// for (pk, msg, sig) in chain {
+///     if !verify_with_field(&field, pk, msg, sig) { return false; }
+/// }
+/// ```
+pub fn verify_with_field<T>(
+    field: &Curve25519Field<T>,
+    public: [u8; 32],
+    msg: &[u8],
+    signature: [u8; 64],
+) -> bool
 where
     T: UnsignedModularInt
         + Copy
@@ -410,96 +453,90 @@ where
         + num_traits::WrappingAdd
         + num_traits::WrappingSub,
     for<'a> &'a T: core::ops::BitAnd<Output = T>
-        + core::ops::Rem<&'a T, Output = T>
         + core::ops::Add<&'a T, Output = T>
         + core::ops::Sub<T, Output = T>
-        + core::ops::Sub<&'a T, Output = T>
-        + core::ops::Mul<&'a T, Output = T>
-        + core::ops::Div<&'a T, Output = T>,
+        + core::ops::Sub<&'a T, Output = T>,
 {
-    // Guard: T must be at least 256 bits wide for Ed25519 constants
+    verify_inner::<T>(field, public, msg, signature)
+}
+
+#[inline(never)]
+fn verify_inner<T>(
+    field: &Curve25519Field<T>,
+    public: [u8; 32],
+    msg: &[u8],
+    signature: [u8; 64],
+) -> bool
+where
+    T: UnsignedModularInt
+        + Copy
+        + modmath::WideMul
+        + modmath::CiosMontMul
+        + num_traits::ops::overflowing::OverflowingAdd
+        + num_traits::WrappingMul
+        + num_traits::WrappingAdd
+        + num_traits::WrappingSub,
+    for<'a> &'a T: core::ops::BitAnd<Output = T>
+        + core::ops::Add<&'a T, Output = T>
+        + core::ops::Sub<T, Output = T>
+        + core::ops::Sub<&'a T, Output = T>,
+{
+    // Guard: T must be at least 256 bits wide for Ed25519 constants. The
+    // caller-built Field would already encode this implicitly (the
+    // modulus wouldn't fit), but check explicitly to keep behaviour
+    // identical to `verify` for narrow `T`.
     if modmath::type_bit_width::<T>() < 256 {
         return false;
     }
 
-    let p = T::from_bytes_le(&P_BYTES);
     let d = T::from_bytes_le(&D_BYTES);
 
-    // Precompute Montgomery context for field prime p
-    // Ed25519 prime is always odd and non-zero
-    let ctx = MontgomeryCtx::new(p).unwrap();
-
-    // Phase 1: Decompress public key -> neg_aa_mont (aa scoped to die here)
-    let neg_aa_mont = {
-        let aa = match decompress_edward_point_mont(public, &p, &d, &ctx) {
-            Some(aa) => aa,
-            None => return false,
-        };
-        let aa_m = (
-            ctx.to_mont(aa.0),
-            ctx.to_mont(aa.1),
-            ctx.to_mont(aa.2),
-            ctx.to_mont(aa.3),
-        );
-        (
-            lazy_mod_sub(T::zero(), &aa_m.0, &p),
-            aa_m.1,
-            aa_m.2,
-            lazy_mod_sub(T::zero(), &aa_m.3, &p),
-        )
-    }; // aa (128B) and aa_m (128B) are now dead
+    // Phase 1: decompress the public key A, then negate (we'll check
+    // s·B − h·A = R rather than s·B = h·A + R).
+    let neg_aa = match decompress_edward_point(public, d, field) {
+        Some(aa) => {
+            let zero = field.zero();
+            (field.sub(&zero, &aa.0), aa.1, aa.2, field.sub(&zero, &aa.3))
+        }
+        None => return false,
+    };
 
     let rrs: [u8; 32] = signature[0..32]
         .try_into()
-        .expect("Invalid signature length");
+        .expect("invalid signature length");
 
-    // Phase 2: Decompress R -> rr_mont (rr scoped to die here)
-    let rr_mont = {
-        let rr = match decompress_edward_point_mont(rrs, &p, &d, &ctx) {
-            Some(rr) => rr,
-            None => return false,
-        };
-        (
-            ctx.to_mont(rr.0),
-            ctx.to_mont(rr.1),
-            ctx.to_mont(rr.2),
-            ctx.to_mont(rr.3),
-        )
-    }; // rr (128B) is now dead
+    // Phase 2: decompress R.
+    let rr = match decompress_edward_point(rrs, d, field) {
+        Some(rr) => rr,
+        None => return false,
+    };
 
     let s_bytes: [u8; 32] = signature[32..64]
         .try_into()
         .expect("invalid signature length");
     let s = T::from_bytes_le(&s_bytes);
 
-    // Phase 3: SHA-512 hash — scope q and storage so they die before NAF
+    // Phase 3: hash to scalar. `q` is the curve order — separate from the
+    // field prime `p`, so it doesn't live inside the field abstraction.
     let h = {
         let q = T::from_bytes_le(&Q_BYTES);
         if s >= q {
             return false;
         }
         sha512_modq(&[rrs.as_slice(), public.as_slice(), msg], &q)
-    }; // q (32B), storage (128B), rrs (32B) are now dead
+    };
 
-    // Phase 4: Construct G in Montgomery form (normal-form scoped to die)
-    let g_mont = {
-        let g = (
-            T::from_bytes_le(&G_X_BYTES),
-            T::from_bytes_le(&G_Y_BYTES),
-            T::one(),
-            T::from_bytes_le(&G_T_BYTES),
-        );
-        (
-            ctx.to_mont(g.0),
-            ctx.to_mont(g.1),
-            ctx.to_mont(g.2),
-            ctx.to_mont(g.3),
-        )
-    }; // g normal-form (128B) is now dead
+    // Phase 4: base point G in field form.
+    let g: EdPoint<'_, T> = (
+        field.reduce(&T::from_bytes_le(&G_X_BYTES)),
+        field.reduce(&T::from_bytes_le(&G_Y_BYTES)),
+        field.one(),
+        field.reduce(&T::from_bytes_le(&G_T_BYTES)),
+    );
 
-    // Phase 5: Paired NAF double scalar multiplication
-    let sbb_minus_haa = naf_double_scalar_mul_mont(s, &g_mont, h, &neg_aa_mont, &p, &d, &ctx);
+    // Phase 5: paired NAF double-scalar multiplication. Computes s·G + h·(−A).
+    let sb_minus_ha = naf_double_scalar_mul(s, &g, h, &neg_aa, d, field);
 
-    // Phase 6: Final comparison
-    point_equal_mont(&sbb_minus_haa, &rr_mont, &p, &ctx)
+    // Phase 6: final check.
+    point_equal(&sb_minus_ha, &rr, field)
 }

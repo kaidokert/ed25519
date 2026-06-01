@@ -18,8 +18,9 @@ panic-semihosting = { version = "0.6", features = ["exit"] }
 ed25519_heapless = { path = "../ed25519", default-features = false, features = [
     "fixed-bigint",
     "fixed-bigint-u8",
+    "sha512-hmac-sha512",
 ] }
-fixed-bigint = { version = "0.2.5", features = ["use-unsafe"] }
+fixed-bigint = { version = "0.3", features = ["use-unsafe"] }
 
 [profile.release]
 codegen-units = 1

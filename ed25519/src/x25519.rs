@@ -1,22 +1,22 @@
 //! X25519 ECDH key exchange (RFC 7748 §5).
 //!
-//! Shares the field machinery — `UnsignedModularInt`, `MontgomeryCtx`,
-//! `lazy_field` — with the Ed25519 verifier next door, since both curves
-//! live in F_p where p = 2^255 - 19. The X25519-specific bits (Montgomery
-//! curve constants, scalar clamp, ladder) live in this module.
-//!
-//! All field arithmetic is done in Montgomery form via `MontgomeryCtx`.
-//! Add / sub remain plain modular operations (`lazy_field`); only the
-//! multiplications and squarings go through Montgomery REDC.
+//! Uses [`FieldCt`]-tagged constant-time field arithmetic throughout — every
+//! ladder operation produces and consumes [`ResidueCt`] values. The type
+//! system prevents accidentally feeding ladder values into a non-CT field
+//! operation: a `ResidueCt` from this module's `FieldCt` can never be passed
+//! to a `Field::mul` call.
 //!
 //! The ladder's conditional swap is branchless (constant-time with respect
-//! to the secret scalar). The surrounding field operations (`MontgomeryCtx`,
-//! `lazy_field`) are not formally audited as constant-time and may exhibit
-//! data-dependent timing on some backends.
+//! to the secret scalar). All field multiplications and squarings go through
+//! `FieldCt::mul`, which uses `subtle::ConditionallySelectable` for the
+//! final REDC reduction. Add/sub use `FieldCt::add` / `sub`, which are also
+//! branchless. The remaining gap to formal CT certification is in
+//! `fixed-bigint`'s per-limb primitives — see CLAUDE.md for the audit.
 
-use crate::lazy_field::{lazy_mod_add, lazy_mod_sub};
-use crate::montgomery_ctx::MontgomeryCtx;
+use crate::curve25519_field::Curve25519FieldCt;
 use crate::{P_BYTES, UnsignedModularInt};
+use modmath::ResidueCt;
+use subtle::Choice;
 
 // =========================================================================
 // X25519-specific constants
@@ -48,58 +48,30 @@ pub const fn clamp(mut k: [u8; 32]) -> [u8; 32] {
     k
 }
 
-// Branchless helpers for constant-time conditional swap.
-
-/// Build an all-ones (mask = 0xFF..FF) or all-zeros T-typed mask from a `u8`
-/// known to be 0 or 1 — without branching on the bit. The bit is materialized
-/// as a `T` via `from_bytes_le`, then negated with `wrapping_sub` so that
-/// `mask = 0 - bit`.
-#[inline(always)]
-fn mask_from_bit<T>(bit: u8) -> T
-where
-    T: UnsignedModularInt + num_traits::WrappingSub,
-{
-    let mut buf = [0u8; MAX_T_BYTES];
-    buf[0] = bit & 1;
-    let bit_t = T::from_bytes_le(&buf);
-    T::zero().wrapping_sub(&bit_t)
-}
-
-/// Constant-time conditional swap: when `mask` is all-ones, swap `a` and `b`;
-/// when `mask` is all-zeros, leave them unchanged. Uses XOR rather than a
-/// branch so control flow does not depend on the mask bit.
-#[inline(always)]
-fn cswap<T>(mask: T, a: &mut T, b: &mut T)
-where
-    T: Copy + core::ops::BitAnd<Output = T> + core::ops::BitXor<Output = T>,
-{
-    let diff = mask & (*a ^ *b);
-    *a = *a ^ diff;
-    *b = *b ^ diff;
-}
-
 /// Compute `k * G` where `G` is the X25519 base point (u = 9).
 /// Convenience for public-key derivation.
-pub fn x25519_base<T>(k: [u8; 32]) -> [u8; 32]
+///
+/// `k` is borrowed (not consumed) so the caller can wrap their long-lived
+/// secret in a `Zeroizing<[u8; 32]>` and have it cleared on drop without
+/// forcing an extra copy across the API boundary.
+pub fn x25519_base<T>(k: &[u8; 32]) -> [u8; 32]
 where
     T: UnsignedModularInt
         + Copy
+        + PartialEq
         + modmath::WideMul
-        + modmath::CiosMontMul
+        + modmath::CiosMontMulCt
+        + modmath::Parity
         + num_traits::ops::overflowing::OverflowingAdd
         + num_traits::WrappingMul
         + num_traits::WrappingAdd
         + num_traits::WrappingSub
-        + core::ops::BitXor<Output = T>,
-    for<'a> &'a T: core::ops::BitAnd<Output = T>
-        + core::ops::Rem<&'a T, Output = T>
-        + core::ops::Add<&'a T, Output = T>
-        + core::ops::Sub<T, Output = T>
-        + core::ops::Sub<&'a T, Output = T>
-        + core::ops::Mul<&'a T, Output = T>
-        + core::ops::Div<&'a T, Output = T>,
+        + subtle::ConditionallySelectable
+        + subtle::ConstantTimeLess
+        + core::ops::Sub<Output = T>,
+    for<'a> &'a T: core::ops::Add<&'a T, Output = T> + core::ops::Sub<&'a T, Output = T>,
 {
-    x25519::<T>(k, BASE_U_BYTES)
+    x25519::<T>(k, &BASE_U_BYTES)
 }
 
 /// Compute the X25519 shared secret `k * u`.
@@ -107,6 +79,12 @@ where
 /// Inputs are 32-byte little-endian encodings of the secret scalar and the
 /// peer's u-coordinate. Output is the 32-byte little-endian encoding of the
 /// resulting u-coordinate.
+///
+/// `k` is borrowed (not consumed); see the note on `x25519_base` for the
+/// rationale around long-lived secrets and `Zeroizing<[u8; 32]>`. The
+/// peer's `u_in` is also borrowed for API symmetry. The internal clamped
+/// copy of `k` lives in a `Zeroizing` wrapper so it's wiped on function
+/// exit, closing the obvious "scalar bytes in a stack frame" leak path.
 ///
 /// The scalar is clamped and the high bit of `u_in[31]` is masked here, so
 /// callers do not need to pre-process either input (RFC 7748 §5).
@@ -118,24 +96,22 @@ where
 /// Both conditions indicate a backend-selection bug and would otherwise
 /// produce a meaningless result.
 #[inline(never)]
-pub fn x25519<T>(k: [u8; 32], u_in: [u8; 32]) -> [u8; 32]
+pub fn x25519<T>(k: &[u8; 32], u_in: &[u8; 32]) -> [u8; 32]
 where
     T: UnsignedModularInt
         + Copy
+        + PartialEq
         + modmath::WideMul
-        + modmath::CiosMontMul
+        + modmath::CiosMontMulCt
+        + modmath::Parity
         + num_traits::ops::overflowing::OverflowingAdd
         + num_traits::WrappingMul
         + num_traits::WrappingAdd
         + num_traits::WrappingSub
-        + core::ops::BitXor<Output = T>,
-    for<'a> &'a T: core::ops::BitAnd<Output = T>
-        + core::ops::Rem<&'a T, Output = T>
-        + core::ops::Add<&'a T, Output = T>
-        + core::ops::Sub<T, Output = T>
-        + core::ops::Sub<&'a T, Output = T>
-        + core::ops::Mul<&'a T, Output = T>
-        + core::ops::Div<&'a T, Output = T>,
+        + subtle::ConditionallySelectable
+        + subtle::ConstantTimeLess
+        + core::ops::Sub<Output = T>,
+    for<'a> &'a T: core::ops::Add<&'a T, Output = T> + core::ops::Sub<&'a T, Output = T>,
 {
     // Guard: T must be wide enough to hold a 256-bit Curve25519 field element
     // *and* narrow enough to fit in the fixed-size scratch buffers used by
@@ -156,78 +132,81 @@ where
     );
 
     let p = T::from_bytes_le(&P_BYTES);
-    let ctx = MontgomeryCtx::new(p).unwrap();
+    let field = Curve25519FieldCt::new(p).unwrap();
 
-    // RFC 7748 §5: clamp scalar, mask high bit of u-coordinate
-    let k = clamp(k);
-    let mut u_bytes = u_in;
+    // RFC 7748 §5: clamp scalar, mask high bit of u-coordinate.
+    // Wrap the clamped scalar in Zeroizing so it gets zeroed when this
+    // function returns (best-effort against later stack reuse exposing
+    // the bits — see api_debt_x25519 for what this does *not* address).
+    let k = zeroize::Zeroizing::new(clamp(*k));
+    let mut u_bytes = *u_in;
     u_bytes[31] &= 0x7f;
     let u = T::from_bytes_le(&u_bytes);
 
-    // x1 stays constant throughout the ladder (= peer u in Montgomery form)
-    let x1_m = ctx.to_mont(u);
-    let a24_m = ctx.to_mont(T::from_bytes_le(&A24_BYTES));
+    // x1 stays constant throughout the ladder (= peer u in the field).
+    // Peer u is public, but every downstream op is CT-typed, so it flows
+    // through the CT field and gets the same residue type as everything else.
+    let x1 = field.reduce(&u);
+    let a24 = field.reduce(&T::from_bytes_le(&A24_BYTES));
 
-    // Initial ladder state in Montgomery form:
-    //   (x2, z2) = (1, 0)   -- the point at infinity
+    // Initial ladder state:
+    //   (x2, z2) = (1, 0)   -- point at infinity
     //   (x3, z3) = (u, 1)   -- the input point
-    // Note: 0 in Montgomery form is still 0.
-    let one_m = ctx.to_mont(T::one());
-    let mut x2 = one_m;
-    let mut z2 = T::zero();
-    let mut x3 = x1_m;
-    let mut z3 = one_m;
+    let one = field.one();
+    let mut x2 = one;
+    let mut z2 = field.zero();
+    let mut x3 = x1;
+    let mut z3 = one;
     let mut swap: u8 = 0;
 
     // Process scalar bits 254..=0 (255 iterations). The conditional swap is
     // performed with a branchless cswap so iteration control flow is
-    // identical regardless of the secret scalar.
+    // identical regardless of the secret scalar. All field ops in the loop
+    // operate on secret-derived values via the CT primitives — and the type
+    // system enforces that: every variable here is a `ResidueCt`.
     for t in (0..255).rev() {
         let k_t = (k[t >> 3] >> (t & 7)) & 1;
         swap ^= k_t;
-        let mask = mask_from_bit::<T>(swap);
-        cswap(mask, &mut x2, &mut x3);
-        cswap(mask, &mut z2, &mut z3);
+        let choice = Choice::from(swap);
+        ResidueCt::cswap(choice, &mut x2, &mut x3);
+        ResidueCt::cswap(choice, &mut z2, &mut z3);
         swap = k_t;
 
         // RFC 7748 §5 doubling-and-differential-addition step.
-        // All multiplications go through Montgomery REDC; add/sub stay lazy.
-        let a = lazy_mod_add(x2, &z2, &p);
-        let aa = ctx.mont_mul(&a, &a);
-        let b = lazy_mod_sub(x2, &z2, &p);
-        let bb = ctx.mont_mul(&b, &b);
-        let e = lazy_mod_sub(aa, &bb, &p);
-        let c = lazy_mod_add(x3, &z3, &p);
-        let d = lazy_mod_sub(x3, &z3, &p);
-        let da = ctx.mont_mul(&d, &a);
-        let cb = ctx.mont_mul(&c, &b);
+        let a = field.add(&x2, &z2);
+        let aa = field.mul(&a, &a);
+        let b = field.sub(&x2, &z2);
+        let bb = field.mul(&b, &b);
+        let e = field.sub(&aa, &bb);
+        let c = field.add(&x3, &z3);
+        let d = field.sub(&x3, &z3);
+        let da = field.mul(&d, &a);
+        let cb = field.mul(&c, &b);
 
-        let da_plus_cb = lazy_mod_add(da, &cb, &p);
-        x3 = ctx.mont_mul(&da_plus_cb, &da_plus_cb);
+        let da_plus_cb = field.add(&da, &cb);
+        x3 = field.mul(&da_plus_cb, &da_plus_cb);
 
-        let da_minus_cb = lazy_mod_sub(da, &cb, &p);
-        let dmc_sq = ctx.mont_mul(&da_minus_cb, &da_minus_cb);
-        z3 = ctx.mont_mul(&x1_m, &dmc_sq);
+        let da_minus_cb = field.sub(&da, &cb);
+        let dmc_sq = field.mul(&da_minus_cb, &da_minus_cb);
+        z3 = field.mul(&x1, &dmc_sq);
 
-        x2 = ctx.mont_mul(&aa, &bb);
+        x2 = field.mul(&aa, &bb);
 
-        let a24e = ctx.mont_mul(&a24_m, &e);
-        let aa_plus_a24e = lazy_mod_add(aa, &a24e, &p);
-        z2 = ctx.mont_mul(&e, &aa_plus_a24e);
+        let a24e = field.mul(&a24, &e);
+        let aa_plus_a24e = field.add(&aa, &a24e);
+        z2 = field.mul(&e, &aa_plus_a24e);
     }
 
     // Final conditional swap based on the last scalar bit — branchless.
-    let final_mask = mask_from_bit::<T>(swap);
-    cswap(final_mask, &mut x2, &mut x3);
-    cswap(final_mask, &mut z2, &mut z3);
+    let final_choice = Choice::from(swap);
+    ResidueCt::cswap(final_choice, &mut x2, &mut x3);
+    ResidueCt::cswap(final_choice, &mut z2, &mut z3);
 
     // Return x2 * z2^{-1} mod p, encoded little-endian.
-    // mont_inv expects normal form and returns normal form, so round-trip z2.
-    let z2_normal = ctx.from_mont(z2);
-    let z2_inv_normal = ctx.mont_inv(z2_normal);
-    let z2_inv_m = ctx.to_mont(z2_inv_normal);
-    let result_m = ctx.mont_mul(&x2, &z2_inv_m);
-    let result = ctx.from_mont(result_m);
+    // All CT — z2 is secret-derived.
+    let z2_inv = field.inv(&z2);
+    let result_res = field.mul(&x2, &z2_inv);
+    let result = field.into_raw(&result_res);
 
     // T can be wider than 32 bytes (e.g. FixedUInt<u32, 16> is 64 bytes). The
     // MAX_T_BYTES guard above bounds the scratch size; copy out the low 32
