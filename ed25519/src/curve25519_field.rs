@@ -239,7 +239,7 @@ impl<T> core::ops::Deref for Curve25519FieldCt<T> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "fixed-bigint"))]
 mod tests {
     use super::*;
     use fixed_bigint::{Ct, FixedUInt, Nct};
