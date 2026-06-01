@@ -23,6 +23,17 @@ fn sha512_modq<T: UnsignedModularInt>(parts: &[&[u8]], q: &T) -> T
 where
     for<'a> &'a T: core::ops::Add<&'a T, Output = T> + core::ops::Sub<&'a T, Output = T>,
 {
+    // Enforce "exactly one" SHA-512 backend at compile time. Two
+    // mutually-exclusive arms + two compile_error! guards cover all four
+    // feature-flag combinations cleanly.
+    #[cfg(all(feature = "sha512-hmac-sha512", feature = "sha512-sha2"))]
+    compile_error!(
+        "ed25519_heapless: enable at most one SHA-512 backend feature — both `sha512-hmac-sha512` and `sha512-sha2` were enabled"
+    );
+    #[cfg(not(any(feature = "sha512-hmac-sha512", feature = "sha512-sha2")))]
+    compile_error!(
+        "ed25519_heapless: enable exactly one of the SHA-512 backend features `sha512-hmac-sha512` or `sha512-sha2`"
+    );
     #[cfg(all(feature = "sha512-hmac-sha512", not(feature = "sha512-sha2")))]
     let hash: [u8; 64] = {
         let mut compact_sha = hmac_sha512::Hash::new();
@@ -31,7 +42,7 @@ where
         }
         compact_sha.finalize()
     };
-    #[cfg(feature = "sha512-sha2")]
+    #[cfg(all(feature = "sha512-sha2", not(feature = "sha512-hmac-sha512")))]
     let hash: [u8; 64] = {
         use sha2::Digest;
         let mut compact_sha = sha2::Sha512::new();
@@ -40,10 +51,6 @@ where
         }
         compact_sha.finalize().into()
     };
-    #[cfg(not(any(feature = "sha512-hmac-sha512", feature = "sha512-sha2")))]
-    compile_error!(
-        "ed25519_heapless: enable exactly one of the SHA-512 backend features `sha512-hmac-sha512` or `sha512-sha2`"
-    );
     let hash = hash.as_slice();
 
     // Bit-by-bit Horner reduction modulo q (the scalar/group order, *not*

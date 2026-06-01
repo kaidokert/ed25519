@@ -39,7 +39,13 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
 pub(crate) mod curve25519_field;
+// `strict` (Ed25519 verify) depends on the SHA-512 challenge hash; gate it
+// behind the SHA-512 backend features so x25519-only consumers (which don't
+// need any SHA-512) can build with `default-features = false` + only an
+// x25519-relevant fixed-bigint feature.
+#[cfg(any(feature = "sha512-hmac-sha512", feature = "sha512-sha2"))]
 pub(crate) mod jsf;
+#[cfg(any(feature = "sha512-hmac-sha512", feature = "sha512-sha2"))]
 pub(crate) mod strict;
 pub(crate) mod x25519;
 
@@ -158,6 +164,7 @@ pub const MODP_SQRT_M1_BYTES: [u8; 32] = [
 /// - `public` — 32-byte Ed25519 public key
 /// - `msg` — message bytes (arbitrary length)
 /// - `signature` — 64-byte Ed25519 signature
+#[cfg(any(feature = "sha512-hmac-sha512", feature = "sha512-sha2"))]
 pub use strict::{verify, verify_with_field};
 
 /// Compute the X25519 shared secret `k * u` (RFC 7748 §5).
@@ -219,10 +226,12 @@ impl<T> core::fmt::Debug for VerifyingKey<T> {
     }
 }
 
+#[cfg(any(feature = "sha512-hmac-sha512", feature = "sha512-sha2"))]
 fn parse_signature(signature: &[u8]) -> Result<[u8; 64], signature::Error> {
     signature.try_into().map_err(|_| signature::Error::new())
 }
 
+#[cfg(any(feature = "sha512-hmac-sha512", feature = "sha512-sha2"))]
 impl<T, S> signature::Verifier<S> for VerifyingKey<T>
 where
     S: AsRef<[u8]>,

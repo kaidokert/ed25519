@@ -38,11 +38,11 @@ sha512-sha2 = ["dep:sha2"]
 
 [[bin]]
 name = "verify_baked"
-required-features = ["fixed-bigint"]
+required-features = ["fixed-bigint", "sha512-hmac-sha512"]
 
 [[bin]]
 name = "verify"
-required-features = ["fixed-bigint"]
+required-features = ["fixed-bigint", "sha512-hmac-sha512"]
 
 [[bin]]
 name = "sign"
