@@ -66,10 +66,24 @@ where
     /// `Curve25519Field::new(T::from_bytes_le(&P_BYTES))` but hides the
     /// modulus-byte plumbing. Build once at startup and reuse across
     /// every verify against this curve (TLS chains, batch verification).
+    ///
+    /// # Panics
+    ///
+    /// Panics if `T` is narrower than 256 bits — Curve25519's prime
+    /// (`2^255 − 19`) cannot be represented and `from_bytes_le` would
+    /// truncate. This is a backend-selection bug, not a runtime input
+    /// error; surfacing it as a panic means the caller catches it on
+    /// the first construction rather than producing silently wrong
+    /// field elements forever after.
     pub fn curve25519() -> Self
     where
         T: UnsignedModularInt,
     {
+        assert!(
+            modmath::type_bit_width::<T>() >= 256,
+            "Curve25519Field: backend T is {} bits, need at least 256",
+            modmath::type_bit_width::<T>(),
+        );
         let p = T::from_bytes_le(&P_BYTES);
         Self::new(p).expect(
             "Curve25519 prime is odd and nonzero — Field::new can't fail; \
@@ -171,10 +185,20 @@ where
     /// [`Curve25519Field::curve25519`] — build once per long-lived
     /// secret-handling context (typically a key, or the lifetime of a
     /// device) and reuse.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `T` is narrower than 256 bits. See
+    /// [`Curve25519Field::curve25519`] for the rationale.
     pub fn curve25519() -> Self
     where
         T: UnsignedModularInt,
     {
+        assert!(
+            modmath::type_bit_width::<T>() >= 256,
+            "Curve25519FieldCt: backend T is {} bits, need at least 256",
+            modmath::type_bit_width::<T>(),
+        );
         let p = T::from_bytes_le(&P_BYTES);
         Self::new(p).expect(
             "Curve25519 prime is odd and nonzero — FieldCt::new can't fail; \
@@ -188,7 +212,13 @@ where
     }
 
     /// CT lazy add: always compute both `sum` and `sum − modulus`, select
-    /// branchlessly. No overflow possible (2·p fits in T).
+    /// branchlessly. No overflow possible on `sum` (2·p fits in T). The
+    /// `sum - self.modulus` candidate underflows when `sum < modulus` —
+    /// that's load-bearing for constant-time: under the `Ct` personality
+    /// `FixedUInt::Sub` discards the overflow flag (silent wrap) by
+    /// typestate design, so the underflowing branch never panics even
+    /// in debug builds. See `ct_add_sub_never_panic_on_underflow_path`
+    /// test for the regression guard.
     #[inline]
     pub fn add<'f>(&'f self, a: &ResidueCt<'f, T>, b: &ResidueCt<'f, T>) -> ResidueCt<'f, T> {
         let a_m = (*a).mont_value();
@@ -202,7 +232,10 @@ where
     }
 
     /// CT lazy sub: compute both `a − b` (mod 2^W) and `a + modulus − b`,
-    /// select branchlessly based on whether `a < b`.
+    /// select branchlessly based on whether `a < b`. Like
+    /// [`Self::add`], the `a_m - b_m` candidate underflows when
+    /// `a_m < b_m` — silent wrap under the `Ct` personality by typestate
+    /// design.
     #[inline]
     pub fn sub<'f>(&'f self, a: &ResidueCt<'f, T>, b: &ResidueCt<'f, T>) -> ResidueCt<'f, T> {
         let a_m = (*a).mont_value();
@@ -314,5 +347,48 @@ mod tests {
         let b = f.reduce(&T256::from(4u8));
         let prod = f.mul(&a, &b);
         assert_eq!(f.into_raw(&prod), T256::from(12u8));
+    }
+
+    /// Regression test for the CT add/sub "unconditional underflow"
+    /// concern raised by reviewers (Codex P1, Gemini medium) on
+    /// `Curve25519FieldCt::add` / `sub`: the CT body computes both
+    /// candidate results unconditionally (including `sum - modulus`
+    /// when `sum < modulus` and `a - b` when `a < b`) and then
+    /// `conditional_select`s. The reviewers worried this would
+    /// panic in debug builds.
+    ///
+    /// Under the `Ct` personality, `FixedUInt::Sub` discards the
+    /// overflow flag via `maybe_panic_if::<Ct>` (which dispatches on
+    /// `P::TAG` and explicitly drops `overflow` for Ct). The wrap is
+    /// by typestate design — that's the constant-time contract.
+    /// This test drives both add and sub through the underflow path
+    /// and asserts neither panics, with both producing the field-
+    /// correct result.
+    #[test]
+    fn ct_add_sub_never_panic_on_underflow_path() {
+        let fct = curve_field_ct();
+        // Use residues whose Montgomery values are deliberately small —
+        // so `sum + sum < modulus` for add, and `small - large` triggers
+        // the borrow path for sub. The escape hatch `residue_from_mont`
+        // lets us pin the Montgomery values directly.
+        let small = fct.inner.residue_from_mont(T256Ct::from(5u8));
+        let smaller = fct.inner.residue_from_mont(T256Ct::from(3u8));
+
+        // add path: sum = 5 + 3 = 8, sum < p, so candidate `sum - p`
+        // underflows. Must not panic.
+        let added = fct.add(&small, &smaller);
+        // Result Montgomery value should equal 8 (no reduction needed).
+        assert_eq!(added.mont_value(), T256Ct::from(8u8));
+
+        // sub path: a - b = 5 - 3 = 2, no borrow case. Also exercise
+        // the borrow path directly.
+        let subbed = fct.sub(&small, &smaller);
+        assert_eq!(subbed.mont_value(), T256Ct::from(2u8));
+
+        let borrow = fct.sub(&smaller, &small); // 3 - 5 → borrow path
+        // Result = p + 3 - 5 = p - 2 (in Montgomery form).
+        let p: T256Ct = T256Ct::from_le_bytes(&P_BYTES);
+        let expected = p - T256Ct::from(2u8);
+        assert_eq!(borrow.mont_value(), expected);
     }
 }
