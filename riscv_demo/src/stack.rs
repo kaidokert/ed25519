@@ -22,8 +22,26 @@ pub fn paint_stack_inner<const SAFE: usize>() {
         let stack_end: *mut u8 = stack_start.offset(-(stack_size as isize));
         let safe_stack_end = stack_end.offset(SAFE as isize);
 
-        if stack_size > 2 * SAFE {
-            let bytes_to_write = stack_size - (2 * SAFE);
+        // Read current SP and stop the paint a margin below it, so we never
+        // overwrite the live stack frame. `SAFE` is still used as the lower
+        // safety bound (above .bss/.data) and as the live-frame margin.
+        // Without this guard, paint_stack can write 0xAA over the live
+        // frame's saved registers / return address when the call site's
+        // stack usage exceeds SAFE_ZONE_BYTES (256) — silent hang in qemu,
+        // no panic (control flow just gets clobbered). Same latent bug
+        // that hit cortex_m_demo.
+        let sp: usize;
+        core::arch::asm!("mv {}, sp", out(reg) sp, options(nomem, nostack));
+        let live_limit = (sp as *mut u8).offset(-(SAFE as isize));
+
+        let paint_end = if (live_limit as usize) < (safe_stack_end as usize) {
+            safe_stack_end
+        } else {
+            live_limit
+        };
+
+        let bytes_to_write = (paint_end as usize).saturating_sub(safe_stack_end as usize);
+        if bytes_to_write > 0 {
             core::ptr::write_bytes(safe_stack_end, 0xAA, bytes_to_write);
         }
     }
