@@ -38,11 +38,13 @@
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
+pub(crate) mod curve25519_field;
 pub(crate) mod jsf;
-pub(crate) mod lazy_field;
-pub(crate) mod montgomery_ctx;
 pub(crate) mod strict;
 pub(crate) mod x25519;
+
+pub use curve25519_field::{Curve25519Field, Curve25519FieldCt};
+pub use modmath::{Field, FieldCt, FieldNct, Residue, ResidueCt, ResidueNct};
 
 use core::marker::PhantomData;
 
@@ -57,21 +59,10 @@ pub trait UnsignedModularInt:
     + num_traits::One
     + num_traits::Zero
     + num_traits::ops::overflowing::OverflowingAdd
-    + num_traits::ops::overflowing::OverflowingSub
     + core::ops::Shr<usize, Output = Self>
-    + core::ops::Shl<usize, Output = Self>
     + core::ops::Add<Output = Self>
-    + core::ops::Sub<Output = Self>
     + core::ops::BitAnd<Output = Self>
     + core::ops::ShrAssign<usize>
-    + for<'a> core::ops::RemAssign<&'a Self>
-    + for<'a> core::ops::DivAssign<&'a Self>
-    + for<'a> core::ops::Rem<&'a Self, Output = Self>
-    + for<'a> core::ops::Div<&'a Self, Output = Self>
-    + for<'a> core::ops::Mul<&'a Self, Output = Self>
-    + for<'a> core::ops::Add<&'a Self, Output = Self>
-    + for<'a> core::ops::Sub<&'a Self, Output = Self>
-    + for<'a> core::ops::AddAssign<&'a Self>
 {
     /// Deserialize from little-endian bytes. Reads up to the type's width from `bytes`.
     fn from_bytes_le(bytes: &[u8]) -> Self;
@@ -80,11 +71,8 @@ pub trait UnsignedModularInt:
     fn to_bytes_le<'a>(&self, out: &'a mut [u8]) -> &'a [u8];
 }
 
-/// Extended twisted Edwards point: (X, Y, Z, T) coordinates.
-pub type Point<T> = (T, T, T, T);
-
 #[cfg(feature = "fixed-bigint")]
-impl UnsignedModularInt for fixed_bigint::FixedUInt<u32, 16> {
+impl<P: fixed_bigint::Personality> UnsignedModularInt for fixed_bigint::FixedUInt<u32, 16, P> {
     fn from_bytes_le(bytes: &[u8]) -> Self {
         fixed_bigint::FixedUInt::from_le_bytes(bytes)
     }
@@ -95,7 +83,7 @@ impl UnsignedModularInt for fixed_bigint::FixedUInt<u32, 16> {
 }
 
 #[cfg(feature = "fixed-bigint")]
-impl UnsignedModularInt for fixed_bigint::FixedUInt<u64, 8> {
+impl<P: fixed_bigint::Personality> UnsignedModularInt for fixed_bigint::FixedUInt<u64, 8, P> {
     fn from_bytes_le(bytes: &[u8]) -> Self {
         fixed_bigint::FixedUInt::from_le_bytes(bytes)
     }
@@ -106,7 +94,7 @@ impl UnsignedModularInt for fixed_bigint::FixedUInt<u64, 8> {
 }
 
 #[cfg(feature = "fixed-bigint")]
-impl UnsignedModularInt for fixed_bigint::FixedUInt<u64, 4> {
+impl<P: fixed_bigint::Personality> UnsignedModularInt for fixed_bigint::FixedUInt<u64, 4, P> {
     fn from_bytes_le(bytes: &[u8]) -> Self {
         fixed_bigint::FixedUInt::from_le_bytes(bytes)
     }
@@ -117,7 +105,7 @@ impl UnsignedModularInt for fixed_bigint::FixedUInt<u64, 4> {
 }
 
 #[cfg(feature = "fixed-bigint")]
-impl UnsignedModularInt for fixed_bigint::FixedUInt<u8, 32> {
+impl<P: fixed_bigint::Personality> UnsignedModularInt for fixed_bigint::FixedUInt<u8, 32, P> {
     fn from_bytes_le(bytes: &[u8]) -> Self {
         fixed_bigint::FixedUInt::from_le_bytes(bytes)
     }
@@ -170,7 +158,7 @@ pub const MODP_SQRT_M1_BYTES: [u8; 32] = [
 /// - `public` — 32-byte Ed25519 public key
 /// - `msg` — message bytes (arbitrary length)
 /// - `signature` — 64-byte Ed25519 signature
-pub use strict::verify;
+pub use strict::{verify, verify_with_field};
 
 /// Compute the X25519 shared secret `k * u` (RFC 7748 §5).
 ///
@@ -247,12 +235,9 @@ where
         + num_traits::WrappingAdd
         + num_traits::WrappingSub,
     for<'a> &'a T: core::ops::BitAnd<Output = T>
-        + core::ops::Rem<&'a T, Output = T>
         + core::ops::Add<&'a T, Output = T>
         + core::ops::Sub<T, Output = T>
-        + core::ops::Sub<&'a T, Output = T>
-        + core::ops::Mul<&'a T, Output = T>
-        + core::ops::Div<&'a T, Output = T>,
+        + core::ops::Sub<&'a T, Output = T>,
 {
     fn verify(&self, msg: &[u8], signature: &S) -> Result<(), signature::Error> {
         let signature = parse_signature(signature.as_ref())?;

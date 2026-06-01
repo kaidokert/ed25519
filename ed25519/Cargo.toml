@@ -12,20 +12,29 @@ categories = ["cryptography", "no-std", "no-std::no-alloc"]
 [dependencies]
 log = { version = "0.4", optional = true }
 env_logger = { version = "0.11", optional = true }
-modmath = { version = "0.1.5", features = ["wide-mul"] }
-fixed-bigint = { version = "0.2.5", features=["use-unsafe"], optional=true }
+modmath = { version = "0.2", features = ["wide-mul"] }
+fixed-bigint = { version = "0.3", features=["use-unsafe"], optional=true }
+subtle = { version = "2.6", default-features = false }
 num-traits = {  version = "0.2" , default-features = false }
-hmac-sha512 = { version = "1", default-features = false, features = ["opt_size"] }
+zeroize = { version = "1.8", default-features = false }
+hmac-sha512 = { version = "1", default-features = false, features = ["opt_size"], optional = true }
+sha2 = { version = "0.10", default-features = false, features = ["force-soft-compact"], optional = true }
 signature = { version = "2.2", default-features = false }
 
 [features]
-default = ["std"]
+default = ["std", "sha512-hmac-sha512"]
 std = ["log", "env_logger"]
 defmt = []
 fixed-bigint = ["dep:fixed-bigint"]
 fixed-bigint-u64 = ["fixed-bigint"]
 fixed-bigint-256 = ["fixed-bigint"]
 fixed-bigint-u8 = ["fixed-bigint"]
+# SHA-512 backend selection (pick exactly one). hmac-sha512 is the standalone
+# default (~1.6 KiB, no RustCrypto deps). sha2 reuses the RustCrypto
+# digest/generic-array machinery — pick it when the consumer already links
+# sha2 for SHA-256
+sha512-hmac-sha512 = ["dep:hmac-sha512"]
+sha512-sha2 = ["dep:sha2"]
 
 [[bin]]
 name = "verify_baked"

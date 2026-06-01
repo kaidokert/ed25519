@@ -9,11 +9,8 @@ where
         + num_traits::WrappingAdd
         + num_traits::WrappingSub,
     for<'a> &'a T: core::ops::BitAnd<Output = T>
-        + core::ops::Rem<&'a T, Output = T>
         + core::ops::Add<&'a T, Output = T>
         + core::ops::Sub<&'a T, Output = T>
-        + core::ops::Mul<&'a T, Output = T>
-        + core::ops::Div<&'a T, Output = T>
         + core::ops::Sub<T, Output = T>,
 {
     env_logger::Builder::from_default_env()

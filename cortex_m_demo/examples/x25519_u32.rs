@@ -4,7 +4,7 @@
 use cortex_m_demo::{ALICE_PRIVATE, BOB_PUBLIC, EXPECTED_SHARED};
 use cortex_m_rt::entry;
 #[cfg(not(feature = "baseline"))]
-use fixed_bigint::FixedUInt;
+use fixed_bigint::{Ct, FixedUInt};
 
 #[entry]
 fn main() -> ! {
@@ -16,7 +16,7 @@ fn main() -> ! {
             }
             #[cfg(not(feature = "baseline"))]
             {
-                ed25519_heapless::x25519::<FixedUInt<u32, 16>>(ALICE_PRIVATE, BOB_PUBLIC)
+                ed25519_heapless::x25519::<FixedUInt<u32, 16, Ct>>(&ALICE_PRIVATE, &BOB_PUBLIC)
                     == EXPECTED_SHARED
             }
         },
