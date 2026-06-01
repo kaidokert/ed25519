@@ -92,9 +92,9 @@ where
     pub fn add<'f>(&'f self, a: &ResidueNct<'f, T>, b: &ResidueNct<'f, T>) -> ResidueNct<'f, T> {
         let a_m = (*a).mont_value();
         let b_m = (*b).mont_value();
-        let sum = &a_m + &b_m;
+        let sum = a_m + b_m;
         let reduced = if sum >= self.modulus {
-            &sum - &self.modulus
+            sum - self.modulus
         } else {
             sum
         };
@@ -108,9 +108,9 @@ where
         let a_m = (*a).mont_value();
         let b_m = (*b).mont_value();
         let diff = if a_m >= b_m {
-            &a_m - &b_m
+            a_m - b_m
         } else {
-            &(&a_m + &self.modulus) - &b_m
+            (a_m + self.modulus) - b_m
         };
         self.inner.residue_from_mont(diff)
     }
@@ -193,8 +193,8 @@ where
     pub fn add<'f>(&'f self, a: &ResidueCt<'f, T>, b: &ResidueCt<'f, T>) -> ResidueCt<'f, T> {
         let a_m = (*a).mont_value();
         let b_m = (*b).mont_value();
-        let sum = &a_m + &b_m;
-        let reduced = &sum - &self.modulus;
+        let sum = a_m + b_m;
+        let reduced = sum - self.modulus;
         // sum < modulus  →  keep sum;  otherwise → use sum − modulus.
         let needs_reduce = !sum.ct_lt(&self.modulus);
         let result = T::conditional_select(&sum, &reduced, needs_reduce);
@@ -207,8 +207,8 @@ where
     pub fn sub<'f>(&'f self, a: &ResidueCt<'f, T>, b: &ResidueCt<'f, T>) -> ResidueCt<'f, T> {
         let a_m = (*a).mont_value();
         let b_m = (*b).mont_value();
-        let diff_no_borrow = &a_m - &b_m;
-        let diff_with_borrow = &(&a_m + &self.modulus) - &b_m;
+        let diff_no_borrow = a_m - b_m;
+        let diff_with_borrow = (a_m + self.modulus) - b_m;
         let needs_add_p = a_m.ct_lt(&b_m);
         let result = T::conditional_select(&diff_no_borrow, &diff_with_borrow, needs_add_p);
         self.inner.residue_from_mont(result)
