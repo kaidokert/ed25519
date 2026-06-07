@@ -223,14 +223,24 @@ where
     /// test for the regression guard.
     #[inline]
     pub fn add<'f>(&'f self, a: &ResidueCt<'f, T>, b: &ResidueCt<'f, T>) -> ResidueCt<'f, T> {
-        let a_m = (*a).mont_value();
-        let b_m = (*b).mont_value();
-        let sum = a_m + b_m;
-        let reduced = sum - self.modulus;
+        // Stay in `&T` for the secret-derived operands so no implicit
+        // `T: Copy` materializations land on the stack; every owned
+        // intermediate gets wrapped in `Zeroizing<T>` so its bytes are
+        // wiped at scope end (`FixedUInt` is `Copy + Zeroize`, but
+        // `Copy` is mutually exclusive with `Drop`, so the bare `T`
+        // locals would otherwise sit on the stack until overwritten).
+        let a_m = a.mont_value();
+        let b_m = b.mont_value();
+        let sum = zeroize::Zeroizing::new(a_m + b_m);
+        let reduced = zeroize::Zeroizing::new(&*sum - &self.modulus);
         // sum < modulus  →  keep sum;  otherwise → use sum − modulus.
         let needs_reduce = !sum.ct_lt(&self.modulus);
-        let result = T::conditional_select(&sum, &reduced, needs_reduce);
-        self.inner.residue_from_mont(result)
+        let result = zeroize::Zeroizing::new(T::conditional_select(&*sum, &*reduced, needs_reduce));
+        // The deref-copy into `residue_from_mont` materializes one bare
+        // `T` briefly during the call — but the new `ResidueCt` is
+        // `ZeroizeOnDrop`, so the bytes land inside a wiped allocation
+        // immediately. Our local `result` is also wiped on drop.
+        self.inner.residue_from_mont(*result)
     }
 
     /// CT lazy sub: compute both `a − b` (mod 2^W) and `a + modulus − b`,
@@ -240,13 +250,21 @@ where
     /// design.
     #[inline]
     pub fn sub<'f>(&'f self, a: &ResidueCt<'f, T>, b: &ResidueCt<'f, T>) -> ResidueCt<'f, T> {
-        let a_m = *(*a).mont_value();
-        let b_m = *(*b).mont_value();
-        let diff_no_borrow = a_m - b_m;
-        let diff_with_borrow = (a_m + self.modulus) - b_m;
-        let needs_add_p = a_m.ct_lt(&b_m);
-        let result = T::conditional_select(&diff_no_borrow, &diff_with_borrow, needs_add_p);
-        self.inner.residue_from_mont(result)
+        // Same wrap-everything-in-`Zeroizing` discipline as [`Self::add`].
+        let a_m = a.mont_value();
+        let b_m = b.mont_value();
+        let diff_no_borrow = zeroize::Zeroizing::new(a_m - b_m);
+        let diff_with_borrow = zeroize::Zeroizing::new({
+            let with_modulus = zeroize::Zeroizing::new(a_m + &self.modulus);
+            &*with_modulus - b_m
+        });
+        let needs_add_p = a_m.ct_lt(b_m);
+        let result = zeroize::Zeroizing::new(T::conditional_select(
+            &*diff_no_borrow,
+            &*diff_with_borrow,
+            needs_add_p,
+        ));
+        self.inner.residue_from_mont(*result)
     }
 
     /// CT Fermat inverse: `a^{-1} mod p = a^{p − 2} mod p`. The exponent
