@@ -19,3 +19,9 @@ repos:
     -   id: fmt
         name: Fmt for ed25519_heapless
         args: ['--manifest-path=ed25519/Cargo.toml', '--']
+    -   id: cargo-check
+        name: Cargo-check for ed25519_heapless
+        args: ['--manifest-path=ed25519/Cargo.toml', '--features=fixed-bigint,sha512-hmac-sha512']
+    -   id: clippy
+        name: Clippy for ed25519_heapless
+        args: ['--manifest-path=ed25519/Cargo.toml', '--features=fixed-bigint,sha512-hmac-sha512', '--', '-D', 'warnings']
