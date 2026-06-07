@@ -55,7 +55,8 @@ where
         + num_traits::WrappingSub
         + Parity
         + WideMul
-        + CiosMontMul,
+        + CiosMontMul
+        + modmath::MontStorage,
     for<'a> &'a T: core::ops::Add<&'a T, Output = T> + core::ops::Sub<&'a T, Output = T>,
 {
     pub fn new(modulus: T) -> Option<Self> {
@@ -119,8 +120,8 @@ where
     /// the same 2-p slack); otherwise straight subtract.
     #[inline]
     pub fn sub<'f>(&'f self, a: &ResidueNct<'f, T>, b: &ResidueNct<'f, T>) -> ResidueNct<'f, T> {
-        let a_m = (*a).mont_value();
-        let b_m = (*b).mont_value();
+        let a_m = *a.mont_value();
+        let b_m = *b.mont_value();
         let diff = if a_m >= b_m {
             a_m - b_m
         } else {
@@ -174,7 +175,8 @@ where
         + WideMul
         + CiosMontMulCt
         + subtle::ConditionallySelectable
-        + subtle::ConstantTimeLess,
+        + subtle::ConstantTimeLess
+        + modmath::MontStorage,
     for<'a> &'a T: core::ops::Add<&'a T, Output = T> + core::ops::Sub<&'a T, Output = T>,
 {
     pub fn new(modulus: T) -> Option<Self> {
@@ -221,14 +223,31 @@ where
     /// test for the regression guard.
     #[inline]
     pub fn add<'f>(&'f self, a: &ResidueCt<'f, T>, b: &ResidueCt<'f, T>) -> ResidueCt<'f, T> {
-        let a_m = (*a).mont_value();
-        let b_m = (*b).mont_value();
-        let sum = a_m + b_m;
-        let reduced = sum - self.modulus;
+        // Stay in `&T` for the secret-derived operands so no implicit
+        // `T: Copy` materializations land on the stack; every owned
+        // intermediate gets wrapped in `Zeroizing<T>` so its bytes are
+        // wiped at scope end (`FixedUInt` is `Copy + Zeroize`, but
+        // `Copy` is mutually exclusive with `Drop`, so the bare `T`
+        // locals would otherwise sit on the stack until overwritten).
+        let a_m = a.mont_value();
+        let b_m = b.mont_value();
+        let sum = zeroize::Zeroizing::new(a_m + b_m);
+        // The `&*sum` / `&self.modulus` refs look needlessly taken to
+        // clippy's `op_ref` lint, which would suggest
+        // `*sum - self.modulus`. Don't take that suggestion: `*sum`
+        // is a deref-copy of `T` out of `Zeroizing<T>` into a bare
+        // stack slot with no `Drop`, re-introducing the very leak
+        // this function plugs.
+        #[allow(clippy::op_ref)]
+        let reduced = zeroize::Zeroizing::new(&*sum - &self.modulus);
         // sum < modulus  →  keep sum;  otherwise → use sum − modulus.
         let needs_reduce = !sum.ct_lt(&self.modulus);
-        let result = T::conditional_select(&sum, &reduced, needs_reduce);
-        self.inner.residue_from_mont(result)
+        let result = zeroize::Zeroizing::new(T::conditional_select(&*sum, &*reduced, needs_reduce));
+        // The deref-copy into `residue_from_mont` materializes one bare
+        // `T` briefly during the call — but the new `ResidueCt` is
+        // `ZeroizeOnDrop`, so the bytes land inside a wiped allocation
+        // immediately. Our local `result` is also wiped on drop.
+        self.inner.residue_from_mont(*result)
     }
 
     /// CT lazy sub: compute both `a − b` (mod 2^W) and `a + modulus − b`,
@@ -238,13 +257,21 @@ where
     /// design.
     #[inline]
     pub fn sub<'f>(&'f self, a: &ResidueCt<'f, T>, b: &ResidueCt<'f, T>) -> ResidueCt<'f, T> {
-        let a_m = (*a).mont_value();
-        let b_m = (*b).mont_value();
-        let diff_no_borrow = a_m - b_m;
-        let diff_with_borrow = (a_m + self.modulus) - b_m;
-        let needs_add_p = a_m.ct_lt(&b_m);
-        let result = T::conditional_select(&diff_no_borrow, &diff_with_borrow, needs_add_p);
-        self.inner.residue_from_mont(result)
+        // Same wrap-everything-in-`Zeroizing` discipline as [`Self::add`].
+        let a_m = a.mont_value();
+        let b_m = b.mont_value();
+        let diff_no_borrow = zeroize::Zeroizing::new(a_m - b_m);
+        let diff_with_borrow = zeroize::Zeroizing::new({
+            let with_modulus = zeroize::Zeroizing::new(a_m + &self.modulus);
+            &*with_modulus - b_m
+        });
+        let needs_add_p = a_m.ct_lt(b_m);
+        let result = zeroize::Zeroizing::new(T::conditional_select(
+            &*diff_no_borrow,
+            &*diff_with_borrow,
+            needs_add_p,
+        ));
+        self.inner.residue_from_mont(*result)
     }
 
     /// CT Fermat inverse: `a^{-1} mod p = a^{p − 2} mod p`. The exponent
@@ -378,17 +405,17 @@ mod tests {
         // underflows. Must not panic.
         let added = fct.add(&small, &smaller);
         // Result Montgomery value should equal 8 (no reduction needed).
-        assert_eq!(added.mont_value(), T256Ct::from(8u8));
+        assert_eq!(*added.mont_value(), T256Ct::from(8u8));
 
         // sub path: a - b = 5 - 3 = 2, no borrow case. Also exercise
         // the borrow path directly.
         let subbed = fct.sub(&small, &smaller);
-        assert_eq!(subbed.mont_value(), T256Ct::from(2u8));
+        assert_eq!(*subbed.mont_value(), T256Ct::from(2u8));
 
         let borrow = fct.sub(&smaller, &small); // 3 - 5 → borrow path
         // Result = p + 3 - 5 = p - 2 (in Montgomery form).
         let p: T256Ct = T256Ct::from_le_bytes(&P_BYTES);
         let expected = p - T256Ct::from(2u8);
-        assert_eq!(borrow.mont_value(), expected);
+        assert_eq!(*borrow.mont_value(), expected);
     }
 }

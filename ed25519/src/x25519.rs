@@ -152,11 +152,10 @@ where
     // Initial ladder state:
     //   (x2, z2) = (1, 0)   -- point at infinity
     //   (x3, z3) = (u, 1)   -- the input point
-    let one = field.one();
-    let mut x2 = one;
+    let mut x2 = field.one();
     let mut z2 = field.zero();
-    let mut x3 = x1;
-    let mut z3 = one;
+    let mut x3 = x1.clone();
+    let mut z3 = field.one();
     let mut swap: u8 = 0;
 
     // Process scalar bits 254..=0 (255 iterations). The conditional swap is
@@ -206,13 +205,19 @@ where
     // All CT — z2 is secret-derived.
     let z2_inv = field.inv(&z2);
     let result_res = field.mul(&x2, &z2_inv);
-    let result = field.into_raw(&result_res);
+    // Wrap the owned `T` returned by `into_raw` in `Zeroizing` so the
+    // shared-secret bytes don't sit on the stack after this function
+    // returns. `T` is `Copy` (precluding `ZeroizeOnDrop` directly), but
+    // `T: zeroize::Zeroize` is implied by `UnsignedModularInt`'s
+    // `MontStorage` supertrait when modmath's `zeroize` feature is on
+    // — which we require — so `Zeroizing<T>` works without extra bounds.
+    let result = zeroize::Zeroizing::new(field.into_raw(&result_res));
 
     // T can be wider than 32 bytes (e.g. FixedUInt<u32, 16> is 64 bytes). The
     // MAX_T_BYTES guard above bounds the scratch size; copy out the low 32
     // bytes — the field element is < p < 2^255 so the high half is zero.
-    let mut scratch = [0u8; MAX_T_BYTES];
-    let bytes = result.to_bytes_le(&mut scratch);
+    let mut scratch = zeroize::Zeroizing::new([0u8; MAX_T_BYTES]);
+    let bytes = result.to_bytes_le(&mut *scratch);
     let mut out = [0u8; 32];
     out.copy_from_slice(&bytes[..32]);
     out
