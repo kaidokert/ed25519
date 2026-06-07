@@ -205,7 +205,13 @@ where
     // All CT — z2 is secret-derived.
     let z2_inv = field.inv(&z2);
     let result_res = field.mul(&x2, &z2_inv);
-    let result = field.into_raw(&result_res);
+    // Wrap the owned `T` returned by `into_raw` in `Zeroizing` so the
+    // shared-secret bytes don't sit on the stack after this function
+    // returns. `T` is `Copy` (precluding `ZeroizeOnDrop` directly), but
+    // `T: zeroize::Zeroize` is implied by `UnsignedModularInt`'s
+    // `MontStorage` supertrait when modmath's `zeroize` feature is on
+    // — which we require — so `Zeroizing<T>` works without extra bounds.
+    let result = zeroize::Zeroizing::new(field.into_raw(&result_res));
 
     // T can be wider than 32 bytes (e.g. FixedUInt<u32, 16> is 64 bytes). The
     // MAX_T_BYTES guard above bounds the scratch size; copy out the low 32
