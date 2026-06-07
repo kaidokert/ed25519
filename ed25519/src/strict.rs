@@ -290,13 +290,12 @@ where
         + num_traits::WrappingSub,
     for<'a> &'a T: core::ops::Add<&'a T, Output = T> + core::ops::Sub<&'a T, Output = T>,
 {
-    let &(y_plus_x, y_minus_x, two_dt) = niels;
     // A = (Y₁−X₁)·(y−x); B = (Y₁+X₁)·(y+x); C = T₁·2dt; D = 2·Z₁
     let pp_y_minus_x = field.sub(&pp.1, &pp.0);
-    let a = field.mul(&pp_y_minus_x, &y_minus_x);
+    let a = field.mul(&pp_y_minus_x, &niels.1);
     let pp_y_plus_x = field.add(&pp.1, &pp.0);
-    let b = field.mul(&pp_y_plus_x, &y_plus_x);
-    let c = field.mul(&pp.3, &two_dt);
+    let b = field.mul(&pp_y_plus_x, &niels.0);
+    let c = field.mul(&pp.3, &niels.2);
     let d = field.add(&pp.2, &pp.2);
     // E = B − A; F = D − C; G = D + C; H = B + A
     let e = field.sub(&b, &a);
@@ -363,15 +362,22 @@ where
     let naf = crate::jsf::NafIterator::new(s, h);
 
     // Identity in extended-twisted Edwards: (0, 1, 1, 0).
-    let one = field.one();
     let zero = field.zero();
-    let mut result: EdPoint<'f, T> = (zero, one, one, zero);
+    let mut result: EdPoint<'f, T> = (field.zero(), field.one(), field.one(), field.zero());
 
     // Precompute Niels form of base points + their negations.
     let g_niels = to_niels(g, d_raw, field);
     let a_niels = to_niels(a, d_raw, field);
-    let neg_g_niels = (g_niels.1, g_niels.0, field.sub(&zero, &g_niels.2));
-    let neg_a_niels = (a_niels.1, a_niels.0, field.sub(&zero, &a_niels.2));
+    let neg_g_niels = (
+        g_niels.1.clone(),
+        g_niels.0.clone(),
+        field.sub(&zero, &g_niels.2),
+    );
+    let neg_a_niels = (
+        a_niels.1.clone(),
+        a_niels.0.clone(),
+        field.sub(&zero, &a_niels.2),
+    );
 
     for digit in naf.digits_msb_first() {
         result = point_double(&result, field);

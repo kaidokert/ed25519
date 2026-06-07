@@ -55,7 +55,8 @@ where
         + num_traits::WrappingSub
         + Parity
         + WideMul
-        + CiosMontMul,
+        + CiosMontMul
+        + modmath::MontStorage,
     for<'a> &'a T: core::ops::Add<&'a T, Output = T> + core::ops::Sub<&'a T, Output = T>,
 {
     pub fn new(modulus: T) -> Option<Self> {
@@ -119,8 +120,8 @@ where
     /// the same 2-p slack); otherwise straight subtract.
     #[inline]
     pub fn sub<'f>(&'f self, a: &ResidueNct<'f, T>, b: &ResidueNct<'f, T>) -> ResidueNct<'f, T> {
-        let a_m = (*a).mont_value();
-        let b_m = (*b).mont_value();
+        let a_m = *(*a).mont_value();
+        let b_m = *(*b).mont_value();
         let diff = if a_m >= b_m {
             a_m - b_m
         } else {
@@ -174,7 +175,8 @@ where
         + WideMul
         + CiosMontMulCt
         + subtle::ConditionallySelectable
-        + subtle::ConstantTimeLess,
+        + subtle::ConstantTimeLess
+        + modmath::MontStorage,
     for<'a> &'a T: core::ops::Add<&'a T, Output = T> + core::ops::Sub<&'a T, Output = T>,
 {
     pub fn new(modulus: T) -> Option<Self> {
@@ -238,8 +240,8 @@ where
     /// design.
     #[inline]
     pub fn sub<'f>(&'f self, a: &ResidueCt<'f, T>, b: &ResidueCt<'f, T>) -> ResidueCt<'f, T> {
-        let a_m = (*a).mont_value();
-        let b_m = (*b).mont_value();
+        let a_m = *(*a).mont_value();
+        let b_m = *(*b).mont_value();
         let diff_no_borrow = a_m - b_m;
         let diff_with_borrow = (a_m + self.modulus) - b_m;
         let needs_add_p = a_m.ct_lt(&b_m);
@@ -378,17 +380,17 @@ mod tests {
         // underflows. Must not panic.
         let added = fct.add(&small, &smaller);
         // Result Montgomery value should equal 8 (no reduction needed).
-        assert_eq!(added.mont_value(), T256Ct::from(8u8));
+        assert_eq!(*added.mont_value(), T256Ct::from(8u8));
 
         // sub path: a - b = 5 - 3 = 2, no borrow case. Also exercise
         // the borrow path directly.
         let subbed = fct.sub(&small, &smaller);
-        assert_eq!(subbed.mont_value(), T256Ct::from(2u8));
+        assert_eq!(*subbed.mont_value(), T256Ct::from(2u8));
 
         let borrow = fct.sub(&smaller, &small); // 3 - 5 → borrow path
         // Result = p + 3 - 5 = p - 2 (in Montgomery form).
         let p: T256Ct = T256Ct::from_le_bytes(&P_BYTES);
         let expected = p - T256Ct::from(2u8);
-        assert_eq!(borrow.mont_value(), expected);
+        assert_eq!(*borrow.mont_value(), expected);
     }
 }

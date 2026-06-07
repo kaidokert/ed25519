@@ -69,6 +69,7 @@ pub trait UnsignedModularInt:
     + core::ops::Add<Output = Self>
     + core::ops::BitAnd<Output = Self>
     + core::ops::ShrAssign<usize>
+    + modmath::MontStorage
 {
     /// Deserialize from little-endian bytes. Reads up to the type's width from `bytes`.
     fn from_bytes_le(bytes: &[u8]) -> Self;
