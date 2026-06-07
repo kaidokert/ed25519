@@ -232,6 +232,13 @@ where
         let a_m = a.mont_value();
         let b_m = b.mont_value();
         let sum = zeroize::Zeroizing::new(a_m + b_m);
+        // The `&*sum` / `&self.modulus` refs look needlessly taken to
+        // clippy's `op_ref` lint, which would suggest
+        // `*sum - self.modulus`. Don't take that suggestion: `*sum`
+        // is a deref-copy of `T` out of `Zeroizing<T>` into a bare
+        // stack slot with no `Drop`, re-introducing the very leak
+        // this function plugs.
+        #[allow(clippy::op_ref)]
         let reduced = zeroize::Zeroizing::new(&*sum - &self.modulus);
         // sum < modulus  →  keep sum;  otherwise → use sum − modulus.
         let needs_reduce = !sum.ct_lt(&self.modulus);
