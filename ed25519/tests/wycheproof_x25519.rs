@@ -34,6 +34,15 @@ fn wycheproof_x25519() {
             let priv_bytes: [u8; 32] = match tc.private_key.as_ref().try_into() {
                 Ok(b) => b,
                 Err(_) => {
+                    // Length mismatch on a Valid / Acceptable case is a
+                    // silent test gap, not a legitimate skip.
+                    if !tc.result.must_fail() {
+                        eprintln!(
+                            "tcId {} ({:?}) flags={:?}: private key rejected at parse but Wycheproof says {:?}",
+                            tc.tc_id, tc.comment, tc.flags, tc.result
+                        );
+                        failures += 1;
+                    }
                     skipped += 1;
                     continue;
                 }
@@ -41,6 +50,13 @@ fn wycheproof_x25519() {
             let pub_bytes: [u8; 32] = match tc.public_key.as_ref().try_into() {
                 Ok(b) => b,
                 Err(_) => {
+                    if !tc.result.must_fail() {
+                        eprintln!(
+                            "tcId {} ({:?}) flags={:?}: public key rejected at parse but Wycheproof says {:?}",
+                            tc.tc_id, tc.comment, tc.flags, tc.result
+                        );
+                        failures += 1;
+                    }
                     skipped += 1;
                     continue;
                 }

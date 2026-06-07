@@ -16,7 +16,10 @@
 //! verify" which matches the expected `Invalid` outcome — counted as
 //! `rejected_at_parse` rather than skipped.
 
-#![cfg(all(feature = "fixed-bigint", feature = "sha512-hmac-sha512"))]
+#![cfg(all(
+    feature = "fixed-bigint",
+    any(feature = "sha512-hmac-sha512", feature = "sha512-sha2")
+))]
 
 use ed25519_heapless::verify;
 use fixed_bigint::{FixedUInt, Nct};
@@ -37,7 +40,19 @@ fn wycheproof_ed25519() {
         let public_key: [u8; 32] = match group.key.pk.as_ref().try_into() {
             Ok(b) => b,
             Err(_) => {
+                // The fixed [u8; 32] API can't represent this group's
+                // public key. Don't silently lose the group's tests —
+                // any Valid / Acceptable case here is a real gap.
                 eprintln!("skipping group: public key length != 32");
+                for tc in &group.tests {
+                    if !tc.result.must_fail() {
+                        eprintln!(
+                            "tcId {} ({:?}) in skipped group: pk length != 32 but Wycheproof says {:?}",
+                            tc.tc_id, tc.comment, tc.result
+                        );
+                        failures += 1;
+                    }
+                }
                 continue;
             }
         };
