@@ -120,8 +120,8 @@ where
     /// the same 2-p slack); otherwise straight subtract.
     #[inline]
     pub fn sub<'f>(&'f self, a: &ResidueNct<'f, T>, b: &ResidueNct<'f, T>) -> ResidueNct<'f, T> {
-        let a_m = *(*a).mont_value();
-        let b_m = *(*b).mont_value();
+        let a_m = *a.mont_value();
+        let b_m = *b.mont_value();
         let diff = if a_m >= b_m {
             a_m - b_m
         } else {
