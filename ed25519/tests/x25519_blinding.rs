@@ -106,6 +106,41 @@ fn blinded_with_max_blinder_matches_unblinded() {
 }
 
 #[test]
+fn blinded_with_lambda_equal_to_p_matches_unblinded() {
+    // RNG feeds P_BYTES for the projective rerand λ bytes. After mask
+    // bytes[31] &= 0x7f, λ_t equals p exactly (p's high bit is 0
+    // already). field.reduce(p) == 0, so without the CT is_p check
+    // the ladder would degenerate to (0, 0, 0, 0) and diverge.
+    use ed25519_heapless::P_BYTES;
+    struct PRng {
+        scalar_done: bool,
+    }
+    impl rand_chacha::rand_core::RngCore for PRng {
+        fn next_u32(&mut self) -> u32 {
+            self.scalar_done = true;
+            0x1234_5678
+        }
+        fn next_u64(&mut self) -> u64 {
+            0
+        }
+        fn fill_bytes(&mut self, dest: &mut [u8]) {
+            assert!(self.scalar_done && dest.len() == 32);
+            dest.copy_from_slice(&P_BYTES);
+        }
+    }
+    impl rand_chacha::rand_core::CryptoRng for PRng {}
+
+    let k = deterministic_bytes(0x99, 0x33);
+    let peer_secret = deterministic_bytes(0x99, 0x66);
+    let u = x25519_base::<T>(&peer_secret);
+
+    let unblinded = x25519::<T>(&k, &u);
+    let blinded = x25519_blinded::<T, _>(&mut PRng { scalar_done: false }, &k, &u);
+
+    assert_eq!(blinded, unblinded);
+}
+
+#[test]
 fn blinded_produces_varying_intermediate_with_different_rng() {
     let mut rng_a = ChaCha20Rng::seed_from_u64(1);
     let mut rng_b = ChaCha20Rng::seed_from_u64(2);
