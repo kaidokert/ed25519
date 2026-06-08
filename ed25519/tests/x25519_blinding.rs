@@ -81,6 +81,34 @@ fn blinded_with_zero_blinder_matches_unblinded() {
 }
 
 #[test]
+fn blinded_with_max_blinder_matches_unblinded() {
+    // r = u32::MAX exercises full-carry propagation through the
+    // schoolbook multiply and the high end of the 544-bit ladder loop.
+    struct MaxRng;
+    impl rand_chacha::rand_core::RngCore for MaxRng {
+        fn next_u32(&mut self) -> u32 {
+            u32::MAX
+        }
+        fn next_u64(&mut self) -> u64 {
+            u64::MAX
+        }
+        fn fill_bytes(&mut self, dest: &mut [u8]) {
+            dest.fill(0xff);
+        }
+    }
+    impl rand_chacha::rand_core::CryptoRng for MaxRng {}
+
+    let k = deterministic_bytes(0xaa, 0x55);
+    let peer_secret = deterministic_bytes(0xaa, 0xa5);
+    let u = x25519_base::<T>(&peer_secret);
+
+    let unblinded = x25519::<T>(&k, &u);
+    let blinded = x25519_blinded::<T, _>(&mut MaxRng, &k, &u);
+
+    assert_eq!(blinded, unblinded);
+}
+
+#[test]
 fn blinded_produces_varying_intermediate_with_different_rng() {
     let mut rng_a = ChaCha20Rng::seed_from_u64(1);
     let mut rng_b = ChaCha20Rng::seed_from_u64(2);

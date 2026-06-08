@@ -34,17 +34,18 @@ pub const BASE_U_BYTES: [u8; 32] = [
     9, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 ];
 
-/// Full curve group order `8·ℓ`, used as the scalar-blinding modulus.
-///
-/// `ℓ` alone would not work: `ℓ mod 8 = 5`, so `r·ℓ` is not a multiple
-/// of 8 in general, which would break the RFC 7748 clamp invariant
-/// (clamped scalars must be multiples of 8 to clear cofactor torsion).
-/// `8·ℓ` is always a multiple of 8 and annihilates any point on the
-/// curve. Twist points are not annihilated — blinded results may
-/// diverge from unblinded for twist u-coords.
-pub const GROUP_ORDER_BYTES: [u8; 32] = [
-    0x68, 0x9f, 0xae, 0xe7, 0xd2, 0x18, 0x93, 0xc0, 0xb2, 0xe6, 0xbc, 0x17, 0xf5, 0xce, 0xf7, 0xa6,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80,
+/// Universal blinding modulus: `lcm(curve_order, twist_order) = 8·ℓ·ℓ'`
+/// where `ℓ` is the curve subgroup order and `ℓ'` is the twist
+/// subgroup order. Annihilates every point on Curve25519 *and* its
+/// twist, so the blinded path matches the unblinded path for every
+/// 32-byte u-coordinate the X25519 ladder accepts. `8·ℓ` alone would
+/// only work for curve points; using the LCM costs ~2× ladder
+/// iterations but eliminates the twist-conformance gap.
+pub const BLINDING_MODULUS_BYTES: [u8; 64] = [
+    0xc8, 0xce, 0xb3, 0x29, 0x3b, 0xb8, 0xf4, 0x0b, 0xd9, 0xb1, 0xd1, 0x00, 0x00, 0x92, 0x10, 0xa1,
+    0x13, 0xa4, 0x80, 0xde, 0xc2, 0x38, 0x11, 0x23, 0x5c, 0xf6, 0x3c, 0x48, 0xee, 0x6b, 0xc6, 0x64,
+    0xfb, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+    0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x0f,
 ];
 
 /// Backends wider than this are rejected at runtime. 64 bytes covers all
@@ -52,8 +53,9 @@ pub const GROUP_ORDER_BYTES: [u8; 32] = [
 /// bounds the scratch buffers below.
 const MAX_T_BYTES: usize = 64;
 
-/// `k + r·(8·ℓ)` fits in 36 bytes for a 32-bit blinder `r`.
-const BLINDED_SCALAR_BYTES: usize = 36;
+/// `k + r·(8·ℓ·ℓ')` fits in 68 bytes for a 32-bit blinder `r`
+/// (worst case 540 bits).
+const BLINDED_SCALAR_BYTES: usize = 68;
 
 const BLINDED_BIT_COUNT: usize = BLINDED_SCALAR_BYTES * 8;
 
@@ -66,19 +68,22 @@ pub const fn clamp(mut k: [u8; 32]) -> [u8; 32] {
     k
 }
 
-/// Compute `k' = k + r·(8·ℓ)` little-endian. Schoolbook in
+/// Compute `k' = k + r·(8·ℓ·ℓ')` little-endian. Schoolbook in
 /// `u8`/`u16`/`u64` to avoid dragging in a wider `FixedUInt`.
-fn compute_blinded_scalar(k_clamped: &[u8; 32], r: u32) -> [u8; BLINDED_SCALAR_BYTES] {
-    let mut out = [0u8; BLINDED_SCALAR_BYTES];
+fn compute_blinded_scalar(
+    k_clamped: &[u8; 32],
+    r: u32,
+) -> zeroize::Zeroizing<[u8; BLINDED_SCALAR_BYTES]> {
+    let mut out = zeroize::Zeroizing::new([0u8; BLINDED_SCALAR_BYTES]);
     let r = r as u64;
 
     let mut carry: u64 = 0;
-    for i in 0..32 {
-        let prod = r * (GROUP_ORDER_BYTES[i] as u64) + carry;
+    for i in 0..64 {
+        let prod = r * (BLINDING_MODULUS_BYTES[i] as u64) + carry;
         out[i] = prod as u8;
         carry = prod >> 8;
     }
-    for byte in out.iter_mut().skip(32) {
+    for byte in out.iter_mut().skip(64) {
         carry += *byte as u64;
         *byte = carry as u8;
         carry >>= 8;
@@ -230,9 +235,9 @@ where
 }
 
 /// X25519 shared secret with scalar blinding: replaces `k` with
-/// `k' = k + r·(8·ℓ)` for a fresh 32-bit `r`. Output equals
-/// [`x25519`] for any curve-subgroup `u_in`; twist-point inputs may
-/// diverge — see [`GROUP_ORDER_BYTES`].
+/// `k' = k + r·(8·ℓ·ℓ')` for a fresh 32-bit `r`. Output equals
+/// [`x25519`] for every accepted u-coordinate, curve or twist —
+/// see [`BLINDING_MODULUS_BYTES`].
 ///
 /// Defends against multi-trace DPA aggregation on a long-lived secret
 /// scalar. For single-trace correlation, combine with projective
@@ -243,7 +248,7 @@ where
 /// blinding offline). Typical pattern: seed `ChaCha20Rng` from HW RNG
 /// at startup, pass the `ChaCha20Rng` here.
 ///
-/// Cost: ~12% over [`x25519`] (288 vs 255 ladder iterations).
+/// Cost: ~2× [`x25519`] (544 vs 255 ladder iterations).
 #[inline(never)]
 pub fn x25519_blinded<T, R>(rng: &mut R, k: &[u8; 32], u_in: &[u8; 32]) -> [u8; 32]
 where
@@ -281,7 +286,7 @@ where
 
     let k_clamped = zeroize::Zeroizing::new(clamp(*k));
     let r = rng.next_u32();
-    let k_prime = zeroize::Zeroizing::new(compute_blinded_scalar(&k_clamped, r));
+    let k_prime = compute_blinded_scalar(&k_clamped, r);
 
     let mut u_bytes = *u_in;
     u_bytes[31] &= 0x7f;

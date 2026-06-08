@@ -175,8 +175,8 @@ pub use strict::{verify, verify_with_field};
 /// before the ladder runs, so callers do not need to pre-process either
 /// input.
 pub use x25519::{
-    A24_BYTES, BASE_U_BYTES, GROUP_ORDER_BYTES, clamp, x25519, x25519_base, x25519_base_blinded,
-    x25519_blinded,
+    A24_BYTES, BASE_U_BYTES, BLINDING_MODULUS_BYTES, clamp, x25519, x25519_base,
+    x25519_base_blinded, x25519_blinded,
 };
 
 /// Verifying key wrapper that implements `signature` crate traits.
