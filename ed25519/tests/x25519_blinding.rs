@@ -22,9 +22,6 @@ fn deterministic_bytes(seed: u64, salt: u8) -> [u8; 32] {
 
 #[test]
 fn blinded_matches_unblinded_x25519() {
-    // `u` must be a subgroup point for the `8·ℓ` blinding identity to
-    // hold. Random 32-byte bytes land on the twist ~half the time;
-    // derive `u` via `x25519_base` instead.
     let mut rng = ChaCha20Rng::seed_from_u64(0xed_25519_b1_1d);
 
     for trial in 0..N_TRIALS {
