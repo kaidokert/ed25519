@@ -193,9 +193,6 @@ where
     let field = Curve25519FieldCt::new(p).unwrap();
 
     // RFC 7748 §5: clamp scalar, mask high bit of u-coordinate.
-    // Wrap the clamped scalar in Zeroizing so it gets zeroed when this
-    // function returns (best-effort against later stack reuse exposing
-    // the bits — see api_debt_x25519 for what this does *not* address).
     let k = zeroize::Zeroizing::new(clamp(*k));
     let mut u_bytes = *u_in;
     u_bytes[31] &= 0x7f;
