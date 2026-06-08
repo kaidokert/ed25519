@@ -34,10 +34,28 @@ pub const BASE_U_BYTES: [u8; 32] = [
     9, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 ];
 
+/// Full curve group order `8·ℓ`, used as the scalar-blinding modulus.
+///
+/// `ℓ` alone would not work: `ℓ mod 8 = 5`, so `r·ℓ` is not a multiple
+/// of 8 in general, which would break the RFC 7748 clamp invariant
+/// (clamped scalars must be multiples of 8 to clear cofactor torsion).
+/// `8·ℓ` is always a multiple of 8 and annihilates any point on the
+/// curve. Twist points are not annihilated — blinded results may
+/// diverge from unblinded for twist u-coords.
+pub const GROUP_ORDER_BYTES: [u8; 32] = [
+    0x68, 0x9f, 0xae, 0xe7, 0xd2, 0x18, 0x93, 0xc0, 0xb2, 0xe6, 0xbc, 0x17, 0xf5, 0xce, 0xf7, 0xa6,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80,
+];
+
 /// Backends wider than this are rejected at runtime. 64 bytes covers all
 /// currently registered `FixedUInt` impls (u32×16, u64×8, u64×4, u8×32) and
 /// bounds the scratch buffers below.
 const MAX_T_BYTES: usize = 64;
+
+/// `k + r·(8·ℓ)` fits in 36 bytes for a 32-bit blinder `r`.
+const BLINDED_SCALAR_BYTES: usize = 36;
+
+const BLINDED_BIT_COUNT: usize = BLINDED_SCALAR_BYTES * 8;
 
 /// Apply the RFC 7748 scalar clamp: clear the bottom three bits of byte 0,
 /// clear the top bit of byte 31, and set bit 254.
@@ -46,6 +64,41 @@ pub const fn clamp(mut k: [u8; 32]) -> [u8; 32] {
     k[31] &= 127;
     k[31] |= 64;
     k
+}
+
+/// Compute `k' = k + r·(8·ℓ)` little-endian. Schoolbook in
+/// `u8`/`u16`/`u64` to avoid dragging in a wider `FixedUInt`.
+fn compute_blinded_scalar(k_clamped: &[u8; 32], r: u32) -> [u8; BLINDED_SCALAR_BYTES] {
+    let mut out = [0u8; BLINDED_SCALAR_BYTES];
+    let r = r as u64;
+
+    let mut carry: u64 = 0;
+    for i in 0..32 {
+        let prod = r * (GROUP_ORDER_BYTES[i] as u64) + carry;
+        out[i] = prod as u8;
+        carry = prod >> 8;
+    }
+    for byte in out.iter_mut().skip(32) {
+        carry += *byte as u64;
+        *byte = carry as u8;
+        carry >>= 8;
+    }
+    debug_assert_eq!(carry, 0);
+
+    let mut c: u16 = 0;
+    for (i, &kb) in k_clamped.iter().enumerate() {
+        let s = (out[i] as u16) + (kb as u16) + c;
+        out[i] = s as u8;
+        c = s >> 8;
+    }
+    for byte in out.iter_mut().skip(32) {
+        let s = (*byte as u16) + c;
+        *byte = s as u8;
+        c = s >> 8;
+    }
+    debug_assert_eq!(c, 0);
+
+    out
 }
 
 /// Compute `k * G` where `G` is the X25519 base point (u = 9).
@@ -152,54 +205,7 @@ where
     // Initial ladder state:
     //   (x2, z2) = (1, 0)   -- point at infinity
     //   (x3, z3) = (u, 1)   -- the input point
-    let mut x2 = field.one();
-    let mut z2 = field.zero();
-    let mut x3 = x1.clone();
-    let mut z3 = field.one();
-    let mut swap: u8 = 0;
-
-    // Process scalar bits 254..=0 (255 iterations). The conditional swap is
-    // performed with a branchless cswap so iteration control flow is
-    // identical regardless of the secret scalar. All field ops in the loop
-    // operate on secret-derived values via the CT primitives — and the type
-    // system enforces that: every variable here is a `ResidueCt`.
-    for t in (0..255).rev() {
-        let k_t = (k[t >> 3] >> (t & 7)) & 1;
-        swap ^= k_t;
-        let choice = Choice::from(swap);
-        ResidueCt::cswap(choice, &mut x2, &mut x3);
-        ResidueCt::cswap(choice, &mut z2, &mut z3);
-        swap = k_t;
-
-        // RFC 7748 §5 doubling-and-differential-addition step.
-        let a = field.add(&x2, &z2);
-        let aa = field.mul(&a, &a);
-        let b = field.sub(&x2, &z2);
-        let bb = field.mul(&b, &b);
-        let e = field.sub(&aa, &bb);
-        let c = field.add(&x3, &z3);
-        let d = field.sub(&x3, &z3);
-        let da = field.mul(&d, &a);
-        let cb = field.mul(&c, &b);
-
-        let da_plus_cb = field.add(&da, &cb);
-        x3 = field.mul(&da_plus_cb, &da_plus_cb);
-
-        let da_minus_cb = field.sub(&da, &cb);
-        let dmc_sq = field.mul(&da_minus_cb, &da_minus_cb);
-        z3 = field.mul(&x1, &dmc_sq);
-
-        x2 = field.mul(&aa, &bb);
-
-        let a24e = field.mul(&a24, &e);
-        let aa_plus_a24e = field.add(&aa, &a24e);
-        z2 = field.mul(&e, &aa_plus_a24e);
-    }
-
-    // Final conditional swap based on the last scalar bit — branchless.
-    let final_choice = Choice::from(swap);
-    ResidueCt::cswap(final_choice, &mut x2, &mut x3);
-    ResidueCt::cswap(final_choice, &mut z2, &mut z3);
+    let (x2, z2) = montgomery_ladder(&field, &x1, &a24, &*k, 255);
 
     // Return x2 * z2^{-1} mod p, encoded little-endian.
     // All CT — z2 is secret-derived.
@@ -221,4 +227,173 @@ where
     let mut out = [0u8; 32];
     out.copy_from_slice(&bytes[..32]);
     out
+}
+
+/// X25519 shared secret with scalar blinding: replaces `k` with
+/// `k' = k + r·(8·ℓ)` for a fresh 32-bit `r`. Output equals
+/// [`x25519`] for any curve-subgroup `u_in`; twist-point inputs may
+/// diverge — see [`GROUP_ORDER_BYTES`].
+///
+/// Defends against multi-trace DPA aggregation on a long-lived secret
+/// scalar. For single-trace correlation, combine with projective
+/// coordinate re-randomization (future).
+///
+/// `R: CryptoRng` is required — a predictable RNG is worse than no
+/// blinding (attacker recovers PRNG state from traces, removes the
+/// blinding offline). Typical pattern: seed `ChaCha20Rng` from HW RNG
+/// at startup, pass the `ChaCha20Rng` here.
+///
+/// Cost: ~12% over [`x25519`] (288 vs 255 ladder iterations).
+#[inline(never)]
+pub fn x25519_blinded<T, R>(rng: &mut R, k: &[u8; 32], u_in: &[u8; 32]) -> [u8; 32]
+where
+    T: UnsignedModularInt
+        + Copy
+        + PartialEq
+        + modmath::WideMul
+        + modmath::CiosMontMulCt
+        + modmath::Parity
+        + num_traits::ops::overflowing::OverflowingAdd
+        + num_traits::WrappingMul
+        + num_traits::WrappingAdd
+        + num_traits::WrappingSub
+        + subtle::ConditionallySelectable
+        + subtle::ConstantTimeLess
+        + core::ops::Sub<Output = T>,
+    for<'a> &'a T: core::ops::Add<&'a T, Output = T> + core::ops::Sub<&'a T, Output = T>,
+    R: rand_core::CryptoRng,
+{
+    let bits = modmath::type_bit_width::<T>();
+    assert!(
+        bits >= 256,
+        "x25519_blinded: backend T is {} bits, need at least 256",
+        bits
+    );
+    assert!(
+        bits <= MAX_T_BYTES * 8,
+        "x25519_blinded: backend T is {} bits, exceeds supported maximum of {}",
+        bits,
+        MAX_T_BYTES * 8
+    );
+
+    let p = T::from_bytes_le(&P_BYTES);
+    let field = Curve25519FieldCt::new(p).unwrap();
+
+    let k_clamped = zeroize::Zeroizing::new(clamp(*k));
+    let r = rng.next_u32();
+    let k_prime = zeroize::Zeroizing::new(compute_blinded_scalar(&k_clamped, r));
+
+    let mut u_bytes = *u_in;
+    u_bytes[31] &= 0x7f;
+    let u = T::from_bytes_le(&u_bytes);
+    let x1 = field.reduce(&u);
+    let a24 = field.reduce(&T::from_bytes_le(&A24_BYTES));
+
+    let (x2, z2) = montgomery_ladder(&field, &x1, &a24, &*k_prime, BLINDED_BIT_COUNT);
+
+    let z2_inv = field.inv(&z2);
+    let result_res = field.mul(&x2, &z2_inv);
+    let result = zeroize::Zeroizing::new(field.into_raw(&result_res));
+
+    let mut scratch = zeroize::Zeroizing::new([0u8; MAX_T_BYTES]);
+    let bytes = result.to_bytes_le(&mut *scratch);
+    let mut out = [0u8; 32];
+    out.copy_from_slice(&bytes[..32]);
+    out
+}
+
+/// Compute `k * G` (where `G` is the X25519 base point) with scalar
+/// blinding. See [`x25519_blinded`] for the threat model and RNG
+/// requirement.
+pub fn x25519_base_blinded<T, R>(rng: &mut R, k: &[u8; 32]) -> [u8; 32]
+where
+    T: UnsignedModularInt
+        + Copy
+        + PartialEq
+        + modmath::WideMul
+        + modmath::CiosMontMulCt
+        + modmath::Parity
+        + num_traits::ops::overflowing::OverflowingAdd
+        + num_traits::WrappingMul
+        + num_traits::WrappingAdd
+        + num_traits::WrappingSub
+        + subtle::ConditionallySelectable
+        + subtle::ConstantTimeLess
+        + core::ops::Sub<Output = T>,
+    for<'a> &'a T: core::ops::Add<&'a T, Output = T> + core::ops::Sub<&'a T, Output = T>,
+    R: rand_core::CryptoRng,
+{
+    x25519_blinded::<T, R>(rng, k, &BASE_U_BYTES)
+}
+
+/// Shared ladder body. `x1` and `a24` are borrowed so the caller's
+/// `ZeroizeOnDrop` wipe still fires at its scope end — moving them in
+/// would leave the source bindings holding unwiped bytes.
+#[inline(never)]
+fn montgomery_ladder<'f, T>(
+    field: &'f Curve25519FieldCt<T>,
+    x1: &ResidueCt<'f, T>,
+    a24: &ResidueCt<'f, T>,
+    scalar: &[u8],
+    bit_count: usize,
+) -> (ResidueCt<'f, T>, ResidueCt<'f, T>)
+where
+    T: UnsignedModularInt
+        + Copy
+        + PartialEq
+        + modmath::WideMul
+        + modmath::CiosMontMulCt
+        + modmath::Parity
+        + num_traits::ops::overflowing::OverflowingAdd
+        + num_traits::WrappingMul
+        + num_traits::WrappingAdd
+        + num_traits::WrappingSub
+        + subtle::ConditionallySelectable
+        + subtle::ConstantTimeLess
+        + core::ops::Sub<Output = T>,
+    for<'a> &'a T: core::ops::Add<&'a T, Output = T> + core::ops::Sub<&'a T, Output = T>,
+{
+    let mut x2 = field.one();
+    let mut z2 = field.zero();
+    let mut x3 = x1.clone();
+    let mut z3 = field.one();
+    let mut swap: u8 = 0;
+
+    for t in (0..bit_count).rev() {
+        let k_t = (scalar[t >> 3] >> (t & 7)) & 1;
+        swap ^= k_t;
+        let choice = Choice::from(swap);
+        ResidueCt::cswap(choice, &mut x2, &mut x3);
+        ResidueCt::cswap(choice, &mut z2, &mut z3);
+        swap = k_t;
+
+        let a = field.add(&x2, &z2);
+        let aa = field.mul(&a, &a);
+        let b = field.sub(&x2, &z2);
+        let bb = field.mul(&b, &b);
+        let e = field.sub(&aa, &bb);
+        let c = field.add(&x3, &z3);
+        let d = field.sub(&x3, &z3);
+        let da = field.mul(&d, &a);
+        let cb = field.mul(&c, &b);
+
+        let da_plus_cb = field.add(&da, &cb);
+        x3 = field.mul(&da_plus_cb, &da_plus_cb);
+
+        let da_minus_cb = field.sub(&da, &cb);
+        let dmc_sq = field.mul(&da_minus_cb, &da_minus_cb);
+        z3 = field.mul(x1, &dmc_sq);
+
+        x2 = field.mul(&aa, &bb);
+
+        let a24e = field.mul(a24, &e);
+        let aa_plus_a24e = field.add(&aa, &a24e);
+        z2 = field.mul(&e, &aa_plus_a24e);
+    }
+
+    let final_choice = Choice::from(swap);
+    ResidueCt::cswap(final_choice, &mut x2, &mut x3);
+    ResidueCt::cswap(final_choice, &mut z2, &mut z3);
+
+    (x2, z2)
 }

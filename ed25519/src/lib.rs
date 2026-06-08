@@ -174,7 +174,10 @@ pub use strict::{verify, verify_with_field};
 /// is clamped per RFC 7748 and the high bit of `u_in[31]` is masked off
 /// before the ladder runs, so callers do not need to pre-process either
 /// input.
-pub use x25519::{A24_BYTES, BASE_U_BYTES, clamp, x25519, x25519_base};
+pub use x25519::{
+    A24_BYTES, BASE_U_BYTES, GROUP_ORDER_BYTES, clamp, x25519, x25519_base, x25519_base_blinded,
+    x25519_blinded,
+};
 
 /// Verifying key wrapper that implements `signature` crate traits.
 pub struct VerifyingKey<T> {
