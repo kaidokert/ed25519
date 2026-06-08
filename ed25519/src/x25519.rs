@@ -207,10 +207,17 @@ where
     let x1 = field.reduce(&u);
     let a24 = field.reduce(&T::from_bytes_le(&A24_BYTES));
 
-    // Initial ladder state:
-    //   (x2, z2) = (1, 0)   -- point at infinity
-    //   (x3, z3) = (u, 1)   -- the input point
-    let (x2, z2) = montgomery_ladder(&field, &x1, &a24, &*k, 255);
+    let (x2, z2) = montgomery_ladder(
+        &field,
+        &x1,
+        &a24,
+        &*k,
+        255,
+        field.one(),
+        field.zero(),
+        x1.clone(),
+        field.one(),
+    );
 
     // Return x2 * z2^{-1} mod p, encoded little-endian.
     // All CT — z2 is secret-derived.
@@ -234,21 +241,26 @@ where
     out
 }
 
-/// X25519 shared secret with scalar blinding: replaces `k` with
-/// `k' = k + r·(8·ℓ·ℓ')` for a fresh 32-bit `r`. Output equals
-/// [`x25519`] for every accepted u-coordinate, curve or twist —
-/// see [`BLINDING_MODULUS_BYTES`].
+/// X25519 shared secret with full per-invocation blinding:
 ///
-/// Defends against multi-trace DPA aggregation on a long-lived secret
-/// scalar. For single-trace correlation, combine with projective
-/// coordinate re-randomization (future).
+/// * **Scalar blinding** — replaces `k` with `k' = k + r·(8·ℓ·ℓ')`
+///   for a fresh 32-bit `r`. Defeats multi-trace DPA aggregation
+///   against a long-lived secret scalar.
+/// * **Projective coordinate re-randomization** — scales the starting
+///   ladder state by a random nonzero `λ ∈ F_p`. Defeats single-trace
+///   correlation analysis between ladder iterations.
+///
+/// Output equals [`x25519`] for every accepted u-coordinate, curve or
+/// twist — see [`BLINDING_MODULUS_BYTES`].
 ///
 /// `R: CryptoRng` is required — a predictable RNG is worse than no
 /// blinding (attacker recovers PRNG state from traces, removes the
 /// blinding offline). Typical pattern: seed `ChaCha20Rng` from HW RNG
 /// at startup, pass the `ChaCha20Rng` here.
 ///
-/// Cost: ~2× [`x25519`] (544 vs 255 ladder iterations).
+/// Cost: ~2× [`x25519`] (544 vs 255 ladder iterations); the projective
+/// re-randomization adds one extra multiplication, negligible vs the
+/// ladder body.
 #[inline(never)]
 pub fn x25519_blinded<T, R>(rng: &mut R, k: &[u8; 32], u_in: &[u8; 32]) -> [u8; 32]
 where
@@ -294,7 +306,32 @@ where
     let x1 = field.reduce(&u);
     let a24 = field.reduce(&T::from_bytes_le(&A24_BYTES));
 
-    let (x2, z2) = montgomery_ladder(&field, &x1, &a24, &*k_prime, BLINDED_BIT_COUNT);
+    // Projective re-randomization: scale the starting state by a random
+    // nonzero λ ∈ F_p. Same geometric points, different bit patterns
+    // through the ladder — defeats single-trace correlation. A zero λ
+    // would degenerate (0, 0, 0, 0) into the ladder, so replace it
+    // with 1 in constant time (catches all-zero RNGs in tests; the
+    // CryptoRng case is vanishingly improbable).
+    let mut lambda_bytes = zeroize::Zeroizing::new([0u8; 32]);
+    rng.fill_bytes(&mut *lambda_bytes);
+    lambda_bytes[31] &= 0x7f;
+    let lambda_t = T::from_bytes_le(&*lambda_bytes);
+    let is_zero = subtle::ConstantTimeEq::ct_eq(&lambda_t, &T::zero());
+    let lambda_t = T::conditional_select(&lambda_t, &T::one(), is_zero);
+    let lambda = field.reduce(&lambda_t);
+    let lx1 = field.mul(&lambda, &x1);
+
+    let (x2, z2) = montgomery_ladder(
+        &field,
+        &x1,
+        &a24,
+        &*k_prime,
+        BLINDED_BIT_COUNT,
+        lambda.clone(),
+        field.zero(),
+        lx1,
+        lambda,
+    );
 
     let z2_inv = field.inv(&z2);
     let result_res = field.mul(&x2, &z2_inv);
@@ -331,16 +368,22 @@ where
     x25519_blinded::<T, R>(rng, k, &BASE_U_BYTES)
 }
 
-/// Shared ladder body. `x1` and `a24` are borrowed so the caller's
-/// `ZeroizeOnDrop` wipe still fires at its scope end — moving them in
-/// would leave the source bindings holding unwiped bytes.
+/// Shared ladder body. Caller supplies the initial projective state
+/// `(x2, z2, x3, z3)` so the blinded path can scale by a random λ.
+/// `x1` and `a24` are borrowed so the caller's `ZeroizeOnDrop` wipe
+/// still fires at its scope end.
 #[inline(never)]
+#[allow(clippy::too_many_arguments)]
 fn montgomery_ladder<'f, T>(
     field: &'f Curve25519FieldCt<T>,
     x1: &ResidueCt<'f, T>,
     a24: &ResidueCt<'f, T>,
     scalar: &[u8],
     bit_count: usize,
+    mut x2: ResidueCt<'f, T>,
+    mut z2: ResidueCt<'f, T>,
+    mut x3: ResidueCt<'f, T>,
+    mut z3: ResidueCt<'f, T>,
 ) -> (ResidueCt<'f, T>, ResidueCt<'f, T>)
 where
     T: UnsignedModularInt
@@ -358,10 +401,6 @@ where
         + core::ops::Sub<Output = T>,
     for<'a> &'a T: core::ops::Add<&'a T, Output = T> + core::ops::Sub<&'a T, Output = T>,
 {
-    let mut x2 = field.one();
-    let mut z2 = field.zero();
-    let mut x3 = x1.clone();
-    let mut z3 = field.one();
     let mut swap: u8 = 0;
 
     for t in (0..bit_count).rev() {
