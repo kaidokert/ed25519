@@ -308,17 +308,18 @@ where
 
     // Projective re-randomization: scale the starting state by a random
     // nonzero λ ∈ F_p. Same geometric points, different bit patterns
-    // through the ladder — defeats single-trace correlation. A zero λ
-    // would degenerate (0, 0, 0, 0) into the ladder, so replace it
-    // with 1 in constant time (catches all-zero RNGs in tests; the
-    // CryptoRng case is vanishingly improbable).
+    // through the ladder — defeats single-trace correlation. Replace
+    // λ_t ∈ {0, p} with 1 in constant time, since both reduce to 0
+    // and a zero λ degenerates the initial state to (0, 0, 0, 0).
     let mut lambda_bytes = zeroize::Zeroizing::new([0u8; 32]);
     rng.fill_bytes(&mut *lambda_bytes);
     lambda_bytes[31] &= 0x7f;
-    let lambda_t = T::from_bytes_le(&*lambda_bytes);
-    let is_zero = subtle::ConstantTimeEq::ct_eq(&lambda_t, &T::zero());
-    let lambda_t = T::conditional_select(&lambda_t, &T::one(), is_zero);
-    let lambda = field.reduce(&lambda_t);
+    let p_t = T::from_bytes_le(&P_BYTES);
+    let mut lambda_t = zeroize::Zeroizing::new(T::from_bytes_le(&*lambda_bytes));
+    let is_zero = subtle::ConstantTimeEq::ct_eq(&*lambda_t, &T::zero());
+    let is_p = subtle::ConstantTimeEq::ct_eq(&*lambda_t, &p_t);
+    *lambda_t = T::conditional_select(&*lambda_t, &T::one(), is_zero | is_p);
+    let lambda = field.reduce(&*lambda_t);
     let lx1 = field.mul(&lambda, &x1);
 
     let (x2, z2) = montgomery_ladder(
