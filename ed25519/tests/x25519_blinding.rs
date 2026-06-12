@@ -55,18 +55,20 @@ fn blinded_with_zero_blinder_matches_unblinded() {
     // r = 0 → k' = k zero-extended; exercises the wider ladder loop's
     // leading-zero iterations.
     struct ZeroRng;
-    impl rand_chacha::rand_core::RngCore for ZeroRng {
-        fn next_u32(&mut self) -> u32 {
-            0
+    impl rand_chacha::rand_core::TryRng for ZeroRng {
+        type Error = core::convert::Infallible;
+        fn try_next_u32(&mut self) -> Result<u32, Self::Error> {
+            Ok(0)
         }
-        fn next_u64(&mut self) -> u64 {
-            0
+        fn try_next_u64(&mut self) -> Result<u64, Self::Error> {
+            Ok(0)
         }
-        fn fill_bytes(&mut self, dest: &mut [u8]) {
+        fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), Self::Error> {
             dest.fill(0);
+            Ok(())
         }
     }
-    impl rand_chacha::rand_core::CryptoRng for ZeroRng {}
+    impl rand_chacha::rand_core::TryCryptoRng for ZeroRng {}
 
     let k = deterministic_bytes(0x42, 0xff);
     let u = deterministic_bytes(0x42, 0x01);
@@ -82,18 +84,20 @@ fn blinded_with_max_blinder_matches_unblinded() {
     // r = u32::MAX exercises full-carry propagation through the
     // schoolbook multiply and the high end of the 544-bit ladder loop.
     struct MaxRng;
-    impl rand_chacha::rand_core::RngCore for MaxRng {
-        fn next_u32(&mut self) -> u32 {
-            u32::MAX
+    impl rand_chacha::rand_core::TryRng for MaxRng {
+        type Error = core::convert::Infallible;
+        fn try_next_u32(&mut self) -> Result<u32, Self::Error> {
+            Ok(u32::MAX)
         }
-        fn next_u64(&mut self) -> u64 {
-            u64::MAX
+        fn try_next_u64(&mut self) -> Result<u64, Self::Error> {
+            Ok(u64::MAX)
         }
-        fn fill_bytes(&mut self, dest: &mut [u8]) {
+        fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), Self::Error> {
             dest.fill(0xff);
+            Ok(())
         }
     }
-    impl rand_chacha::rand_core::CryptoRng for MaxRng {}
+    impl rand_chacha::rand_core::TryCryptoRng for MaxRng {}
 
     let k = deterministic_bytes(0xaa, 0x55);
     let peer_secret = deterministic_bytes(0xaa, 0xa5);
@@ -115,20 +119,22 @@ fn blinded_with_lambda_equal_to_p_matches_unblinded() {
     struct PRng {
         scalar_done: bool,
     }
-    impl rand_chacha::rand_core::RngCore for PRng {
-        fn next_u32(&mut self) -> u32 {
+    impl rand_chacha::rand_core::TryRng for PRng {
+        type Error = core::convert::Infallible;
+        fn try_next_u32(&mut self) -> Result<u32, Self::Error> {
             self.scalar_done = true;
-            0x1234_5678
+            Ok(0x1234_5678)
         }
-        fn next_u64(&mut self) -> u64 {
-            0
+        fn try_next_u64(&mut self) -> Result<u64, Self::Error> {
+            Ok(0)
         }
-        fn fill_bytes(&mut self, dest: &mut [u8]) {
+        fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), Self::Error> {
             assert!(self.scalar_done && dest.len() == 32);
             dest.copy_from_slice(&P_BYTES);
+            Ok(())
         }
     }
-    impl rand_chacha::rand_core::CryptoRng for PRng {}
+    impl rand_chacha::rand_core::TryCryptoRng for PRng {}
 
     let k = deterministic_bytes(0x99, 0x33);
     let peer_secret = deterministic_bytes(0x99, 0x66);
