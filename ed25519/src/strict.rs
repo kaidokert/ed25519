@@ -1,5 +1,6 @@
 use crate::UnsignedModularInt;
 use crate::curve25519_field::Curve25519Field;
+use crate::jsf::NafSign;
 use modmath::ResidueNct;
 
 // Tuples of field residues. Lifetime `'f` binds them to the producing
@@ -379,7 +380,6 @@ where
         field.sub(&zero, &a_niels.2),
     );
 
-    use crate::jsf::NafSign;
     for digit in naf.digits_msb_first() {
         result = point_double(&result, field);
         match digit.s_digit {
