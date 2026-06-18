@@ -1,5 +1,6 @@
 use crate::UnsignedModularInt;
 use crate::curve25519_field::Curve25519Field;
+use crate::jsf::NafSign;
 use modmath::ResidueNct;
 
 // Tuples of field residues. Lifetime `'f` binds them to the producing
@@ -198,7 +199,7 @@ where
     let mut bytes = encoded;
     let sign = bytes[31] >> 7;
     bytes[31] &= 0b0111_1111;
-    let y_raw = T::from_bytes_le(&bytes[0..32]);
+    let y_raw = T::from_bytes_le(&bytes);
 
     if &y_raw >= field.modulus() {
         return None;
@@ -382,16 +383,14 @@ where
     for digit in naf.digits_msb_first() {
         result = point_double(&result, field);
         match digit.s_digit {
-            1 => result = point_add_niels(&result, &g_niels, field),
-            -1 => result = point_add_niels(&result, &neg_g_niels, field),
-            0 => {}
-            _ => unreachable!("NAF digits must be -1, 0, or 1"),
+            NafSign::Pos => result = point_add_niels(&result, &g_niels, field),
+            NafSign::Neg => result = point_add_niels(&result, &neg_g_niels, field),
+            NafSign::Zero => {}
         }
         match digit.h_digit {
-            1 => result = point_add_niels(&result, &a_niels, field),
-            -1 => result = point_add_niels(&result, &neg_a_niels, field),
-            0 => {}
-            _ => unreachable!("NAF digits must be -1, 0, or 1"),
+            NafSign::Pos => result = point_add_niels(&result, &a_niels, field),
+            NafSign::Neg => result = point_add_niels(&result, &neg_a_niels, field),
+            NafSign::Zero => {}
         }
     }
 
@@ -421,13 +420,10 @@ where
         + core::ops::Sub<T, Output = T>
         + core::ops::Sub<&'a T, Output = T>,
 {
-    // Guard: T must be at least 256 bits wide for Ed25519 constants. We
-    // mirror this guard here so single-shot callers don't pay for an
-    // unusable Field construction.
-    if modmath::type_bit_width::<T>() < 256 {
-        return false;
-    }
-    let field = Curve25519Field::curve25519();
+    let field = match Curve25519Field::curve25519() {
+        Ok(f) => f,
+        Err(_) => return false,
+    };
     verify_with_field::<T>(&field, public, msg, signature)
 }
 
@@ -438,7 +434,7 @@ where
 ///
 /// ```ignore
 /// use ed25519_heapless::{Curve25519Field, verify_with_field};
-/// let field = Curve25519Field::<MyT>::curve25519();
+/// let Ok(field) = Curve25519Field::<MyT>::curve25519() else { return false };
 /// for (pk, msg, sig) in chain {
 ///     if !verify_with_field(&field, pk, msg, sig) { return false; }
 /// }

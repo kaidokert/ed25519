@@ -171,23 +171,19 @@ where
         + core::ops::Sub<Output = T>,
     for<'a> &'a T: core::ops::Add<&'a T, Output = T> + core::ops::Sub<&'a T, Output = T>,
 {
-    // Guard: T must be wide enough to hold a 256-bit Curve25519 field element
-    // *and* narrow enough to fit in the fixed-size scratch buffers used by
-    // the ladder's cswap mask and the final serialization step. Failing
-    // either is a backend-selection bug, not a runtime input error — panic so
-    // it surfaces immediately rather than silently producing a wrong secret.
-    let bits = modmath::type_bit_width::<T>();
-    assert!(
-        bits >= 256,
-        "x25519: backend T is {} bits, need at least 256",
-        bits
-    );
-    assert!(
-        bits <= MAX_T_BYTES * 8,
-        "x25519: backend T is {} bits, exceeds supported maximum of {}",
-        bits,
-        MAX_T_BYTES * 8
-    );
+    // Backend width is a static property of T. Const-evaluate at
+    // monomorphization so wrong backends fail at compile time and the
+    // runtime panic path doesn't reach the linker.
+    const {
+        assert!(
+            modmath::type_bit_width::<T>() >= 256,
+            "x25519: backend T is too narrow for the Curve25519 prime (need >= 256 bits)"
+        );
+        assert!(
+            modmath::type_bit_width::<T>() <= MAX_T_BYTES * 8,
+            "x25519: backend T is wider than the fixed-size scratch buffer (MAX_T_BYTES * 8)"
+        );
+    }
 
     let p = T::from_bytes_le(&P_BYTES);
     let field = Curve25519FieldCt::new(p).unwrap();
@@ -277,18 +273,16 @@ where
     for<'a> &'a T: core::ops::Add<&'a T, Output = T> + core::ops::Sub<&'a T, Output = T>,
     R: rand_core::CryptoRng,
 {
-    let bits = modmath::type_bit_width::<T>();
-    assert!(
-        bits >= 256,
-        "x25519_blinded: backend T is {} bits, need at least 256",
-        bits
-    );
-    assert!(
-        bits <= MAX_T_BYTES * 8,
-        "x25519_blinded: backend T is {} bits, exceeds supported maximum of {}",
-        bits,
-        MAX_T_BYTES * 8
-    );
+    const {
+        assert!(
+            modmath::type_bit_width::<T>() >= 256,
+            "x25519_blinded: backend T is too narrow for the Curve25519 prime (need >= 256 bits)"
+        );
+        assert!(
+            modmath::type_bit_width::<T>() <= MAX_T_BYTES * 8,
+            "x25519_blinded: backend T is wider than the fixed-size scratch buffer (MAX_T_BYTES * 8)"
+        );
+    }
 
     let p = T::from_bytes_le(&P_BYTES);
     let field = Curve25519FieldCt::new(p).unwrap();
