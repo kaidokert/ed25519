@@ -47,6 +47,7 @@ const fn decode_digit(raw: u8) -> NafSign {
     match raw & 0b11 {
         0b00 => NafSign::Zero,
         0b01 => NafSign::Pos,
+        0b10 => NafSign::Zero,
         0b11 => NafSign::Neg,
         _ => NafSign::Zero,
     }
@@ -193,21 +194,31 @@ mod tests {
 
     #[test]
     fn test_naf_basic() {
-        // Test with small values
-        let s = 5u64; // Binary: 101
-        let h = 3u64; // Binary: 11
+        // s = 5 = 0b101, h = 3 = 0b011. NAF recoding produces, from
+        // MSB to LSB: (Pos, Pos), (Zero, Zero), (Pos, Neg).
+        let s = 5u64;
+        let h = 3u64;
 
         let naf = NafIterator::new(s, h);
         let digits: Vec<_> = naf.digits_msb_first().collect();
 
-        // Should generate some NAF digits
-        assert!(!digits.is_empty());
-
-        // Exhaustive enum match is the type-level guarantee.
-        for digit in &digits {
-            let _ = matches!(digit.s_digit, NafSign::Pos | NafSign::Neg | NafSign::Zero);
-            let _ = matches!(digit.h_digit, NafSign::Pos | NafSign::Neg | NafSign::Zero);
-        }
+        assert_eq!(
+            digits,
+            vec![
+                NafDigit {
+                    s_digit: NafSign::Pos,
+                    h_digit: NafSign::Pos
+                },
+                NafDigit {
+                    s_digit: NafSign::Zero,
+                    h_digit: NafSign::Zero
+                },
+                NafDigit {
+                    s_digit: NafSign::Pos,
+                    h_digit: NafSign::Neg
+                },
+            ]
+        );
     }
 
     #[test]

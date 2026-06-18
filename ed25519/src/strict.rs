@@ -420,13 +420,10 @@ where
         + core::ops::Sub<T, Output = T>
         + core::ops::Sub<&'a T, Output = T>,
 {
-    // Guard: T must be at least 256 bits wide for Ed25519 constants. We
-    // mirror this guard here so single-shot callers don't pay for an
-    // unusable Field construction.
-    if modmath::type_bit_width::<T>() < 256 {
-        return false;
-    }
-    let field = Curve25519Field::curve25519();
+    let field = match Curve25519Field::curve25519() {
+        Ok(f) => f,
+        Err(_) => return false,
+    };
     verify_with_field::<T>(&field, public, msg, signature)
 }
 
@@ -437,7 +434,7 @@ where
 ///
 /// ```ignore
 /// use ed25519_heapless::{Curve25519Field, verify_with_field};
-/// let field = Curve25519Field::<MyT>::curve25519();
+/// let Ok(field) = Curve25519Field::<MyT>::curve25519() else { return false };
 /// for (pk, msg, sig) in chain {
 ///     if !verify_with_field(&field, pk, msg, sig) { return false; }
 /// }

@@ -29,6 +29,20 @@ use modmath::{
 
 use crate::{P_BYTES, UnsignedModularInt};
 
+/// Reasons the [`Curve25519Field::curve25519`] / [`Curve25519FieldCt::curve25519`]
+/// factories can refuse to construct a field. Both arms are unreachable
+/// for any well-formed backend: `BackendTooNarrow` is a backend-selection
+/// bug, and `InvalidModulus` would require `modmath::Field::new` to
+/// reject `p = 2^255 − 19`. The factories return `Result` instead of
+/// panicking so consumers like [`crate::strict::verify`] can convert
+/// either case into a runtime `false` without pulling the panic
+/// runtime into the linked binary.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CurveSetupError {
+    BackendTooNarrow,
+    InvalidModulus,
+}
+
 // =========================================================================
 // NCT — for ed25519 verify (public data, fast path)
 // =========================================================================
@@ -63,31 +77,21 @@ where
         FieldNct::new(modulus).map(|inner| Curve25519Field { inner, modulus })
     }
 
-    /// Build the Curve25519 field — the canonical use case. Identical to
-    /// `Curve25519Field::new(T::from_bytes_le(&P_BYTES))` but hides the
-    /// modulus-byte plumbing. Build once at startup and reuse across
-    /// every verify against this curve (TLS chains, batch verification).
-    ///
-    /// # Panics
-    ///
-    /// Panics if `T` is narrower than 256 bits — Curve25519's prime
-    /// (`2^255 − 19`) cannot be represented and `from_bytes_le` would
-    /// truncate. This is a backend-selection bug, not a runtime input
-    /// error; surfacing it as a panic means the caller catches it on
-    /// the first construction rather than producing silently wrong
-    /// field elements forever after.
-    pub fn curve25519() -> Self
+    /// Build the Curve25519 field. Returns [`CurveSetupError`] when the
+    /// backend `T` is too narrow to hold the 256-bit prime, or in the
+    /// theoretical-but-unreachable case where `modmath::Field::new`
+    /// rejects `p = 2^255 − 19`. The fallible signature is what lets
+    /// [`crate::strict::verify`] handle a wrong-backend `T` as a runtime
+    /// `false` rather than a panic.
+    pub fn curve25519() -> Result<Self, CurveSetupError>
     where
         T: UnsignedModularInt,
     {
-        const {
-            assert!(modmath::type_bit_width::<T>() >= 256);
+        if modmath::type_bit_width::<T>() < 256 {
+            return Err(CurveSetupError::BackendTooNarrow);
         }
         let p = T::from_bytes_le(&P_BYTES);
-        Self::new(p).expect(
-            "Curve25519 prime is odd and nonzero — Field::new can't fail; \
-             this unwrap is unreachable",
-        )
+        Self::new(p).ok_or(CurveSetupError::InvalidModulus)
     }
 
     /// Cached modulus accessor. Returns a borrow rather than a copy (unlike
@@ -181,27 +185,17 @@ where
         FieldCt::new(modulus).map(|inner| Curve25519FieldCt { inner, modulus })
     }
 
-    /// Build the constant-time Curve25519 field. Same shape as
-    /// [`Curve25519Field::curve25519`] — build once per long-lived
-    /// secret-handling context (typically a key, or the lifetime of a
-    /// device) and reuse.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `T` is narrower than 256 bits. See
-    /// [`Curve25519Field::curve25519`] for the rationale.
-    pub fn curve25519() -> Self
+    /// Build the constant-time Curve25519 field. Same fallible shape as
+    /// [`Curve25519Field::curve25519`] — see [`CurveSetupError`].
+    pub fn curve25519() -> Result<Self, CurveSetupError>
     where
         T: UnsignedModularInt,
     {
-        const {
-            assert!(modmath::type_bit_width::<T>() >= 256);
+        if modmath::type_bit_width::<T>() < 256 {
+            return Err(CurveSetupError::BackendTooNarrow);
         }
         let p = T::from_bytes_le(&P_BYTES);
-        Self::new(p).expect(
-            "Curve25519 prime is odd and nonzero — FieldCt::new can't fail; \
-             this unwrap is unreachable",
-        )
+        Self::new(p).ok_or(CurveSetupError::InvalidModulus)
     }
 
     /// Cached modulus accessor — see [`Curve25519Field::modulus`].
