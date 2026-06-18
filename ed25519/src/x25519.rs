@@ -175,8 +175,14 @@ where
     // monomorphization so wrong backends fail at compile time and the
     // runtime panic path doesn't reach the linker.
     const {
-        assert!(modmath::type_bit_width::<T>() >= 256);
-        assert!(modmath::type_bit_width::<T>() <= MAX_T_BYTES * 8);
+        assert!(
+            modmath::type_bit_width::<T>() >= 256,
+            "x25519: backend T is too narrow for the Curve25519 prime (need >= 256 bits)"
+        );
+        assert!(
+            modmath::type_bit_width::<T>() <= MAX_T_BYTES * 8,
+            "x25519: backend T is wider than the fixed-size scratch buffer (MAX_T_BYTES * 8)"
+        );
     }
 
     let p = T::from_bytes_le(&P_BYTES);
@@ -268,8 +274,14 @@ where
     R: rand_core::CryptoRng,
 {
     const {
-        assert!(modmath::type_bit_width::<T>() >= 256);
-        assert!(modmath::type_bit_width::<T>() <= MAX_T_BYTES * 8);
+        assert!(
+            modmath::type_bit_width::<T>() >= 256,
+            "x25519_blinded: backend T is too narrow for the Curve25519 prime (need >= 256 bits)"
+        );
+        assert!(
+            modmath::type_bit_width::<T>() <= MAX_T_BYTES * 8,
+            "x25519_blinded: backend T is wider than the fixed-size scratch buffer (MAX_T_BYTES * 8)"
+        );
     }
 
     let p = T::from_bytes_le(&P_BYTES);
