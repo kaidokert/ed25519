@@ -198,7 +198,7 @@ where
     let mut bytes = encoded;
     let sign = bytes[31] >> 7;
     bytes[31] &= 0b0111_1111;
-    let y_raw = T::from_bytes_le(&bytes[0..32]);
+    let y_raw = T::from_bytes_le(&bytes);
 
     if &y_raw >= field.modulus() {
         return None;
@@ -379,19 +379,18 @@ where
         field.sub(&zero, &a_niels.2),
     );
 
+    use crate::jsf::NafSign;
     for digit in naf.digits_msb_first() {
         result = point_double(&result, field);
         match digit.s_digit {
-            1 => result = point_add_niels(&result, &g_niels, field),
-            -1 => result = point_add_niels(&result, &neg_g_niels, field),
-            0 => {}
-            _ => unreachable!("NAF digits must be -1, 0, or 1"),
+            NafSign::Pos => result = point_add_niels(&result, &g_niels, field),
+            NafSign::Neg => result = point_add_niels(&result, &neg_g_niels, field),
+            NafSign::Zero => {}
         }
         match digit.h_digit {
-            1 => result = point_add_niels(&result, &a_niels, field),
-            -1 => result = point_add_niels(&result, &neg_a_niels, field),
-            0 => {}
-            _ => unreachable!("NAF digits must be -1, 0, or 1"),
+            NafSign::Pos => result = point_add_niels(&result, &a_niels, field),
+            NafSign::Neg => result = point_add_niels(&result, &neg_a_niels, field),
+            NafSign::Zero => {}
         }
     }
 

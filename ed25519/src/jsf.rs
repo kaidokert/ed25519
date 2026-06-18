@@ -7,29 +7,49 @@
 // decisions when both scalars are odd, guaranteeing at most one non-zero digit
 // per position. This would reduce point additions by ~33% vs paired NAF.
 
-/// NAF digit pair: -1, 0, or 1 for each of two scalars
+/// Signed NAF digit. `encode_digit` only ever emits `0b00`, `0b01`, or
+/// `0b11`; the `0b10` bit pattern is unused. Consumers can match
+/// exhaustively on the enum and skip the runtime `_ => unreachable!()`
+/// arm the old `i8` shape required.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum NafSign {
+    Zero = 0b00,
+    Pos = 0b01,
+    Neg = 0b11,
+}
+
+/// NAF digit pair: one [`NafSign`] for each of two scalars.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct NafDigit {
-    pub s_digit: i8, // For scalar s: -1, 0, or 1
-    pub h_digit: i8, // For scalar h: -1, 0, or 1
+    pub s_digit: NafSign,
+    pub h_digit: NafSign,
 }
 
 // Max NAF digits: Ed25519 scalars are ~255 bits, carry can add 1
 const MAX_NAF_DIGITS: usize = 258;
 
-// Packed storage: 2 bits per digit value {-1,0,1}, 4 bits per (s,h) pair, 2 pairs per byte
-// Encoding: -1 → 0b11, 0 → 0b00, 1 → 0b01 (zero-init gives all-zeros = all digit 0)
+// Packed storage: 2 bits per digit value, 4 bits per (s,h) pair, 2 pairs per byte.
+// Zero-init gives all-zeros = all digit Zero.
 const PACKED_NAF_BYTES: usize = MAX_NAF_DIGITS.div_ceil(2); // 129
 
-/// Encode a digit value {-1, 0, 1} into 2 bits
-const fn encode_digit(d: i8) -> u8 {
-    (d as u8) & 0x03
+/// Encode a [`NafSign`] into 2 bits matching its `repr(u8)`.
+const fn encode_digit(d: NafSign) -> u8 {
+    d as u8
 }
 
-/// Decode 2 bits back to a digit value {-1, 0, 1}
-const fn decode_digit(raw: u8) -> i8 {
-    // Sign-extend from 2-bit two's complement: 00→0, 01→1, 11→-1
-    ((raw << 6) as i8) >> 6
+/// Decode 2 bits back to a [`NafSign`]. The `0b10` bit pattern is never
+/// written by [`encode_digit`]; if it ever shows up here (storage
+/// corruption) we treat it as `Zero`. That's a wrong-answer mode for
+/// the verifier (a valid signature could be rejected) but it's
+/// panic-free and doesn't introduce UB.
+const fn decode_digit(raw: u8) -> NafSign {
+    match raw & 0b11 {
+        0b00 => NafSign::Zero,
+        0b01 => NafSign::Pos,
+        0b11 => NafSign::Neg,
+        _ => NafSign::Zero,
+    }
 }
 
 /// Paired NAF generator that produces signed digits {-1, 0, 1} for two scalars.
@@ -43,7 +63,7 @@ pub struct NafIterator {
 
 impl NafIterator {
     /// Store a digit pair at the given index
-    fn pack_set(&mut self, idx: usize, s_digit: i8, h_digit: i8) {
+    fn pack_set(&mut self, idx: usize, s_digit: NafSign, h_digit: NafSign) {
         let byte_idx = idx / 2;
         let nibble = (encode_digit(s_digit) << 2) | encode_digit(h_digit);
         if idx.is_multiple_of(2) {
@@ -108,23 +128,23 @@ impl NafIterator {
             // s is odd → s & 3 is 1 or 3; use +1 for ≡1, use -1 (with carry) for ≡3
             let (s_digit, s_carry) = if s_bit {
                 if (&s_working & &three) == one {
-                    (1i8, false)
+                    (NafSign::Pos, false)
                 } else {
-                    (-1i8, true)
+                    (NafSign::Neg, true)
                 }
             } else {
-                (0i8, false)
+                (NafSign::Zero, false)
             };
 
             // h is odd → h & 3 is 1 or 3; same logic
             let (h_digit, h_carry) = if h_bit {
                 if (&h_working & &three) == one {
-                    (1i8, false)
+                    (NafSign::Pos, false)
                 } else {
-                    (-1i8, true)
+                    (NafSign::Neg, true)
                 }
             } else {
-                (0i8, false)
+                (NafSign::Zero, false)
             };
 
             if iter.len < MAX_NAF_DIGITS {
@@ -183,19 +203,19 @@ mod tests {
         // Should generate some NAF digits
         assert!(!digits.is_empty());
 
-        // All digits should be in range [-1, 0, 1]
+        // Exhaustive enum match is the type-level guarantee.
         for digit in &digits {
-            assert!(digit.s_digit >= -1 && digit.s_digit <= 1);
-            assert!(digit.h_digit >= -1 && digit.h_digit <= 1);
+            let _ = matches!(digit.s_digit, NafSign::Pos | NafSign::Neg | NafSign::Zero);
+            let _ = matches!(digit.h_digit, NafSign::Pos | NafSign::Neg | NafSign::Zero);
         }
     }
 
     #[test]
     fn test_naf_encode_decode_roundtrip() {
-        for d in [-1i8, 0, 1] {
+        for d in [NafSign::Neg, NafSign::Zero, NafSign::Pos] {
             let encoded = encode_digit(d);
             let decoded = decode_digit(encoded);
-            assert_eq!(d, decoded, "roundtrip failed for {d}: encoded={encoded}");
+            assert_eq!(d, decoded, "roundtrip failed for {d:?}: encoded={encoded}");
         }
     }
 
@@ -206,8 +226,7 @@ mod tests {
             len: 0,
             index: 0,
         };
-        // Test all 9 combinations of (s, h) digit pairs
-        let vals = [-1i8, 0, 1];
+        let vals = [NafSign::Neg, NafSign::Zero, NafSign::Pos];
         let mut idx = 0;
         for &s in &vals {
             for &h in &vals {
@@ -218,5 +237,12 @@ mod tests {
                 idx += 1;
             }
         }
+    }
+
+    #[test]
+    fn test_decode_corrupted_0b10_is_zero() {
+        // encode_digit never emits 0b10. If storage corruption produces
+        // it, decode_digit must return Zero — not panic, not UB.
+        assert_eq!(decode_digit(0b10), NafSign::Zero);
     }
 }

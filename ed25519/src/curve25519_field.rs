@@ -80,11 +80,9 @@ where
     where
         T: UnsignedModularInt,
     {
-        assert!(
-            modmath::type_bit_width::<T>() >= 256,
-            "Curve25519Field: backend T is {} bits, need at least 256",
-            modmath::type_bit_width::<T>(),
-        );
+        const {
+            assert!(modmath::type_bit_width::<T>() >= 256);
+        }
         let p = T::from_bytes_le(&P_BYTES);
         Self::new(p).expect(
             "Curve25519 prime is odd and nonzero — Field::new can't fail; \
@@ -196,11 +194,9 @@ where
     where
         T: UnsignedModularInt,
     {
-        assert!(
-            modmath::type_bit_width::<T>() >= 256,
-            "Curve25519FieldCt: backend T is {} bits, need at least 256",
-            modmath::type_bit_width::<T>(),
-        );
+        const {
+            assert!(modmath::type_bit_width::<T>() >= 256);
+        }
         let p = T::from_bytes_le(&P_BYTES);
         Self::new(p).expect(
             "Curve25519 prime is odd and nonzero — FieldCt::new can't fail; \
