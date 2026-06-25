@@ -8,9 +8,46 @@
 //! arithmetic and the ladder live here in `ResidueCt` form.
 
 use crate::curve25519_field::Curve25519FieldCt;
-use crate::{D_BYTES, UnsignedModularInt};
+use crate::{D_BYTES, SignBackend};
 use modmath::ResidueCt;
 use subtle::Choice;
+
+// =========================================================================
+// Shared SHA-512 helper — single source of cfg-gated backend selection
+// =========================================================================
+
+/// SHA-512 over the concatenation of `parts`. Single definition of the
+/// `sha512-hmac-sha512` vs `sha512-sha2` backend choice, used by every
+/// sign-path consumer (`sha512_modq_ct` here and `from_seed` in
+/// `signing_key`). Output goes in `Zeroizing` because callers feed it
+/// secret-derived material (the seed and the nonce prefix).
+pub(crate) fn sha512(parts: &[&[u8]]) -> zeroize::Zeroizing<[u8; 64]> {
+    #[cfg(all(feature = "sha512-hmac-sha512", feature = "sha512-sha2"))]
+    compile_error!(
+        "ed25519_heapless: enable at most one SHA-512 backend feature — both `sha512-hmac-sha512` and `sha512-sha2` were enabled"
+    );
+    #[cfg(not(any(feature = "sha512-hmac-sha512", feature = "sha512-sha2")))]
+    compile_error!(
+        "ed25519_heapless: enable exactly one of the SHA-512 backend features `sha512-hmac-sha512` or `sha512-sha2`"
+    );
+    #[cfg(all(feature = "sha512-hmac-sha512", not(feature = "sha512-sha2")))]
+    {
+        let mut compact_sha = hmac_sha512::Hash::new();
+        for part in parts {
+            compact_sha.update(part);
+        }
+        zeroize::Zeroizing::new(compact_sha.finalize())
+    }
+    #[cfg(all(feature = "sha512-sha2", not(feature = "sha512-hmac-sha512")))]
+    {
+        use sha2::Digest;
+        let mut compact_sha = sha2::Sha512::new();
+        for part in parts {
+            compact_sha.update(part);
+        }
+        zeroize::Zeroizing::new(compact_sha.finalize().into())
+    }
+}
 
 // =========================================================================
 // Type aliases — CT analogs of strict.rs's EdPoint / NielsPoint
@@ -35,19 +72,7 @@ pub(crate) fn point_double_ct<'f, T>(
     field: &'f Curve25519FieldCt<T>,
 ) -> EdPointCt<'f, T>
 where
-    T: UnsignedModularInt
-        + Copy
-        + PartialEq
-        + modmath::WideMul
-        + modmath::CiosMontMulCt
-        + modmath::Parity
-        + num_traits::ops::overflowing::OverflowingAdd
-        + num_traits::WrappingMul
-        + num_traits::WrappingAdd
-        + num_traits::WrappingSub
-        + subtle::ConditionallySelectable
-        + subtle::ConstantTimeLess
-        + core::ops::Sub<Output = T>,
+    T: SignBackend,
     for<'a> &'a T: core::ops::Add<&'a T, Output = T> + core::ops::Sub<&'a T, Output = T>,
 {
     // a = X²; b = Y²; c = 2·Z²; d = −A (a = −1 for Ed25519)
@@ -80,19 +105,7 @@ pub(crate) fn to_niels_ct<'f, T>(
     field: &'f Curve25519FieldCt<T>,
 ) -> NielsPointCt<'f, T>
 where
-    T: UnsignedModularInt
-        + Copy
-        + PartialEq
-        + modmath::WideMul
-        + modmath::CiosMontMulCt
-        + modmath::Parity
-        + num_traits::ops::overflowing::OverflowingAdd
-        + num_traits::WrappingMul
-        + num_traits::WrappingAdd
-        + num_traits::WrappingSub
-        + subtle::ConditionallySelectable
-        + subtle::ConstantTimeLess
-        + core::ops::Sub<Output = T>,
+    T: SignBackend,
     for<'a> &'a T: core::ops::Add<&'a T, Output = T> + core::ops::Sub<&'a T, Output = T>,
 {
     let y_plus_x = field.add(&pp.1, &pp.0);
@@ -110,19 +123,7 @@ pub(crate) fn point_add_niels_ct<'f, T>(
     field: &'f Curve25519FieldCt<T>,
 ) -> EdPointCt<'f, T>
 where
-    T: UnsignedModularInt
-        + Copy
-        + PartialEq
-        + modmath::WideMul
-        + modmath::CiosMontMulCt
-        + modmath::Parity
-        + num_traits::ops::overflowing::OverflowingAdd
-        + num_traits::WrappingMul
-        + num_traits::WrappingAdd
-        + num_traits::WrappingSub
-        + subtle::ConditionallySelectable
-        + subtle::ConstantTimeLess
-        + core::ops::Sub<Output = T>,
+    T: SignBackend,
     for<'a> &'a T: core::ops::Add<&'a T, Output = T> + core::ops::Sub<&'a T, Output = T>,
 {
     // A = (Y₁−X₁)·(y−x); B = (Y₁+X₁)·(y+x); C = T₁·2dt; D = 2·Z₁
@@ -172,30 +173,18 @@ pub(crate) fn point_cswap_ct<'f, T>(
 /// one cswap; the cswap pattern matches the scalar bit but does not
 /// branch on it.
 ///
-/// `scalar` is read MSB-first across `bit_count` bits. Leading zero
-/// bits are CT-safe — the cswap stays at identity until the first set
-/// bit appears, after which the accumulator carries the partial sum.
+/// `scalar` is read MSB-first across `scalar.len() * 8` bits. Leading
+/// zero bits are CT-safe — the cswap stays at identity until the first
+/// set bit appears, after which the accumulator carries the partial
+/// sum.
 #[inline(never)]
 pub(crate) fn scalar_mult_ct<'f, T>(
     field: &'f Curve25519FieldCt<T>,
     base: &EdPointCt<'f, T>,
     scalar: &[u8],
-    bit_count: usize,
 ) -> EdPointCt<'f, T>
 where
-    T: UnsignedModularInt
-        + Copy
-        + PartialEq
-        + modmath::WideMul
-        + modmath::CiosMontMulCt
-        + modmath::Parity
-        + num_traits::ops::overflowing::OverflowingAdd
-        + num_traits::WrappingMul
-        + num_traits::WrappingAdd
-        + num_traits::WrappingSub
-        + subtle::ConditionallySelectable
-        + subtle::ConstantTimeLess
-        + core::ops::Sub<Output = T>,
+    T: SignBackend,
     for<'a> &'a T: core::ops::Add<&'a T, Output = T> + core::ops::Sub<&'a T, Output = T>,
 {
     let d_raw = T::from_bytes_le(&D_BYTES);
@@ -204,6 +193,7 @@ where
     // Identity in extended-twisted Edwards: (0, 1, 1, 0).
     let mut acc: EdPointCt<'f, T> = (field.zero(), field.one(), field.one(), field.zero());
 
+    let bit_count = scalar.len() * 8;
     for t in (0..bit_count).rev() {
         acc = point_double_ct(&acc, field);
         let bit = (scalar[t >> 3] >> (t & 7)) & 1;
@@ -229,20 +219,7 @@ pub(crate) fn point_compress_ct<'f, T>(
     field: &'f Curve25519FieldCt<T>,
 ) -> [u8; 32]
 where
-    T: UnsignedModularInt
-        + Copy
-        + PartialEq
-        + modmath::WideMul
-        + modmath::CiosMontMulCt
-        + modmath::Parity
-        + num_traits::ops::overflowing::OverflowingAdd
-        + num_traits::WrappingMul
-        + num_traits::WrappingAdd
-        + num_traits::WrappingSub
-        + subtle::ConditionallySelectable
-        + subtle::ConstantTimeLess
-        + core::ops::Sub<Output = T>
-        + core::ops::ShrAssign<usize>,
+    T: SignBackend,
     for<'a> &'a T: core::ops::Add<&'a T, Output = T> + core::ops::Sub<&'a T, Output = T>,
 {
     const {
@@ -292,40 +269,10 @@ where
 #[inline(never)]
 pub(crate) fn sha512_modq_ct<T>(parts: &[&[u8]], q: &T) -> zeroize::Zeroizing<T>
 where
-    T: UnsignedModularInt
-        + Copy
-        + zeroize::DefaultIsZeroes
-        + num_traits::ops::overflowing::OverflowingAdd
-        + num_traits::WrappingSub
-        + subtle::ConditionallySelectable
-        + subtle::ConstantTimeLess,
+    T: SignBackend,
     for<'a> &'a T: core::ops::Add<&'a T, Output = T> + core::ops::Sub<&'a T, Output = T>,
 {
-    #[cfg(all(feature = "sha512-hmac-sha512", feature = "sha512-sha2"))]
-    compile_error!(
-        "ed25519_heapless: enable at most one SHA-512 backend feature — both `sha512-hmac-sha512` and `sha512-sha2` were enabled"
-    );
-    #[cfg(not(any(feature = "sha512-hmac-sha512", feature = "sha512-sha2")))]
-    compile_error!(
-        "ed25519_heapless: enable exactly one of the SHA-512 backend features `sha512-hmac-sha512` or `sha512-sha2`"
-    );
-    #[cfg(all(feature = "sha512-hmac-sha512", not(feature = "sha512-sha2")))]
-    let hash: zeroize::Zeroizing<[u8; 64]> = {
-        let mut compact_sha = hmac_sha512::Hash::new();
-        for part in parts {
-            compact_sha.update(part);
-        }
-        zeroize::Zeroizing::new(compact_sha.finalize())
-    };
-    #[cfg(all(feature = "sha512-sha2", not(feature = "sha512-hmac-sha512")))]
-    let hash: zeroize::Zeroizing<[u8; 64]> = {
-        use sha2::Digest;
-        let mut compact_sha = sha2::Sha512::new();
-        for part in parts {
-            compact_sha.update(part);
-        }
-        zeroize::Zeroizing::new(compact_sha.finalize().into())
-    };
+    let hash = sha512(parts);
 
     let zero = T::zero();
     let one = T::one();
@@ -364,18 +311,7 @@ where
 /// / `G_T_BYTES`, projective `Z = 1`.
 pub(crate) fn base_point_ct<'f, T>(field: &'f Curve25519FieldCt<T>) -> EdPointCt<'f, T>
 where
-    T: UnsignedModularInt
-        + Copy
-        + PartialEq
-        + modmath::WideMul
-        + modmath::CiosMontMulCt
-        + modmath::Parity
-        + num_traits::ops::overflowing::OverflowingAdd
-        + num_traits::WrappingMul
-        + num_traits::WrappingAdd
-        + num_traits::WrappingSub
-        + subtle::ConditionallySelectable
-        + subtle::ConstantTimeLess,
+    T: SignBackend,
     for<'a> &'a T: core::ops::Add<&'a T, Output = T> + core::ops::Sub<&'a T, Output = T>,
 {
     let gx = field.reduce(&T::from_bytes_le(&crate::G_X_BYTES));
@@ -388,6 +324,7 @@ where
 #[cfg(all(test, feature = "fixed-bigint"))]
 mod tests {
     use super::*;
+    use crate::UnsignedModularInt;
     use crate::curve25519_field::Curve25519FieldCt;
     use fixed_bigint::FixedUInt;
 
@@ -428,7 +365,7 @@ mod tests {
 
         let mut scalar = [0u8; 32];
         scalar[0] = 1;
-        let result = scalar_mult_ct(&field, &g, &scalar, 256);
+        let result = scalar_mult_ct(&field, &g, &scalar);
 
         assert!(projective_eq(&result, &g, &field));
     }
@@ -440,7 +377,7 @@ mod tests {
 
         let mut scalar = [0u8; 32];
         scalar[0] = 2;
-        let result = scalar_mult_ct(&field, &g, &scalar, 256);
+        let result = scalar_mult_ct(&field, &g, &scalar);
         let doubled = point_double_ct(&g, &field);
 
         assert!(projective_eq(&result, &doubled, &field));

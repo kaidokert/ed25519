@@ -131,6 +131,53 @@ impl<P: fixed_bigint::Personality> UnsignedModularInt for fixed_bigint::FixedUIn
     }
 }
 
+/// Aggregate bound bundle for the constant-time sign path: CT field
+/// arithmetic on Curve25519, byte (de)serialization, branchless
+/// selection, and `Zeroize` for secret-intermediate wiping.
+///
+/// `SigningKey<T>`, `sign`, `sign_with_fields`, and every CT point /
+/// scalar primitive in `strict_sign` would otherwise repeat the same
+/// 13-trait `where` clause. Auto-implemented for any backend that
+/// satisfies the listed bounds, so consumers don't write an explicit
+/// impl. The `for<'a> &'a T: …` HRTB stays at the call site because
+/// supertrait-elaboration of HRTBs is not yet reliable enough to
+/// propagate it automatically.
+#[cfg(any(feature = "sha512-hmac-sha512", feature = "sha512-sha2"))]
+pub trait SignBackend:
+    UnsignedModularInt
+    + Copy
+    + PartialEq
+    + modmath::WideMul
+    + modmath::CiosMontMulCt
+    + modmath::Parity
+    + num_traits::WrappingMul
+    + num_traits::WrappingAdd
+    + num_traits::WrappingSub
+    + subtle::ConditionallySelectable
+    + subtle::ConstantTimeLess
+    + core::ops::Sub<Output = Self>
+    + zeroize::DefaultIsZeroes
+{
+}
+
+#[cfg(any(feature = "sha512-hmac-sha512", feature = "sha512-sha2"))]
+impl<T> SignBackend for T where
+    T: UnsignedModularInt
+        + Copy
+        + PartialEq
+        + modmath::WideMul
+        + modmath::CiosMontMulCt
+        + modmath::Parity
+        + num_traits::WrappingMul
+        + num_traits::WrappingAdd
+        + num_traits::WrappingSub
+        + subtle::ConditionallySelectable
+        + subtle::ConstantTimeLess
+        + core::ops::Sub<Output = T>
+        + zeroize::DefaultIsZeroes
+{
+}
+
 // ED25519 constants
 pub const P_BYTES: [u8; 32] = [
     237, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
@@ -274,21 +321,7 @@ where
 #[cfg(any(feature = "sha512-hmac-sha512", feature = "sha512-sha2"))]
 impl<T> signature::Signer<[u8; 64]> for SigningKey<T>
 where
-    T: UnsignedModularInt
-        + Copy
-        + PartialEq
-        + modmath::WideMul
-        + modmath::CiosMontMulCt
-        + modmath::Parity
-        + num_traits::ops::overflowing::OverflowingAdd
-        + num_traits::WrappingMul
-        + num_traits::WrappingAdd
-        + num_traits::WrappingSub
-        + subtle::ConditionallySelectable
-        + subtle::ConstantTimeLess
-        + core::ops::Sub<Output = T>
-        + core::ops::ShrAssign<usize>
-        + zeroize::DefaultIsZeroes,
+    T: SignBackend,
     for<'a> &'a T: core::ops::Add<&'a T, Output = T> + core::ops::Sub<&'a T, Output = T>,
 {
     fn try_sign(&self, msg: &[u8]) -> Result<[u8; 64], signature::Error> {

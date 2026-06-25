@@ -7,8 +7,10 @@
 //! single scalar mult (for `R = r·G`) instead of two.
 
 use crate::curve25519_field::{Curve25519FieldCt, CurveSetupError};
-use crate::strict_sign::{base_point_ct, point_compress_ct, scalar_mult_ct, sha512_modq_ct};
-use crate::{Q_BYTES, UnsignedModularInt, scalar_field};
+use crate::strict_sign::{
+    base_point_ct, point_compress_ct, scalar_mult_ct, sha512, sha512_modq_ct,
+};
+use crate::{Q_BYTES, SignBackend, scalar_field};
 use core::marker::PhantomData;
 use modmath::FieldCt;
 
@@ -45,21 +47,7 @@ pub struct SigningKey<T> {
 
 impl<T> SigningKey<T>
 where
-    T: UnsignedModularInt
-        + Copy
-        + PartialEq
-        + modmath::WideMul
-        + modmath::CiosMontMulCt
-        + modmath::Parity
-        + num_traits::ops::overflowing::OverflowingAdd
-        + num_traits::WrappingMul
-        + num_traits::WrappingAdd
-        + num_traits::WrappingSub
-        + subtle::ConditionallySelectable
-        + subtle::ConstantTimeLess
-        + core::ops::Sub<Output = T>
-        + core::ops::ShrAssign<usize>
-        + zeroize::DefaultIsZeroes,
+    T: SignBackend,
     for<'a> &'a T: core::ops::Add<&'a T, Output = T> + core::ops::Sub<&'a T, Output = T>,
 {
     /// Derive a signing key from a 32-byte seed (RFC 8032 §5.1.5).
@@ -81,7 +69,7 @@ where
         // Cache the compressed pubkey: A = a·G then compress.
         let field = Curve25519FieldCt::<T>::curve25519()?;
         let g = base_point_ct(&field);
-        let big_a = scalar_mult_ct(&field, &g, &*a_bytes, 256);
+        let big_a = scalar_mult_ct(&field, &g, &*a_bytes);
         let public = point_compress_ct(&big_a, &field);
 
         Ok(SigningKey {
@@ -103,21 +91,7 @@ where
 /// [`sign_with_fields`] to amortize construction.
 pub fn sign<T>(sk: &SigningKey<T>, msg: &[u8]) -> Result<[u8; 64], SignError>
 where
-    T: UnsignedModularInt
-        + Copy
-        + PartialEq
-        + modmath::WideMul
-        + modmath::CiosMontMulCt
-        + modmath::Parity
-        + num_traits::ops::overflowing::OverflowingAdd
-        + num_traits::WrappingMul
-        + num_traits::WrappingAdd
-        + num_traits::WrappingSub
-        + subtle::ConditionallySelectable
-        + subtle::ConstantTimeLess
-        + core::ops::Sub<Output = T>
-        + core::ops::ShrAssign<usize>
-        + zeroize::DefaultIsZeroes,
+    T: SignBackend,
     for<'a> &'a T: core::ops::Add<&'a T, Output = T> + core::ops::Sub<&'a T, Output = T>,
 {
     let p_field = Curve25519FieldCt::<T>::curve25519()?;
@@ -134,21 +108,7 @@ pub fn sign_with_fields<T>(
     msg: &[u8],
 ) -> Result<[u8; 64], SignError>
 where
-    T: UnsignedModularInt
-        + Copy
-        + PartialEq
-        + modmath::WideMul
-        + modmath::CiosMontMulCt
-        + modmath::Parity
-        + num_traits::ops::overflowing::OverflowingAdd
-        + num_traits::WrappingMul
-        + num_traits::WrappingAdd
-        + num_traits::WrappingSub
-        + subtle::ConditionallySelectable
-        + subtle::ConstantTimeLess
-        + core::ops::Sub<Output = T>
-        + core::ops::ShrAssign<usize>
-        + zeroize::DefaultIsZeroes,
+    T: SignBackend,
     for<'a> &'a T: core::ops::Add<&'a T, Output = T> + core::ops::Sub<&'a T, Output = T>,
 {
     let q = T::from_bytes_le(&Q_BYTES);
@@ -166,7 +126,7 @@ where
     let r_bytes_slice = r.to_bytes_le(&mut *r_bytes);
     let mut r_le = zeroize::Zeroizing::new([0u8; 32]);
     r_le.copy_from_slice(&r_bytes_slice[..32]);
-    let r_point = scalar_mult_ct(p_field, &g, &*r_le, 256);
+    let r_point = scalar_mult_ct(p_field, &g, &*r_le);
     let r_encoded = point_compress_ct(&r_point, p_field);
 
     // k = SHA-512(R || A || M) mod q. Inputs are all public, but
@@ -192,38 +152,6 @@ where
     sig[..32].copy_from_slice(&r_encoded);
     sig[32..64].copy_from_slice(&s_bytes_slice[..32]);
     Ok(sig)
-}
-
-// ---------------------------------------------------------------------------
-// SHA-512 helper (mirrors the backend selection used in `strict::sha512_modq`)
-// ---------------------------------------------------------------------------
-
-fn sha512(parts: &[&[u8]]) -> zeroize::Zeroizing<[u8; 64]> {
-    #[cfg(all(feature = "sha512-hmac-sha512", feature = "sha512-sha2"))]
-    compile_error!(
-        "ed25519_heapless: enable at most one SHA-512 backend feature — both `sha512-hmac-sha512` and `sha512-sha2` were enabled"
-    );
-    #[cfg(not(any(feature = "sha512-hmac-sha512", feature = "sha512-sha2")))]
-    compile_error!(
-        "ed25519_heapless: enable exactly one of the SHA-512 backend features `sha512-hmac-sha512` or `sha512-sha2`"
-    );
-    #[cfg(all(feature = "sha512-hmac-sha512", not(feature = "sha512-sha2")))]
-    {
-        let mut compact_sha = hmac_sha512::Hash::new();
-        for part in parts {
-            compact_sha.update(part);
-        }
-        zeroize::Zeroizing::new(compact_sha.finalize())
-    }
-    #[cfg(all(feature = "sha512-sha2", not(feature = "sha512-hmac-sha512")))]
-    {
-        use sha2::Digest;
-        let mut compact_sha = sha2::Sha512::new();
-        for part in parts {
-            compact_sha.update(part);
-        }
-        zeroize::Zeroizing::new(compact_sha.finalize().into())
-    }
 }
 
 #[cfg(all(test, feature = "fixed-bigint"))]
