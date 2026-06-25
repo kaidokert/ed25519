@@ -47,6 +47,8 @@ pub(crate) mod curve25519_field;
 pub(crate) mod jsf;
 #[cfg(any(feature = "sha512-hmac-sha512", feature = "sha512-sha2"))]
 pub(crate) mod strict;
+#[cfg(any(feature = "sha512-hmac-sha512", feature = "sha512-sha2"))]
+pub(crate) mod strict_sign;
 pub(crate) mod x25519;
 
 pub use curve25519_field::{Curve25519Field, Curve25519FieldCt};
