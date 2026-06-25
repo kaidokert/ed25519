@@ -58,7 +58,8 @@ where
         + subtle::ConditionallySelectable
         + subtle::ConstantTimeLess
         + core::ops::Sub<Output = T>
-        + core::ops::ShrAssign<usize>,
+        + core::ops::ShrAssign<usize>
+        + zeroize::DefaultIsZeroes,
     for<'a> &'a T: core::ops::Add<&'a T, Output = T> + core::ops::Sub<&'a T, Output = T>,
 {
     /// Derive a signing key from a 32-byte seed (RFC 8032 §5.1.5).
@@ -115,7 +116,8 @@ where
         + subtle::ConditionallySelectable
         + subtle::ConstantTimeLess
         + core::ops::Sub<Output = T>
-        + core::ops::ShrAssign<usize>,
+        + core::ops::ShrAssign<usize>
+        + zeroize::DefaultIsZeroes,
     for<'a> &'a T: core::ops::Add<&'a T, Output = T> + core::ops::Sub<&'a T, Output = T>,
 {
     let p_field = Curve25519FieldCt::<T>::curve25519()?;
@@ -145,22 +147,26 @@ where
         + subtle::ConditionallySelectable
         + subtle::ConstantTimeLess
         + core::ops::Sub<Output = T>
-        + core::ops::ShrAssign<usize>,
+        + core::ops::ShrAssign<usize>
+        + zeroize::DefaultIsZeroes,
     for<'a> &'a T: core::ops::Add<&'a T, Output = T> + core::ops::Sub<&'a T, Output = T>,
 {
     let q = T::from_bytes_le(&Q_BYTES);
 
     // r = SHA-512(prefix || M) mod q. Secret-derived (prefix is part
-    // of the expanded key); CT reduction required.
-    let r = zeroize::Zeroizing::new(sha512_modq_ct::<T>(&[&*sk.prefix, msg], &q));
+    // of the expanded key); CT reduction required. `sha512_modq_ct`
+    // returns `Zeroizing<T>` so r is wiped on drop.
+    let r = sha512_modq_ct::<T>(&[&*sk.prefix, msg], &q);
 
-    // R = r · G, compressed. Public after this point.
+    // R = r · G, compressed. Public after this point — but the
+    // little-endian serialization of r passed to the ladder is still
+    // the secret nonce, so the scratch buffer must be zeroized.
     let g = base_point_ct(p_field);
     let mut r_bytes = zeroize::Zeroizing::new([0u8; 64]);
     let r_bytes_slice = r.to_bytes_le(&mut *r_bytes);
-    let mut r_le = [0u8; 32];
+    let mut r_le = zeroize::Zeroizing::new([0u8; 32]);
     r_le.copy_from_slice(&r_bytes_slice[..32]);
-    let r_point = scalar_mult_ct(p_field, &g, &r_le, 256);
+    let r_point = scalar_mult_ct(p_field, &g, &*r_le, 256);
     let r_encoded = point_compress_ct(&r_point, p_field);
 
     // k = SHA-512(R || A || M) mod q. Inputs are all public, but
@@ -172,7 +178,7 @@ where
     // FieldCt over q.
     let a_t = zeroize::Zeroizing::new(T::from_bytes_le(&*sk.a_bytes));
     let r_res = q_field.reduce(&*r);
-    let k_res = q_field.reduce(&k);
+    let k_res = q_field.reduce(&*k);
     let a_res = q_field.reduce(&*a_t);
     let ka = q_field.mul(&k_res, &a_res);
     let s_res = q_field.add(&r_res, &ka);

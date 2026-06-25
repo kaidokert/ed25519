@@ -285,11 +285,16 @@ where
 ///
 /// Same bit-by-bit Horner as `strict::sha512_modq`, but every branch
 /// becomes a `subtle::ConditionallySelectable` choice on `T`.
+// Returns `Zeroizing<T>` so the intermediate accumulator — which transits
+// the secret nonce `r` when called over `prefix || M` — is wiped on drop,
+// closing the nonce-leak surface that would otherwise let an attacker
+// solve `a = (s - r) · k⁻¹ mod q` from a memory disclosure.
 #[inline(never)]
-pub(crate) fn sha512_modq_ct<T>(parts: &[&[u8]], q: &T) -> T
+pub(crate) fn sha512_modq_ct<T>(parts: &[&[u8]], q: &T) -> zeroize::Zeroizing<T>
 where
     T: UnsignedModularInt
         + Copy
+        + zeroize::DefaultIsZeroes
         + num_traits::ops::overflowing::OverflowingAdd
         + num_traits::WrappingSub
         + subtle::ConditionallySelectable
@@ -324,26 +329,26 @@ where
 
     let zero = T::zero();
     let one = T::one();
-    let mut acc = T::zero();
+    let mut acc = zeroize::Zeroizing::new(T::zero());
 
     for byte_idx in (0..64).rev() {
         for bit_idx in (0..8).rev() {
             // acc *= 2
-            let (doubled, _overflow) = acc.overflowing_add(&acc);
-            acc = doubled;
+            let (doubled, _overflow) = acc.overflowing_add(&*acc);
+            *acc = doubled;
 
             // acc += bit (branchlessly)
             let bit_val = (hash[byte_idx] >> bit_idx) & 1;
             let bit_t = T::conditional_select(&zero, &one, Choice::from(bit_val));
             let (with_bit, _) = acc.overflowing_add(&bit_t);
-            acc = with_bit;
+            *acc = with_bit;
 
             // CT reduce: acc < 2q + 1 after the increment, so at most
             // two conditional subtractions reach the canonical range.
             for _ in 0..2 {
                 let candidate = acc.wrapping_sub(q);
                 let needs_sub = !acc.ct_lt(q);
-                acc = T::conditional_select(&acc, &candidate, needs_sub);
+                *acc = T::conditional_select(&*acc, &candidate, needs_sub);
             }
         }
     }

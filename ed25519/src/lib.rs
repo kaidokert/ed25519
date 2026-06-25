@@ -287,7 +287,8 @@ where
         + subtle::ConditionallySelectable
         + subtle::ConstantTimeLess
         + core::ops::Sub<Output = T>
-        + core::ops::ShrAssign<usize>,
+        + core::ops::ShrAssign<usize>
+        + zeroize::DefaultIsZeroes,
     for<'a> &'a T: core::ops::Add<&'a T, Output = T> + core::ops::Sub<&'a T, Output = T>,
 {
     fn try_sign(&self, msg: &[u8]) -> Result<[u8; 64], signature::Error> {
