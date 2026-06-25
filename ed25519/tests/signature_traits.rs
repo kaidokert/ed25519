@@ -4,10 +4,14 @@
 
 #![cfg(feature = "fixed-bigint")]
 
-use ed25519_heapless::VerifyingKey;
-use signature::Verifier;
+use ed25519_heapless::{SigningKey, VerifyingKey};
+use signature::{Signer, Verifier};
 
 type T = fixed_bigint::FixedUInt<u32, 16>;
+// Sign requires the constant-time backend mode; verify is happy with
+// either. Keep both aliases so each test exercises the realistic
+// configuration for its operation.
+type Tct = fixed_bigint::FixedUInt<u32, 16, fixed_bigint::Ct>;
 
 struct SigWrapper(Vec<u8>);
 
@@ -55,4 +59,34 @@ fn verifier_rejects_signature_with_invalid_length() {
     let signature = SigWrapper(vec![0u8; 63]);
 
     assert!(verifying_key.verify(b"", &signature).is_err());
+}
+
+#[test]
+fn signer_matches_rfc8032_test1() {
+    let seed = hex_to_array_32("9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60");
+    let sk = SigningKey::<Tct>::from_seed(&seed).expect("from_seed");
+
+    let sig: [u8; 64] = sk.try_sign(b"").expect("try_sign");
+    let expected = rfc_test1_signature();
+    assert_eq!(&sig[..], &expected[..]);
+}
+
+#[test]
+fn signer_verifier_roundtrip() {
+    // Distinct from the RFC fixed-vector tests: exercises the trait
+    // surface end-to-end across several message shapes, including the
+    // multi-block SHA-512 boundary.
+    let seed = hex_to_array_32("4ccd089b28ff96da9db6c346ec114e0f5b8a319f35aba624da8cf6ed4fb8a6fb");
+    let sk = SigningKey::<Tct>::from_seed(&seed).expect("from_seed");
+    let vk = VerifyingKey::<T>::from_bytes(sk.public_key());
+
+    for msg in [
+        b"".as_slice(),
+        b"a".as_slice(),
+        &[0xff; 32][..],
+        &[0x55; 129][..],
+    ] {
+        let sig: [u8; 64] = sk.try_sign(msg).expect("try_sign");
+        vk.verify(msg, &sig).expect("verify");
+    }
 }

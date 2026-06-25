@@ -46,7 +46,16 @@ pub(crate) mod curve25519_field;
 #[cfg(any(feature = "sha512-hmac-sha512", feature = "sha512-sha2"))]
 pub(crate) mod jsf;
 #[cfg(any(feature = "sha512-hmac-sha512", feature = "sha512-sha2"))]
+pub(crate) mod scalar_field;
+#[cfg(any(feature = "sha512-hmac-sha512", feature = "sha512-sha2"))]
+pub(crate) mod signing_key;
+#[cfg(any(feature = "sha512-hmac-sha512", feature = "sha512-sha2"))]
 pub(crate) mod strict;
+#[cfg(any(feature = "sha512-hmac-sha512", feature = "sha512-sha2"))]
+pub(crate) mod strict_sign;
+
+#[cfg(any(feature = "sha512-hmac-sha512", feature = "sha512-sha2"))]
+pub use signing_key::{SignError, SigningKey, sign, sign_with_fields};
 pub(crate) mod x25519;
 
 pub use curve25519_field::{Curve25519Field, Curve25519FieldCt};
@@ -120,6 +129,49 @@ impl<P: fixed_bigint::Personality> UnsignedModularInt for fixed_bigint::FixedUIn
     fn to_bytes_le<'a>(&self, out: &'a mut [u8]) -> &'a [u8] {
         self.to_le_bytes(out).unwrap()
     }
+}
+
+/// Aggregate bound bundle for the constant-time sign path: CT field
+/// arithmetic on Curve25519, byte (de)serialization, branchless
+/// selection, and `Zeroize` for secret-intermediate wiping.
+///
+/// `SigningKey<T>`, `sign`, `sign_with_fields`, and every CT point /
+/// scalar primitive in `strict_sign` would otherwise repeat the same
+/// 13-trait `where` clause. Auto-implemented for any backend that
+/// satisfies the listed bounds, so consumers don't write an explicit
+/// impl. The `for<'a> &'a T: …` HRTB stays at the call site because
+/// supertrait-elaboration of HRTBs is not yet reliable enough to
+/// propagate it automatically.
+#[cfg(any(feature = "sha512-hmac-sha512", feature = "sha512-sha2"))]
+pub trait SignBackend:
+    UnsignedModularInt
+    + Copy
+    + modmath::WideMul
+    + modmath::CiosMontMulCt
+    + num_traits::WrappingMul
+    + num_traits::WrappingAdd
+    + num_traits::WrappingSub
+    + subtle::ConditionallySelectable
+    + subtle::ConstantTimeLess
+    + core::ops::Sub<Output = Self>
+    + zeroize::DefaultIsZeroes
+{
+}
+
+#[cfg(any(feature = "sha512-hmac-sha512", feature = "sha512-sha2"))]
+impl<T> SignBackend for T where
+    T: UnsignedModularInt
+        + Copy
+        + modmath::WideMul
+        + modmath::CiosMontMulCt
+        + num_traits::WrappingMul
+        + num_traits::WrappingAdd
+        + num_traits::WrappingSub
+        + subtle::ConditionallySelectable
+        + subtle::ConstantTimeLess
+        + core::ops::Sub<Output = T>
+        + zeroize::DefaultIsZeroes
+{
 }
 
 // ED25519 constants
@@ -259,5 +311,16 @@ where
         } else {
             Err(signature::Error::new())
         }
+    }
+}
+
+#[cfg(any(feature = "sha512-hmac-sha512", feature = "sha512-sha2"))]
+impl<T> signature::Signer<[u8; 64]> for SigningKey<T>
+where
+    T: SignBackend,
+    for<'a> &'a T: core::ops::Add<&'a T, Output = T> + core::ops::Sub<&'a T, Output = T>,
+{
+    fn try_sign(&self, msg: &[u8]) -> Result<[u8; 64], signature::Error> {
+        sign::<T>(self, msg).map_err(|_| signature::Error::new())
     }
 }
