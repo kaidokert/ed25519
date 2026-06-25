@@ -146,10 +146,8 @@ impl<P: fixed_bigint::Personality> UnsignedModularInt for fixed_bigint::FixedUIn
 pub trait SignBackend:
     UnsignedModularInt
     + Copy
-    + PartialEq
     + modmath::WideMul
     + modmath::CiosMontMulCt
-    + modmath::Parity
     + num_traits::WrappingMul
     + num_traits::WrappingAdd
     + num_traits::WrappingSub
@@ -164,10 +162,8 @@ pub trait SignBackend:
 impl<T> SignBackend for T where
     T: UnsignedModularInt
         + Copy
-        + PartialEq
         + modmath::WideMul
         + modmath::CiosMontMulCt
-        + modmath::Parity
         + num_traits::WrappingMul
         + num_traits::WrappingAdd
         + num_traits::WrappingSub
