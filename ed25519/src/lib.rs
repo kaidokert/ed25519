@@ -46,9 +46,16 @@ pub(crate) mod curve25519_field;
 #[cfg(any(feature = "sha512-hmac-sha512", feature = "sha512-sha2"))]
 pub(crate) mod jsf;
 #[cfg(any(feature = "sha512-hmac-sha512", feature = "sha512-sha2"))]
+pub(crate) mod scalar_field;
+#[cfg(any(feature = "sha512-hmac-sha512", feature = "sha512-sha2"))]
+pub(crate) mod signing_key;
+#[cfg(any(feature = "sha512-hmac-sha512", feature = "sha512-sha2"))]
 pub(crate) mod strict;
 #[cfg(any(feature = "sha512-hmac-sha512", feature = "sha512-sha2"))]
 pub(crate) mod strict_sign;
+
+#[cfg(any(feature = "sha512-hmac-sha512", feature = "sha512-sha2"))]
+pub use signing_key::{SignError, SigningKey, sign, sign_with_fields};
 pub(crate) mod x25519;
 
 pub use curve25519_field::{Curve25519Field, Curve25519FieldCt};
@@ -261,5 +268,29 @@ where
         } else {
             Err(signature::Error::new())
         }
+    }
+}
+
+#[cfg(any(feature = "sha512-hmac-sha512", feature = "sha512-sha2"))]
+impl<T> signature::Signer<[u8; 64]> for SigningKey<T>
+where
+    T: UnsignedModularInt
+        + Copy
+        + PartialEq
+        + modmath::WideMul
+        + modmath::CiosMontMulCt
+        + modmath::Parity
+        + num_traits::ops::overflowing::OverflowingAdd
+        + num_traits::WrappingMul
+        + num_traits::WrappingAdd
+        + num_traits::WrappingSub
+        + subtle::ConditionallySelectable
+        + subtle::ConstantTimeLess
+        + core::ops::Sub<Output = T>
+        + core::ops::ShrAssign<usize>,
+    for<'a> &'a T: core::ops::Add<&'a T, Output = T> + core::ops::Sub<&'a T, Output = T>,
+{
+    fn try_sign(&self, msg: &[u8]) -> Result<[u8; 64], signature::Error> {
+        sign::<T>(self, msg).map_err(|_| signature::Error::new())
     }
 }

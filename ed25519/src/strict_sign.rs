@@ -7,12 +7,6 @@
 //! single-scalar multiplication on the Edwards curve, so the point
 //! arithmetic and the ladder live here in `ResidueCt` form.
 
-// Phase 1 of sign-pr-a lands the CT point ops and scalar mult with
-// only in-module unit tests as consumers. The public `sign()` /
-// `SigningKey` API consumes these in phase 2; until then suppress the
-// dead-code lint at the module level.
-#![allow(dead_code)]
-
 use crate::curve25519_field::Curve25519FieldCt;
 use crate::{D_BYTES, UnsignedModularInt};
 use modmath::ResidueCt;
@@ -223,25 +217,176 @@ where
 }
 
 // =========================================================================
+// Point compression
+// =========================================================================
+
+/// Encode an extended-twisted projective Edwards point as 32 bytes
+/// per RFC 8032 §5.1.2. Computes affine `(x, y)` via one inversion,
+/// emits `y` little-endian with the high bit of byte 31 set to the
+/// parity of `x`.
+pub(crate) fn point_compress_ct<'f, T>(
+    pp: &EdPointCt<'f, T>,
+    field: &'f Curve25519FieldCt<T>,
+) -> [u8; 32]
+where
+    T: UnsignedModularInt
+        + Copy
+        + PartialEq
+        + modmath::WideMul
+        + modmath::CiosMontMulCt
+        + modmath::Parity
+        + num_traits::ops::overflowing::OverflowingAdd
+        + num_traits::WrappingMul
+        + num_traits::WrappingAdd
+        + num_traits::WrappingSub
+        + subtle::ConditionallySelectable
+        + subtle::ConstantTimeLess
+        + core::ops::Sub<Output = T>
+        + core::ops::ShrAssign<usize>,
+    for<'a> &'a T: core::ops::Add<&'a T, Output = T> + core::ops::Sub<&'a T, Output = T>,
+{
+    const {
+        // x25519.rs caps T at 64 bytes; the same bound applies here so
+        // the scratch buffer below can be a stack array.
+        assert!(core::mem::size_of::<T>() <= 64);
+    }
+
+    let z_inv = field.inv(&pp.2);
+    let x = field.mul(&pp.0, &z_inv);
+    let y = field.mul(&pp.1, &z_inv);
+
+    let x_raw = field.into_raw(&x);
+    let y_raw = field.into_raw(&y);
+
+    let parity = (x_raw & T::one()) == T::one();
+
+    // T may be wider than 32 bytes (e.g. FixedUInt<u32, 16> is 64
+    // bytes); to_bytes_le needs a buffer matching T's width. y < p <
+    // 2^255 fits in the low 32 bytes, the rest is zero.
+    let mut scratch = zeroize::Zeroizing::new([0u8; 64]);
+    let bytes = y_raw.to_bytes_le(&mut *scratch);
+    let mut out = [0u8; 32];
+    out.copy_from_slice(&bytes[..32]);
+    // RFC 8032 §5.1.2: y is 255 bits; the high bit of byte 31 carries
+    // the parity of x. y < p < 2^255 so bit 7 of byte 31 is zero before
+    // we OR in the parity.
+    out[31] |= (parity as u8) << 7;
+    out
+}
+
+// =========================================================================
+// CT scalar reduction mod q
+// =========================================================================
+
+/// `SHA-512(parts...) mod q`, constant-time over the hash bytes. Sign
+/// derives its per-signature nonce `r = SHA-512(prefix || M) mod q`
+/// where the input is secret-dependent (`prefix` is part of the
+/// expanded long-term key), so the modular reduction has to be CT.
+///
+/// Same bit-by-bit Horner as `strict::sha512_modq`, but every branch
+/// becomes a `subtle::ConditionallySelectable` choice on `T`.
+#[inline(never)]
+pub(crate) fn sha512_modq_ct<T>(parts: &[&[u8]], q: &T) -> T
+where
+    T: UnsignedModularInt
+        + Copy
+        + num_traits::ops::overflowing::OverflowingAdd
+        + num_traits::WrappingSub
+        + subtle::ConditionallySelectable
+        + subtle::ConstantTimeLess,
+    for<'a> &'a T: core::ops::Add<&'a T, Output = T> + core::ops::Sub<&'a T, Output = T>,
+{
+    #[cfg(all(feature = "sha512-hmac-sha512", feature = "sha512-sha2"))]
+    compile_error!(
+        "ed25519_heapless: enable at most one SHA-512 backend feature — both `sha512-hmac-sha512` and `sha512-sha2` were enabled"
+    );
+    #[cfg(not(any(feature = "sha512-hmac-sha512", feature = "sha512-sha2")))]
+    compile_error!(
+        "ed25519_heapless: enable exactly one of the SHA-512 backend features `sha512-hmac-sha512` or `sha512-sha2`"
+    );
+    #[cfg(all(feature = "sha512-hmac-sha512", not(feature = "sha512-sha2")))]
+    let hash: zeroize::Zeroizing<[u8; 64]> = {
+        let mut compact_sha = hmac_sha512::Hash::new();
+        for part in parts {
+            compact_sha.update(part);
+        }
+        zeroize::Zeroizing::new(compact_sha.finalize())
+    };
+    #[cfg(all(feature = "sha512-sha2", not(feature = "sha512-hmac-sha512")))]
+    let hash: zeroize::Zeroizing<[u8; 64]> = {
+        use sha2::Digest;
+        let mut compact_sha = sha2::Sha512::new();
+        for part in parts {
+            compact_sha.update(part);
+        }
+        zeroize::Zeroizing::new(compact_sha.finalize().into())
+    };
+
+    let zero = T::zero();
+    let one = T::one();
+    let mut acc = T::zero();
+
+    for byte_idx in (0..64).rev() {
+        for bit_idx in (0..8).rev() {
+            // acc *= 2
+            let (doubled, _overflow) = acc.overflowing_add(&acc);
+            acc = doubled;
+
+            // acc += bit (branchlessly)
+            let bit_val = (hash[byte_idx] >> bit_idx) & 1;
+            let bit_t = T::conditional_select(&zero, &one, Choice::from(bit_val));
+            let (with_bit, _) = acc.overflowing_add(&bit_t);
+            acc = with_bit;
+
+            // CT reduce: acc < 2q + 1 after the increment, so at most
+            // two conditional subtractions reach the canonical range.
+            for _ in 0..2 {
+                let candidate = acc.wrapping_sub(q);
+                let needs_sub = !acc.ct_lt(q);
+                acc = T::conditional_select(&acc, &candidate, needs_sub);
+            }
+        }
+    }
+    acc
+}
+
+// =========================================================================
 // Tests
 // =========================================================================
+
+/// The Ed25519 base point `G` in extended-twisted projective form
+/// over a CT field instance. Constants from `G_X_BYTES` / `G_Y_BYTES`
+/// / `G_T_BYTES`, projective `Z = 1`.
+pub(crate) fn base_point_ct<'f, T>(field: &'f Curve25519FieldCt<T>) -> EdPointCt<'f, T>
+where
+    T: UnsignedModularInt
+        + Copy
+        + PartialEq
+        + modmath::WideMul
+        + modmath::CiosMontMulCt
+        + modmath::Parity
+        + num_traits::ops::overflowing::OverflowingAdd
+        + num_traits::WrappingMul
+        + num_traits::WrappingAdd
+        + num_traits::WrappingSub
+        + subtle::ConditionallySelectable
+        + subtle::ConstantTimeLess,
+    for<'a> &'a T: core::ops::Add<&'a T, Output = T> + core::ops::Sub<&'a T, Output = T>,
+{
+    let gx = field.reduce(&T::from_bytes_le(&crate::G_X_BYTES));
+    let gy = field.reduce(&T::from_bytes_le(&crate::G_Y_BYTES));
+    let one = field.one();
+    let gt = field.reduce(&T::from_bytes_le(&crate::G_T_BYTES));
+    (gx, gy, one, gt)
+}
 
 #[cfg(all(test, feature = "fixed-bigint"))]
 mod tests {
     use super::*;
     use crate::curve25519_field::Curve25519FieldCt;
-    use crate::{G_T_BYTES, G_X_BYTES, G_Y_BYTES};
     use fixed_bigint::FixedUInt;
 
     type T = FixedUInt<u32, 16, fixed_bigint::Ct>;
-
-    fn base_point_ct<'f>(field: &'f Curve25519FieldCt<T>) -> EdPointCt<'f, T> {
-        let gx = field.reduce(&T::from_bytes_le(&G_X_BYTES));
-        let gy = field.reduce(&T::from_bytes_le(&G_Y_BYTES));
-        let one = field.one();
-        let gt = field.reduce(&T::from_bytes_le(&G_T_BYTES));
-        (gx, gy, one, gt)
-    }
 
     /// Two projective points are geometrically equal iff
     /// `X1·Z2 == X2·Z1` and `Y1·Z2 == Y2·Z1`. Comparing the projective
