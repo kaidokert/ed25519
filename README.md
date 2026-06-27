@@ -1,5 +1,7 @@
 ### ed25519 heapless fork
 
+[![crate](https://img.shields.io/crates/v/ed25519_heapless.svg)](https://crates.io/crates/ed25519_heapless)
+[![documentation](https://docs.rs/ed25519_heapless/badge.svg)](https://docs.rs/ed25519_heapless/)
 [![Rust](https://github.com/kaidokert/ed25519/actions/workflows/rust.yml/badge.svg)](https://github.com/kaidokert/ed25519/actions/workflows/rust.yml)
 [![AVR](https://github.com/kaidokert/ed25519/actions/workflows/avr.yml/badge.svg)](https://github.com/kaidokert/ed25519/actions/workflows/avr.yml)
 [![Cortex-M](https://github.com/kaidokert/ed25519/actions/workflows/cortex_m.yml/badge.svg)](https://github.com/kaidokert/ed25519/actions/workflows/cortex_m.yml)
