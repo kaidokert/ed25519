@@ -21,8 +21,9 @@
     any(feature = "sha512-hmac-sha512", feature = "sha512-sha2")
 ))]
 
+use const_num_traits::Nct;
 use ed25519_heapless::verify;
-use fixed_bigint::{FixedUInt, Nct};
+use fixed_bigint::FixedUInt;
 use wycheproof::TestResult;
 
 type T = FixedUInt<u32, 16, Nct>;

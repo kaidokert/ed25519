@@ -92,8 +92,8 @@ impl NafIterator {
     /// Returns iterator that processes from MSB to LSB.
     pub fn new<T>(s: T, h: T) -> Self
     where
-        T: num_traits::Zero
-            + num_traits::One
+        T: const_num_traits::Zero
+            + const_num_traits::One
             + Copy
             + PartialOrd
             + PartialEq

@@ -6,9 +6,9 @@
 //! lifetime brand on `ResidueCt<'f, T>` prevents q-field residues from
 //! flowing into a p-field operation — no separate type wrapper needed.
 //!
-//! `q` is odd and non-zero by construction; `modmath::FieldCt::new`
-//! still returns `Option` because it can't know which modulus we're
-//! passing. Discharge once at field construction.
+//! `q` is odd and non-zero by construction; the `Odd<T>` typestate cut
+//! discharges that proof once at the boundary so the `FieldCt`
+//! constructor itself is infallible.
 
 use crate::curve25519_field::CurveSetupError;
 use crate::{Q_BYTES, UnsignedModularInt};
@@ -19,10 +19,10 @@ where
     T: UnsignedModularInt
         + Copy
         + PartialEq
-        + num_traits::ops::overflowing::OverflowingAdd
-        + num_traits::WrappingMul
-        + num_traits::WrappingAdd
-        + num_traits::WrappingSub
+        + const_num_traits::ops::overflowing::OverflowingAdd
+        + const_num_traits::WrappingMul
+        + const_num_traits::WrappingAdd
+        + const_num_traits::WrappingSub
         + Parity
         + WideMul
         + CiosMontMulCt
@@ -34,5 +34,6 @@ where
         return Err(CurveSetupError::BackendTooNarrow);
     }
     let q = T::from_bytes_le(&Q_BYTES);
-    FieldCt::new(q).ok_or(CurveSetupError::InvalidModulus)
+    let q_odd = modmath::Odd::new(q).ok_or(CurveSetupError::InvalidModulus)?;
+    Ok(FieldCt::new_odd(q_odd))
 }

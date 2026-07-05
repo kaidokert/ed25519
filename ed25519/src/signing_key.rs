@@ -159,7 +159,7 @@ mod tests {
     use super::*;
     use fixed_bigint::FixedUInt;
 
-    type T = FixedUInt<u32, 16, fixed_bigint::Ct>;
+    type T = FixedUInt<u32, 16, const_num_traits::Ct>;
 
     /// RFC 8032 §7.1 test vector 1.
     #[test]

@@ -120,10 +120,10 @@ where
         + modmath::WideMul
         + modmath::CiosMontMulCt
         + modmath::Parity
-        + num_traits::ops::overflowing::OverflowingAdd
-        + num_traits::WrappingMul
-        + num_traits::WrappingAdd
-        + num_traits::WrappingSub
+        + const_num_traits::ops::overflowing::OverflowingAdd
+        + const_num_traits::WrappingMul
+        + const_num_traits::WrappingAdd
+        + const_num_traits::WrappingSub
         + subtle::ConditionallySelectable
         + subtle::ConstantTimeLess
         + core::ops::Sub<Output = T>,
@@ -162,10 +162,10 @@ where
         + modmath::WideMul
         + modmath::CiosMontMulCt
         + modmath::Parity
-        + num_traits::ops::overflowing::OverflowingAdd
-        + num_traits::WrappingMul
-        + num_traits::WrappingAdd
-        + num_traits::WrappingSub
+        + const_num_traits::ops::overflowing::OverflowingAdd
+        + const_num_traits::WrappingMul
+        + const_num_traits::WrappingAdd
+        + const_num_traits::WrappingSub
         + subtle::ConditionallySelectable
         + subtle::ConstantTimeLess
         + core::ops::Sub<Output = T>,
@@ -185,8 +185,10 @@ where
         );
     }
 
-    let p = T::from_bytes_le(&P_BYTES);
-    let field = Curve25519FieldCt::new(p).unwrap();
+    // The entry-point const-block guards the width case; the Odd
+    // proof inside the factory is statically true for the Curve25519
+    // prime — both Err arms are unreachable here.
+    let field = Curve25519FieldCt::curve25519().expect("Curve25519 backend is well-formed");
 
     // RFC 7748 §5: clamp scalar, mask high bit of u-coordinate.
     let k = zeroize::Zeroizing::new(clamp(*k));
@@ -263,10 +265,10 @@ where
         + modmath::WideMul
         + modmath::CiosMontMulCt
         + modmath::Parity
-        + num_traits::ops::overflowing::OverflowingAdd
-        + num_traits::WrappingMul
-        + num_traits::WrappingAdd
-        + num_traits::WrappingSub
+        + const_num_traits::ops::overflowing::OverflowingAdd
+        + const_num_traits::WrappingMul
+        + const_num_traits::WrappingAdd
+        + const_num_traits::WrappingSub
         + subtle::ConditionallySelectable
         + subtle::ConstantTimeLess
         + core::ops::Sub<Output = T>,
@@ -284,8 +286,10 @@ where
         );
     }
 
-    let p = T::from_bytes_le(&P_BYTES);
-    let field = Curve25519FieldCt::new(p).unwrap();
+    // The entry-point const-block guards the width case; the Odd
+    // proof inside the factory is statically true for the Curve25519
+    // prime — both Err arms are unreachable here.
+    let field = Curve25519FieldCt::curve25519().expect("Curve25519 backend is well-formed");
 
     let k_clamped = zeroize::Zeroizing::new(clamp(*k));
     let r = rng.next_u32();
@@ -347,10 +351,10 @@ where
         + modmath::WideMul
         + modmath::CiosMontMulCt
         + modmath::Parity
-        + num_traits::ops::overflowing::OverflowingAdd
-        + num_traits::WrappingMul
-        + num_traits::WrappingAdd
-        + num_traits::WrappingSub
+        + const_num_traits::ops::overflowing::OverflowingAdd
+        + const_num_traits::WrappingMul
+        + const_num_traits::WrappingAdd
+        + const_num_traits::WrappingSub
         + subtle::ConditionallySelectable
         + subtle::ConstantTimeLess
         + core::ops::Sub<Output = T>,
@@ -384,10 +388,10 @@ where
         + modmath::WideMul
         + modmath::CiosMontMulCt
         + modmath::Parity
-        + num_traits::ops::overflowing::OverflowingAdd
-        + num_traits::WrappingMul
-        + num_traits::WrappingAdd
-        + num_traits::WrappingSub
+        + const_num_traits::ops::overflowing::OverflowingAdd
+        + const_num_traits::WrappingMul
+        + const_num_traits::WrappingAdd
+        + const_num_traits::WrappingSub
         + subtle::ConditionallySelectable
         + subtle::ConstantTimeLess
         + core::ops::Sub<Output = T>,

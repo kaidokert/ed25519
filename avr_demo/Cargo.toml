@@ -13,7 +13,8 @@ baseline = []
 
 [dependencies]
 ed25519_heapless = { path = "../ed25519", default-features = false, features = ["fixed-bigint", "fixed-bigint-u8", "sha512-hmac-sha512"] }
-fixed-bigint = { version = "0.3", features = ["use-unsafe"] }
+fixed-bigint = { version = "0.4", default-features = false, features = ["use-unsafe", "cios"] }
+const-num-traits = { version = "0.1", default-features = false }
 ufmt = { version = "0.2" }
 
 [dependencies.arduino-hal]

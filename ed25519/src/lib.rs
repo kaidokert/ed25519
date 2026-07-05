@@ -71,14 +71,17 @@ pub trait UnsignedModularInt:
     Sized
     + Clone
     + core::cmp::PartialOrd
-    + num_traits::One
-    + num_traits::Zero
-    + num_traits::ops::overflowing::OverflowingAdd
+    + const_num_traits::One
+    + const_num_traits::Zero
+    + const_num_traits::ops::overflowing::OverflowingAdd
     + core::ops::Shr<usize, Output = Self>
     + core::ops::Add<Output = Self>
+    + core::ops::Sub<Output = Self>
+    + core::ops::Mul<Output = Self>
     + core::ops::BitAnd<Output = Self>
     + core::ops::ShrAssign<usize>
     + modmath::MontStorage
+    + modmath::Parity
 {
     /// Deserialize from little-endian bytes. Reads up to the type's width from `bytes`.
     fn from_bytes_le(bytes: &[u8]) -> Self;
@@ -88,7 +91,7 @@ pub trait UnsignedModularInt:
 }
 
 #[cfg(feature = "fixed-bigint")]
-impl<P: fixed_bigint::Personality> UnsignedModularInt for fixed_bigint::FixedUInt<u32, 16, P> {
+impl<P: const_num_traits::Personality> UnsignedModularInt for fixed_bigint::FixedUInt<u32, 16, P> {
     fn from_bytes_le(bytes: &[u8]) -> Self {
         fixed_bigint::FixedUInt::from_le_bytes(bytes)
     }
@@ -99,7 +102,7 @@ impl<P: fixed_bigint::Personality> UnsignedModularInt for fixed_bigint::FixedUIn
 }
 
 #[cfg(feature = "fixed-bigint")]
-impl<P: fixed_bigint::Personality> UnsignedModularInt for fixed_bigint::FixedUInt<u64, 8, P> {
+impl<P: const_num_traits::Personality> UnsignedModularInt for fixed_bigint::FixedUInt<u64, 8, P> {
     fn from_bytes_le(bytes: &[u8]) -> Self {
         fixed_bigint::FixedUInt::from_le_bytes(bytes)
     }
@@ -110,7 +113,7 @@ impl<P: fixed_bigint::Personality> UnsignedModularInt for fixed_bigint::FixedUIn
 }
 
 #[cfg(feature = "fixed-bigint")]
-impl<P: fixed_bigint::Personality> UnsignedModularInt for fixed_bigint::FixedUInt<u64, 4, P> {
+impl<P: const_num_traits::Personality> UnsignedModularInt for fixed_bigint::FixedUInt<u64, 4, P> {
     fn from_bytes_le(bytes: &[u8]) -> Self {
         fixed_bigint::FixedUInt::from_le_bytes(bytes)
     }
@@ -121,7 +124,7 @@ impl<P: fixed_bigint::Personality> UnsignedModularInt for fixed_bigint::FixedUIn
 }
 
 #[cfg(feature = "fixed-bigint")]
-impl<P: fixed_bigint::Personality> UnsignedModularInt for fixed_bigint::FixedUInt<u8, 32, P> {
+impl<P: const_num_traits::Personality> UnsignedModularInt for fixed_bigint::FixedUInt<u8, 32, P> {
     fn from_bytes_le(bytes: &[u8]) -> Self {
         fixed_bigint::FixedUInt::from_le_bytes(bytes)
     }
@@ -148,12 +151,11 @@ pub trait SignBackend:
     + Copy
     + modmath::WideMul
     + modmath::CiosMontMulCt
-    + num_traits::WrappingMul
-    + num_traits::WrappingAdd
-    + num_traits::WrappingSub
+    + const_num_traits::WrappingMul
+    + const_num_traits::WrappingAdd
+    + const_num_traits::WrappingSub
     + subtle::ConditionallySelectable
     + subtle::ConstantTimeLess
-    + core::ops::Sub<Output = Self>
     + zeroize::DefaultIsZeroes
 {
 }
@@ -164,12 +166,11 @@ impl<T> SignBackend for T where
         + Copy
         + modmath::WideMul
         + modmath::CiosMontMulCt
-        + num_traits::WrappingMul
-        + num_traits::WrappingAdd
-        + num_traits::WrappingSub
+        + const_num_traits::WrappingMul
+        + const_num_traits::WrappingAdd
+        + const_num_traits::WrappingSub
         + subtle::ConditionallySelectable
         + subtle::ConstantTimeLess
-        + core::ops::Sub<Output = T>
         + zeroize::DefaultIsZeroes
 {
 }
@@ -295,10 +296,11 @@ where
         + Copy
         + modmath::WideMul
         + modmath::CiosMontMul
-        + num_traits::ops::overflowing::OverflowingAdd
-        + num_traits::WrappingMul
-        + num_traits::WrappingAdd
-        + num_traits::WrappingSub,
+        + modmath::NonCt
+        + const_num_traits::ops::overflowing::OverflowingAdd
+        + const_num_traits::WrappingMul
+        + const_num_traits::WrappingAdd
+        + const_num_traits::WrappingSub,
     for<'a> &'a T: core::ops::BitAnd<Output = T>
         + core::ops::Add<&'a T, Output = T>
         + core::ops::Sub<T, Output = T>

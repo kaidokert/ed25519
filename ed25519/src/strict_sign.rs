@@ -281,19 +281,21 @@ where
     for byte_idx in (0..64).rev() {
         for bit_idx in (0..8).rev() {
             // acc *= 2
-            let (doubled, _overflow) = acc.overflowing_add(&*acc);
+            // const-num-traits' OverflowingAdd / WrappingSub take operands
+            // by value; T: SignBackend → Copy lets us deref-then-copy.
+            let (doubled, _overflow) = (*acc).overflowing_add(*acc);
             *acc = doubled;
 
             // acc += bit (branchlessly)
             let bit_val = (hash[byte_idx] >> bit_idx) & 1;
             let bit_t = T::conditional_select(&zero, &one, Choice::from(bit_val));
-            let (with_bit, _) = acc.overflowing_add(&bit_t);
+            let (with_bit, _) = (*acc).overflowing_add(bit_t);
             *acc = with_bit;
 
             // CT reduce: acc < 2q + 1 after the increment, so at most
             // two conditional subtractions reach the canonical range.
             for _ in 0..2 {
-                let candidate = acc.wrapping_sub(q);
+                let candidate = (*acc).wrapping_sub(*q);
                 let needs_sub = !acc.ct_lt(q);
                 *acc = T::conditional_select(&*acc, &candidate, needs_sub);
             }
@@ -328,7 +330,7 @@ mod tests {
     use crate::curve25519_field::Curve25519FieldCt;
     use fixed_bigint::FixedUInt;
 
-    type T = FixedUInt<u32, 16, fixed_bigint::Ct>;
+    type T = FixedUInt<u32, 16, const_num_traits::Ct>;
 
     /// Two projective points are geometrically equal iff
     /// `X1·Z2 == X2·Z1` and `Y1·Z2 == Y2·Z1`. Comparing the projective
