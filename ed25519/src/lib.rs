@@ -91,40 +91,11 @@ pub trait UnsignedModularInt:
 }
 
 #[cfg(feature = "fixed-bigint")]
-impl<P: const_num_traits::Personality> UnsignedModularInt for fixed_bigint::FixedUInt<u32, 16, P> {
-    fn from_bytes_le(bytes: &[u8]) -> Self {
-        fixed_bigint::FixedUInt::from_le_bytes(bytes)
-    }
-
-    fn to_bytes_le<'a>(&self, out: &'a mut [u8]) -> &'a [u8] {
-        self.to_le_bytes(out).unwrap()
-    }
-}
-
-#[cfg(feature = "fixed-bigint")]
-impl<P: const_num_traits::Personality> UnsignedModularInt for fixed_bigint::FixedUInt<u64, 8, P> {
-    fn from_bytes_le(bytes: &[u8]) -> Self {
-        fixed_bigint::FixedUInt::from_le_bytes(bytes)
-    }
-
-    fn to_bytes_le<'a>(&self, out: &'a mut [u8]) -> &'a [u8] {
-        self.to_le_bytes(out).unwrap()
-    }
-}
-
-#[cfg(feature = "fixed-bigint")]
-impl<P: const_num_traits::Personality> UnsignedModularInt for fixed_bigint::FixedUInt<u64, 4, P> {
-    fn from_bytes_le(bytes: &[u8]) -> Self {
-        fixed_bigint::FixedUInt::from_le_bytes(bytes)
-    }
-
-    fn to_bytes_le<'a>(&self, out: &'a mut [u8]) -> &'a [u8] {
-        self.to_le_bytes(out).unwrap()
-    }
-}
-
-#[cfg(feature = "fixed-bigint")]
-impl<P: const_num_traits::Personality> UnsignedModularInt for fixed_bigint::FixedUInt<u8, 32, P> {
+impl<W, const N: usize, P> UnsignedModularInt for fixed_bigint::FixedUInt<W, N, P>
+where
+    W: fixed_bigint::MachineWord,
+    P: const_num_traits::Personality,
+{
     fn from_bytes_le(bytes: &[u8]) -> Self {
         fixed_bigint::FixedUInt::from_le_bytes(bytes)
     }
