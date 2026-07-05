@@ -83,11 +83,20 @@ pub trait UnsignedModularInt:
     + modmath::MontStorage
     + modmath::Parity
 {
-    /// Deserialize from little-endian bytes. Reads up to the type's width from `bytes`.
+    /// Deserialize from little-endian bytes. Zero-extends when
+    /// `bytes.len() < backend byte width` — the ed25519 crypto
+    /// constants are 32 bytes but the widest supported backend
+    /// (`FixedUInt<u32, 16>`) is 64 bytes, so a fixed-size signature
+    /// would refuse the constants at monomorphization. The slice
+    /// signature stays; the fixed-bigint impl calls the inherent
+    /// `from_le_bytes(&[u8])` which has never returned `Result`.
     fn from_bytes_le(bytes: &[u8]) -> Self;
-    /// Serialize to little-endian bytes. `out` must be at least as large as the type's
-    /// byte width, otherwise the implementation may panic.
-    fn to_bytes_le<'a>(&self, out: &'a mut [u8]) -> &'a [u8];
+    /// Serialize into a caller-provided fixed-size little-endian buffer
+    /// and return the written prefix. The `M >= backend byte width`
+    /// precondition is checked at monomorphization via fixed-bigint's
+    /// `to_le_bytes_fixed`, so under-sized callers fail at compile
+    /// time and the signature is infallible — no `Result`, no `.unwrap()`.
+    fn to_bytes_le<'a, const M: usize>(&self, out: &'a mut [u8; M]) -> &'a [u8];
 }
 
 #[cfg(feature = "fixed-bigint")]
@@ -100,8 +109,8 @@ where
         fixed_bigint::FixedUInt::from_le_bytes(bytes)
     }
 
-    fn to_bytes_le<'a>(&self, out: &'a mut [u8]) -> &'a [u8] {
-        self.to_le_bytes(out).unwrap()
+    fn to_bytes_le<'a, const M: usize>(&self, out: &'a mut [u8; M]) -> &'a [u8] {
+        self.to_le_bytes_fixed(out)
     }
 }
 

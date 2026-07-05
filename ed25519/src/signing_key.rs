@@ -123,7 +123,7 @@ where
     // the secret nonce, so the scratch buffer must be zeroized.
     let g = base_point_ct(p_field);
     let mut r_bytes = zeroize::Zeroizing::new([0u8; 64]);
-    let r_bytes_slice = r.to_bytes_le(&mut *r_bytes);
+    let r_bytes_slice = r.to_bytes_le(&mut r_bytes);
     let mut r_le = zeroize::Zeroizing::new([0u8; 32]);
     r_le.copy_from_slice(&r_bytes_slice[..32]);
     let r_point = scalar_mult_ct(p_field, &g, &*r_le);
@@ -146,7 +146,7 @@ where
 
     // Serialize s to 32 bytes (s < q < 2^253, fits with leading zeros).
     let mut s_scratch = zeroize::Zeroizing::new([0u8; 64]);
-    let s_bytes_slice = s.to_bytes_le(&mut *s_scratch);
+    let s_bytes_slice = s.to_bytes_le(&mut s_scratch);
 
     let mut sig = [0u8; 64];
     sig[..32].copy_from_slice(&r_encoded);

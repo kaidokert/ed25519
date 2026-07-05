@@ -230,7 +230,7 @@ where
     // MAX_T_BYTES guard above bounds the scratch size; copy out the low 32
     // bytes — the field element is < p < 2^255 so the high half is zero.
     let mut scratch = zeroize::Zeroizing::new([0u8; MAX_T_BYTES]);
-    let bytes = result.to_bytes_le(&mut *scratch);
+    let bytes = result.to_bytes_le(&mut scratch);
     let mut out = [0u8; 32];
     out.copy_from_slice(&bytes[..32]);
     out
@@ -334,7 +334,7 @@ where
     let result = zeroize::Zeroizing::new(field.into_raw(&result_res));
 
     let mut scratch = zeroize::Zeroizing::new([0u8; MAX_T_BYTES]);
-    let bytes = result.to_bytes_le(&mut *scratch);
+    let bytes = result.to_bytes_le(&mut scratch);
     let mut out = [0u8; 32];
     out.copy_from_slice(&bytes[..32]);
     out

@@ -241,7 +241,7 @@ where
     // bytes); to_bytes_le needs a buffer matching T's width. y < p <
     // 2^255 fits in the low 32 bytes, the rest is zero.
     let mut scratch = zeroize::Zeroizing::new([0u8; 64]);
-    let bytes = y_raw.to_bytes_le(&mut *scratch);
+    let bytes = y_raw.to_bytes_le(&mut scratch);
     let mut out = [0u8; 32];
     out.copy_from_slice(&bytes[..32]);
     // RFC 8032 §5.1.2: y is 255 bits; the high bit of byte 31 carries
