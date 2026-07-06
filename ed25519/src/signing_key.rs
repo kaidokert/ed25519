@@ -120,6 +120,21 @@ where
         + const_num_traits::ToBytes<Bytes = <T as const_num_traits::ToBytes>::Bytes>,
     <T as const_num_traits::ToBytes>::Bytes: zeroize::Zeroize,
 {
+    // Backend width is a static property of T; check at
+    // monomorphization. `sign_with_fields` is public and accepts
+    // pre-built fields — a caller could bypass the runtime width
+    // check in `Curve25519FieldCt::curve25519()` by constructing a
+    // narrow field via `Curve25519FieldCt::new`. The const-assert
+    // makes that bypass a compile error and keeps the loading of
+    // `Q_BYTES` below infallible-in-practice (any monomorphization
+    // that reaches this line has `T::BYTE_WIDTH >= 32`).
+    const {
+        assert!(
+            modmath::type_bit_width::<T>() >= 256,
+            "sign_with_fields: backend T is too narrow for the Curve25519 prime (need >= 256 bits)"
+        );
+    }
+
     let q = crate::from_le_bytes::<T>(&Q_BYTES);
 
     // r = SHA-512(prefix || M) mod q. Secret-derived (prefix is part
