@@ -107,7 +107,7 @@ where
         if modmath::type_bit_width::<T>() < 256 {
             return Err(CurveSetupError::BackendTooNarrow);
         }
-        let p = T::from_bytes_le(&P_BYTES);
+        let p = crate::from_le_bytes::<T>(&P_BYTES);
         let odd = modmath::Odd::new(p).ok_or(CurveSetupError::InvalidModulus)?;
         Ok(Self::new_odd(odd))
     }
@@ -226,7 +226,7 @@ where
         if modmath::type_bit_width::<T>() < 256 {
             return Err(CurveSetupError::BackendTooNarrow);
         }
-        let p = T::from_bytes_le(&P_BYTES);
+        let p = crate::from_le_bytes::<T>(&P_BYTES);
         let odd = modmath::Odd::new(p).ok_or(CurveSetupError::InvalidModulus)?;
         Ok(Self::new_odd(odd))
     }
@@ -332,12 +332,12 @@ mod tests {
     type T256Ct = FixedUInt<u8, 32, Ct>;
 
     fn curve_field() -> Curve25519Field<T256> {
-        let p = T256::from_bytes_le(&P_BYTES);
+        let p = crate::from_le_bytes::<T256>(&P_BYTES);
         Curve25519Field::new(p).unwrap()
     }
 
     fn curve_field_ct() -> Curve25519FieldCt<T256Ct> {
-        let p = T256Ct::from_bytes_le(&P_BYTES);
+        let p = crate::from_le_bytes::<T256Ct>(&P_BYTES);
         Curve25519FieldCt::new(p).unwrap()
     }
 

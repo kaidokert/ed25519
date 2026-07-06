@@ -3,3 +3,7 @@ resolver = "2"
 
 members = [ "ed25519" ]
 exclude = [ "avr_demo", "cortex_m_demo", "riscv_demo" ]
+
+[patch.crates-io]
+const-num-traits = { git = "https://github.com/kaidokert/num-traits", tag = "v0.1.2-alpha.0" }
+fixed-bigint = { git = "https://github.com/kaidokert/fixed-bigint-rs", tag = "v0.4.1-alpha.2" }
