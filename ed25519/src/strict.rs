@@ -66,8 +66,11 @@ where
     // Hash is little-endian: byte 63 is MSB
     for byte_idx in (0..64).rev() {
         for bit_idx in (0..8).rev() {
-            // acc = 2*acc + bit, then reduce
-            let (doubled, _overflow) = acc.clone().overflowing_add(acc.clone());
+            // acc = 2*acc + bit, then reduce. Since `acc` is reassigned
+            // on the next line, the original can be moved into `rhs` —
+            // only the `self` receiver needs to clone. Saves ~512
+            // big-integer clones per SHA-512(m) reduction.
+            let (doubled, _overflow) = acc.clone().overflowing_add(acc);
             acc = doubled;
             if (hash[byte_idx] >> bit_idx) & 1 == 1 {
                 let (added, _) = acc.overflowing_add(one.clone());
