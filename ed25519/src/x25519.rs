@@ -193,8 +193,14 @@ where
 
     // The entry-point const-block guards the width case; the Odd
     // proof inside the factory is statically true for the Curve25519
-    // prime — both Err arms are unreachable here.
-    let field = Curve25519FieldCt::curve25519().expect("Curve25519 backend is well-formed");
+    // prime — both Err arms are unreachable here. Fail-closed to
+    // an all-zero shared secret rather than pulling in a panic
+    // string (RFC 7748 §5 tells callers to reject all-zero output
+    // as a suspected attack, so the fallback signals cleanly).
+    let field = match Curve25519FieldCt::curve25519() {
+        Ok(f) => f,
+        Err(_) => return [0u8; 32],
+    };
 
     // RFC 7748 §5: clamp scalar, mask high bit of u-coordinate.
     let k = zeroize::Zeroizing::new(clamp(*k));
@@ -298,8 +304,14 @@ where
 
     // The entry-point const-block guards the width case; the Odd
     // proof inside the factory is statically true for the Curve25519
-    // prime — both Err arms are unreachable here.
-    let field = Curve25519FieldCt::curve25519().expect("Curve25519 backend is well-formed");
+    // prime — both Err arms are unreachable here. Fail-closed to
+    // an all-zero shared secret rather than pulling in a panic
+    // string (RFC 7748 §5 tells callers to reject all-zero output
+    // as a suspected attack, so the fallback signals cleanly).
+    let field = match Curve25519FieldCt::curve25519() {
+        Ok(f) => f,
+        Err(_) => return [0u8; 32],
+    };
 
     let k_clamped = zeroize::Zeroizing::new(clamp(*k));
     let r = rng.next_u32();

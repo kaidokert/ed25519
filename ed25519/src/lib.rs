@@ -110,16 +110,24 @@ impl<T> UnsignedModularInt for T where
 {
 }
 
-/// Load a static crypto-constant byte sequence into `T`. Wraps
-/// `FromByteSlice::from_le_slice` and unwraps the `Result` — the ed25519
-/// constants and 32-byte runtime payloads are known to fit any backend
-/// wide enough for the curve (`type_bit_width::<T>() >= 256`, which the
-/// `Curve25519Field::curve25519()` factories already enforce). If the
-/// unwrap ever fires, the backend selection was invalid upstream.
+/// Load a static crypto-constant byte sequence into `T`.
+///
+/// Wraps `FromByteSlice::from_le_slice`. All call sites pass 32-byte
+/// crypto constants or 32-byte runtime payloads into backends where
+/// `BYTE_WIDTH >= 32` (enforced by the `Curve25519Field::curve25519()`
+/// factories and by `const {}` width guards in the sign / x25519
+/// entry points), so the `Err` branch is structurally unreachable.
+/// The fail-closed `T::zero()` fallback avoids linking a panic path
+/// from this helper — if the impossible ever happens, the backend
+/// selection was invalid upstream and downstream field arithmetic
+/// with `T = 0` will fail the verify / sign consistency checks
+/// naturally rather than pulling in `panic_fmt`.
 #[inline]
-pub(crate) fn from_le_bytes<T: const_num_traits::FromByteSlice>(bytes: &[u8]) -> T {
-    <T as const_num_traits::FromByteSlice>::from_le_slice(bytes)
-        .expect("byte sequence within backend byte width")
+pub(crate) fn from_le_bytes<T>(bytes: &[u8]) -> T
+where
+    T: const_num_traits::FromByteSlice + const_num_traits::Zero,
+{
+    <T as const_num_traits::FromByteSlice>::from_le_slice(bytes).unwrap_or_else(|_| T::zero())
 }
 
 /// Read `x`'s little-endian byte encoding through a `&T` receiver — no

@@ -496,12 +496,21 @@ where
         + core::ops::Sub<T, Output = T>
         + core::ops::Sub<&'a T, Output = T>,
 {
-    // Guard: T must be at least 256 bits wide for Ed25519 constants. The
-    // caller-built Field would already encode this implicitly (the
-    // modulus wouldn't fit), but check explicitly to keep behaviour
-    // identical to `verify` for narrow `T`.
-    if modmath::type_bit_width::<T>() < 256 {
-        return false;
+    // Guard: T must be at least 256 bits wide for Ed25519 constants.
+    // `verify_with_field` and the `Verifier` blanket both bottom out
+    // in this inner fn, and either could be handed a narrow `T` via
+    // a caller-built `Curve25519Field::new` bypass. The const-assert
+    // makes that a compile error at monomorphization instead of a
+    // runtime branch — matches the pattern used by `sign_with_fields`
+    // and the x25519 entry points, and removes both the runtime
+    // check and the panic path from `from_le_bytes` at this site
+    // (any monomorphization that reaches the `D_BYTES` load has
+    // `T::BYTE_WIDTH >= 32` by construction).
+    const {
+        assert!(
+            modmath::type_bit_width::<T>() >= 256,
+            "verify: backend T is too narrow for the Curve25519 prime (need >= 256 bits)"
+        );
     }
 
     let d = crate::from_le_bytes::<T>(&D_BYTES);
@@ -516,9 +525,13 @@ where
         None => return false,
     };
 
-    let rrs: [u8; 32] = signature[0..32]
-        .try_into()
-        .expect("invalid signature length");
+    // `signature: [u8; 64]` slice halves are provably 32 bytes at
+    // compile time, but `try_into().expect(...)` pulls in a panic
+    // string per site. Fail-closed to `[0u8; 32]` via
+    // `unwrap_or_default` — downstream `decompress_edward_point`
+    // or field-arithmetic checks reject the zero-sig case; no
+    // panic runtime reference from here.
+    let rrs: [u8; 32] = signature[0..32].try_into().unwrap_or_default();
 
     // Phase 2: decompress R.
     let rr = match decompress_edward_point(rrs, d, field) {
@@ -526,9 +539,7 @@ where
         None => return false,
     };
 
-    let s_bytes: [u8; 32] = signature[32..64]
-        .try_into()
-        .expect("invalid signature length");
+    let s_bytes: [u8; 32] = signature[32..64].try_into().unwrap_or_default();
     let s = crate::from_le_bytes::<T>(&s_bytes);
 
     // Phase 3: hash to scalar. `q` is the curve order — separate from the
