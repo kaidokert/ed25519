@@ -149,7 +149,7 @@ where
         let check = field.mul(&x, &x);
         let diff = field.sub(&check, &x2);
         if diff != zero {
-            let sqrt_m1 = field.reduce(&T::from_bytes_le(&MODP_SQRT_M1_BYTES));
+            let sqrt_m1 = field.reduce(&crate::from_le_bytes::<T>(&MODP_SQRT_M1_BYTES));
             x = field.mul(&x, &sqrt_m1);
         }
     }
@@ -201,7 +201,7 @@ where
     let mut bytes = encoded;
     let sign = bytes[31] >> 7;
     bytes[31] &= 0b0111_1111;
-    let y_raw = T::from_bytes_le(&bytes);
+    let y_raw = crate::from_le_bytes::<T>(&bytes);
 
     if &y_raw >= field.modulus() {
         return None;
@@ -501,7 +501,7 @@ where
         return false;
     }
 
-    let d = T::from_bytes_le(&D_BYTES);
+    let d = crate::from_le_bytes::<T>(&D_BYTES);
 
     // Phase 1: decompress the public key A, then negate (we'll check
     // s·B − h·A = R rather than s·B = h·A + R).
@@ -526,12 +526,12 @@ where
     let s_bytes: [u8; 32] = signature[32..64]
         .try_into()
         .expect("invalid signature length");
-    let s = T::from_bytes_le(&s_bytes);
+    let s = crate::from_le_bytes::<T>(&s_bytes);
 
     // Phase 3: hash to scalar. `q` is the curve order — separate from the
     // field prime `p`, so it doesn't live inside the field abstraction.
     let h = {
-        let q = T::from_bytes_le(&Q_BYTES);
+        let q = crate::from_le_bytes::<T>(&Q_BYTES);
         if s >= q {
             return false;
         }
@@ -540,10 +540,10 @@ where
 
     // Phase 4: base point G in field form.
     let g: EdPoint<'_, T> = (
-        field.reduce(&T::from_bytes_le(&G_X_BYTES)),
-        field.reduce(&T::from_bytes_le(&G_Y_BYTES)),
+        field.reduce(&crate::from_le_bytes::<T>(&G_X_BYTES)),
+        field.reduce(&crate::from_le_bytes::<T>(&G_Y_BYTES)),
         field.one(),
-        field.reduce(&T::from_bytes_le(&G_T_BYTES)),
+        field.reduce(&crate::from_le_bytes::<T>(&G_T_BYTES)),
     );
 
     // Phase 5: paired NAF double-scalar multiplication. Computes s·G + h·(−A).

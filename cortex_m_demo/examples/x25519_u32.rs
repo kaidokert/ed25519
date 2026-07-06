@@ -1,10 +1,12 @@
 #![no_main]
 #![no_std]
 
+#[cfg(not(feature = "baseline"))]
+use const_num_traits::Ct;
 use cortex_m_demo::{ALICE_PRIVATE, BOB_PUBLIC, EXPECTED_SHARED};
 use cortex_m_rt::entry;
 #[cfg(not(feature = "baseline"))]
-use fixed_bigint::{Ct, FixedUInt};
+use fixed_bigint::FixedUInt;
 
 #[entry]
 fn main() -> ! {

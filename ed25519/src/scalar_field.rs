@@ -33,7 +33,7 @@ where
     if modmath::type_bit_width::<T>() < 256 {
         return Err(CurveSetupError::BackendTooNarrow);
     }
-    let q = T::from_bytes_le(&Q_BYTES);
+    let q = crate::from_le_bytes::<T>(&Q_BYTES);
     let q_odd = modmath::Odd::new(q).ok_or(CurveSetupError::InvalidModulus)?;
     Ok(FieldCt::new_odd(q_odd))
 }

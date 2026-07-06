@@ -63,10 +63,13 @@ pub use modmath::{Field, FieldCt, FieldNct, Residue, ResidueCt, ResidueNct};
 
 use core::marker::PhantomData;
 
-/// Trait for unsigned integer types supporting modular arithmetic and byte serialization.
-///
-/// This is the main generic constraint for Ed25519 verification.
-/// Any type implementing these bounds can serve as a bigint backend.
+/// Bound bundle for the generic bigint backend Ed25519 verify + X25519
+/// build on. Pure marker trait: no methods, just a named alias for the
+/// supertrait union. Byte (de)serialization goes through
+/// [`const_num_traits::FromByteSlice`] (fallible slice-in) and
+/// [`const_num_traits::ToBytes`] (owned bytes with `AsRef<[u8]>`),
+/// which any conforming backend implements without ed25519 knowing the
+/// backend type.
 pub trait UnsignedModularInt:
     Sized
     + Clone
@@ -82,36 +85,64 @@ pub trait UnsignedModularInt:
     + core::ops::ShrAssign<usize>
     + modmath::MontStorage
     + modmath::Parity
+    + const_num_traits::FromByteSlice
+    + const_num_traits::ToBytes
 {
-    /// Deserialize from little-endian bytes. Zero-extends when
-    /// `bytes.len() < backend byte width` — the ed25519 crypto
-    /// constants are 32 bytes but the widest supported backend
-    /// (`FixedUInt<u32, 16>`) is 64 bytes, so a fixed-size signature
-    /// would refuse the constants at monomorphization. The slice
-    /// signature stays; the fixed-bigint impl calls the inherent
-    /// `from_le_bytes(&[u8])` which has never returned `Result`.
-    fn from_bytes_le(bytes: &[u8]) -> Self;
-    /// Serialize into a caller-provided fixed-size little-endian buffer
-    /// and return the written prefix. The `M >= backend byte width`
-    /// precondition is checked at monomorphization via fixed-bigint's
-    /// `to_le_bytes_fixed`, so under-sized callers fail at compile
-    /// time and the signature is infallible — no `Result`, no `.unwrap()`.
-    fn to_bytes_le<'a, const M: usize>(&self, out: &'a mut [u8; M]) -> &'a [u8];
 }
 
-#[cfg(feature = "fixed-bigint")]
-impl<W, const N: usize, P> UnsignedModularInt for fixed_bigint::FixedUInt<W, N, P>
-where
-    W: fixed_bigint::MachineWord,
-    P: const_num_traits::Personality,
+impl<T> UnsignedModularInt for T where
+    T: Sized
+        + Clone
+        + core::cmp::PartialOrd
+        + const_num_traits::One
+        + const_num_traits::Zero
+        + const_num_traits::ops::overflowing::OverflowingAdd
+        + core::ops::Shr<usize, Output = Self>
+        + core::ops::Add<Output = Self>
+        + core::ops::Sub<Output = Self>
+        + core::ops::Mul<Output = Self>
+        + core::ops::BitAnd<Output = Self>
+        + core::ops::ShrAssign<usize>
+        + modmath::MontStorage
+        + modmath::Parity
+        + const_num_traits::FromByteSlice
+        + const_num_traits::ToBytes
 {
-    fn from_bytes_le(bytes: &[u8]) -> Self {
-        fixed_bigint::FixedUInt::from_le_bytes(bytes)
-    }
+}
 
-    fn to_bytes_le<'a, const M: usize>(&self, out: &'a mut [u8; M]) -> &'a [u8] {
-        self.to_le_bytes_fixed(out)
-    }
+/// Load a static crypto-constant byte sequence into `T`. Wraps
+/// `FromByteSlice::from_le_slice` and unwraps the `Result` — the ed25519
+/// constants and 32-byte runtime payloads are known to fit any backend
+/// wide enough for the curve (`type_bit_width::<T>() >= 256`, which the
+/// `Curve25519Field::curve25519()` factories already enforce). If the
+/// unwrap ever fires, the backend selection was invalid upstream.
+#[inline]
+pub(crate) fn from_le_bytes<T: const_num_traits::FromByteSlice>(bytes: &[u8]) -> T {
+    <T as const_num_traits::FromByteSlice>::from_le_slice(bytes)
+        .expect("byte sequence within backend byte width")
+}
+
+/// Read `x`'s little-endian byte encoding through a `&T` receiver — no
+/// unwrapped `T` value materializes on the stack. Wraps the returned
+/// `Bytes` in `Zeroizing` for defense-in-depth (fixed-bigint's
+/// `BytesHolder` is already `ZeroizeOnDrop`; the wrap is redundant but
+/// harmless).
+///
+/// The awkward incantation this hides — `<&T as ToBytes>::to_le_bytes(x)`
+/// — matters because `x.to_le_bytes()` and `(*x).to_le_bytes()` both
+/// auto-deref-and-copy through `Deref` and dispatch to the owned impl,
+/// which copies `T` off the `Zeroizing<T>` stack slot before consuming
+/// it — the exact leak the `&T` impl exists to prevent.
+#[inline]
+pub(crate) fn to_le_bytes_ct<T>(
+    x: &T,
+) -> zeroize::Zeroizing<<T as const_num_traits::ToBytes>::Bytes>
+where
+    T: const_num_traits::ToBytes,
+    for<'a> &'a T: const_num_traits::ToBytes<Bytes = <T as const_num_traits::ToBytes>::Bytes>,
+    <T as const_num_traits::ToBytes>::Bytes: zeroize::Zeroize,
+{
+    zeroize::Zeroizing::new(<&T as const_num_traits::ToBytes>::to_le_bytes(x))
 }
 
 /// Aggregate bound bundle for the constant-time sign path: CT field
@@ -300,7 +331,10 @@ where
 impl<T> signature::Signer<[u8; 64]> for SigningKey<T>
 where
     T: SignBackend,
-    for<'a> &'a T: core::ops::Add<&'a T, Output = T> + core::ops::Sub<&'a T, Output = T>,
+    for<'a> &'a T: core::ops::Add<&'a T, Output = T>
+        + core::ops::Sub<&'a T, Output = T>
+        + const_num_traits::ToBytes<Bytes = <T as const_num_traits::ToBytes>::Bytes>,
+    <T as const_num_traits::ToBytes>::Bytes: zeroize::Zeroize,
 {
     fn try_sign(&self, msg: &[u8]) -> Result<[u8; 64], signature::Error> {
         sign::<T>(self, msg).map_err(|_| signature::Error::new())

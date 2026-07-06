@@ -187,7 +187,7 @@ where
     T: SignBackend,
     for<'a> &'a T: core::ops::Add<&'a T, Output = T> + core::ops::Sub<&'a T, Output = T>,
 {
-    let d_raw = T::from_bytes_le(&D_BYTES);
+    let d_raw = crate::from_le_bytes::<T>(&D_BYTES);
     let base_niels = to_niels_ct(base, d_raw, field);
 
     // Identity in extended-twisted Edwards: (0, 1, 1, 0).
@@ -220,7 +220,10 @@ pub(crate) fn point_compress_ct<'f, T>(
 ) -> [u8; 32]
 where
     T: SignBackend,
-    for<'a> &'a T: core::ops::Add<&'a T, Output = T> + core::ops::Sub<&'a T, Output = T>,
+    for<'a> &'a T: core::ops::Add<&'a T, Output = T>
+        + core::ops::Sub<&'a T, Output = T>
+        + const_num_traits::ToBytes<Bytes = <T as const_num_traits::ToBytes>::Bytes>,
+    <T as const_num_traits::ToBytes>::Bytes: zeroize::Zeroize,
 {
     const {
         // x25519.rs caps T at 64 bytes; the same bound applies here so
@@ -237,13 +240,14 @@ where
 
     let parity = (x_raw & T::one()) == T::one();
 
-    // T may be wider than 32 bytes (e.g. FixedUInt<u32, 16> is 64
-    // bytes); to_bytes_le needs a buffer matching T's width. y < p <
-    // 2^255 fits in the low 32 bytes, the rest is zero.
-    let mut scratch = zeroize::Zeroizing::new([0u8; 64]);
-    let bytes = y_raw.to_bytes_le(&mut scratch);
+    // y_raw is public (point compression is the encoding of a public
+    // point) but route through the CT helper for uniformity. The
+    // returned `Bytes` is `T::BYTE_WIDTH`-wide; y < p < 2^255 fits in
+    // the low 32 bytes, the rest is zero.
+    let bytes = crate::to_le_bytes_ct(&y_raw);
+    let bytes_slice: &[u8] = bytes.as_ref();
     let mut out = [0u8; 32];
-    out.copy_from_slice(&bytes[..32]);
+    out.copy_from_slice(&bytes_slice[..32]);
     // RFC 8032 §5.1.2: y is 255 bits; the high bit of byte 31 carries
     // the parity of x. y < p < 2^255 so bit 7 of byte 31 is zero before
     // we OR in the parity.
@@ -316,10 +320,10 @@ where
     T: SignBackend,
     for<'a> &'a T: core::ops::Add<&'a T, Output = T> + core::ops::Sub<&'a T, Output = T>,
 {
-    let gx = field.reduce(&T::from_bytes_le(&crate::G_X_BYTES));
-    let gy = field.reduce(&T::from_bytes_le(&crate::G_Y_BYTES));
+    let gx = field.reduce(&crate::from_le_bytes::<T>(&crate::G_X_BYTES));
+    let gy = field.reduce(&crate::from_le_bytes::<T>(&crate::G_Y_BYTES));
     let one = field.one();
-    let gt = field.reduce(&T::from_bytes_le(&crate::G_T_BYTES));
+    let gt = field.reduce(&crate::from_le_bytes::<T>(&crate::G_T_BYTES));
     (gx, gy, one, gt)
 }
 
@@ -351,7 +355,7 @@ mod tests {
     fn double_matches_add_self() {
         let field = Curve25519FieldCt::<T>::curve25519().unwrap();
         let g = base_point_ct(&field);
-        let d_raw = T::from_bytes_le(&D_BYTES);
+        let d_raw = crate::from_le_bytes::<T>(&D_BYTES);
         let g_niels = to_niels_ct(&g, d_raw, &field);
 
         let doubled = point_double_ct(&g, &field);
