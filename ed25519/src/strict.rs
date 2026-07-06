@@ -66,11 +66,14 @@ where
     // Hash is little-endian: byte 63 is MSB
     for byte_idx in (0..64).rev() {
         for bit_idx in (0..8).rev() {
-            // acc = 2*acc + bit, then reduce
-            let (doubled, _overflow) = acc.overflowing_add(&acc);
+            // acc = 2*acc + bit, then reduce. Since `acc` is reassigned
+            // on the next line, the original can be moved into `rhs` —
+            // only the `self` receiver needs to clone. Saves ~512
+            // big-integer clones per SHA-512(m) reduction.
+            let (doubled, _overflow) = acc.clone().overflowing_add(acc);
             acc = doubled;
             if (hash[byte_idx] >> bit_idx) & 1 == 1 {
-                let (added, _) = acc.overflowing_add(&one);
+                let (added, _) = acc.overflowing_add(one.clone());
                 acc = added;
             }
             // acc < 2q + 1 here, so at most two subtractions needed
@@ -105,10 +108,11 @@ where
         + Copy
         + modmath::WideMul
         + modmath::CiosMontMul
-        + num_traits::ops::overflowing::OverflowingAdd
-        + num_traits::WrappingMul
-        + num_traits::WrappingAdd
-        + num_traits::WrappingSub
+        + modmath::NonCt
+        + const_num_traits::ops::overflowing::OverflowingAdd
+        + const_num_traits::WrappingMul
+        + const_num_traits::WrappingAdd
+        + const_num_traits::WrappingSub
         + core::ops::Sub<Output = T>,
     for<'a> &'a T: core::ops::Add<&'a T, Output = T>
         + core::ops::Sub<T, Output = T>
@@ -148,7 +152,7 @@ where
         let check = field.mul(&x, &x);
         let diff = field.sub(&check, &x2);
         if diff != zero {
-            let sqrt_m1 = field.reduce(&T::from_bytes_le(&MODP_SQRT_M1_BYTES));
+            let sqrt_m1 = field.reduce(&crate::from_le_bytes::<T>(&MODP_SQRT_M1_BYTES));
             x = field.mul(&x, &sqrt_m1);
         }
     }
@@ -187,10 +191,11 @@ where
         + Copy
         + modmath::WideMul
         + modmath::CiosMontMul
-        + num_traits::ops::overflowing::OverflowingAdd
-        + num_traits::WrappingMul
-        + num_traits::WrappingAdd
-        + num_traits::WrappingSub
+        + modmath::NonCt
+        + const_num_traits::ops::overflowing::OverflowingAdd
+        + const_num_traits::WrappingMul
+        + const_num_traits::WrappingAdd
+        + const_num_traits::WrappingSub
         + core::ops::Sub<Output = T>,
     for<'a> &'a T: core::ops::Add<&'a T, Output = T>
         + core::ops::Sub<T, Output = T>
@@ -199,7 +204,7 @@ where
     let mut bytes = encoded;
     let sign = bytes[31] >> 7;
     bytes[31] &= 0b0111_1111;
-    let y_raw = T::from_bytes_le(&bytes);
+    let y_raw = crate::from_le_bytes::<T>(&bytes);
 
     if &y_raw >= field.modulus() {
         return None;
@@ -219,10 +224,11 @@ where
         + Copy
         + modmath::WideMul
         + modmath::CiosMontMul
-        + num_traits::ops::overflowing::OverflowingAdd
-        + num_traits::WrappingMul
-        + num_traits::WrappingAdd
-        + num_traits::WrappingSub,
+        + modmath::NonCt
+        + const_num_traits::ops::overflowing::OverflowingAdd
+        + const_num_traits::WrappingMul
+        + const_num_traits::WrappingAdd
+        + const_num_traits::WrappingSub,
     for<'a> &'a T: core::ops::Add<&'a T, Output = T> + core::ops::Sub<&'a T, Output = T>,
 {
     // Edwards curve doubling on extended-twisted coordinates.
@@ -260,10 +266,11 @@ where
         + Copy
         + modmath::WideMul
         + modmath::CiosMontMul
-        + num_traits::ops::overflowing::OverflowingAdd
-        + num_traits::WrappingMul
-        + num_traits::WrappingAdd
-        + num_traits::WrappingSub,
+        + modmath::NonCt
+        + const_num_traits::ops::overflowing::OverflowingAdd
+        + const_num_traits::WrappingMul
+        + const_num_traits::WrappingAdd
+        + const_num_traits::WrappingSub,
     for<'a> &'a T: core::ops::Add<&'a T, Output = T> + core::ops::Sub<&'a T, Output = T>,
 {
     let y_plus_x = field.add(&pp.1, &pp.0);
@@ -285,10 +292,11 @@ where
         + Copy
         + modmath::WideMul
         + modmath::CiosMontMul
-        + num_traits::ops::overflowing::OverflowingAdd
-        + num_traits::WrappingMul
-        + num_traits::WrappingAdd
-        + num_traits::WrappingSub,
+        + modmath::NonCt
+        + const_num_traits::ops::overflowing::OverflowingAdd
+        + const_num_traits::WrappingMul
+        + const_num_traits::WrappingAdd
+        + const_num_traits::WrappingSub,
     for<'a> &'a T: core::ops::Add<&'a T, Output = T> + core::ops::Sub<&'a T, Output = T>,
 {
     // A = (Y₁−X₁)·(y−x); B = (Y₁+X₁)·(y+x); C = T₁·2dt; D = 2·Z₁
@@ -322,10 +330,11 @@ where
         + Copy
         + modmath::WideMul
         + modmath::CiosMontMul
-        + num_traits::ops::overflowing::OverflowingAdd
-        + num_traits::WrappingMul
-        + num_traits::WrappingAdd
-        + num_traits::WrappingSub,
+        + modmath::NonCt
+        + const_num_traits::ops::overflowing::OverflowingAdd
+        + const_num_traits::WrappingMul
+        + const_num_traits::WrappingAdd
+        + const_num_traits::WrappingSub,
     for<'a> &'a T: core::ops::Add<&'a T, Output = T> + core::ops::Sub<&'a T, Output = T>,
 {
     // Projective equality: X₁/Z₁ = X₂/Z₂ ↔ X₁·Z₂ = X₂·Z₁ (and same for Y).
@@ -351,10 +360,11 @@ where
         + Copy
         + modmath::WideMul
         + modmath::CiosMontMul
-        + num_traits::ops::overflowing::OverflowingAdd
-        + num_traits::WrappingMul
-        + num_traits::WrappingAdd
-        + num_traits::WrappingSub,
+        + modmath::NonCt
+        + const_num_traits::ops::overflowing::OverflowingAdd
+        + const_num_traits::WrappingMul
+        + const_num_traits::WrappingAdd
+        + const_num_traits::WrappingSub,
     for<'a> &'a T: core::ops::BitAnd<Output = T>
         + core::ops::Add<&'a T, Output = T>
         + core::ops::Sub<&'a T, Output = T>,
@@ -411,10 +421,11 @@ where
         + Copy
         + modmath::WideMul
         + modmath::CiosMontMul
-        + num_traits::ops::overflowing::OverflowingAdd
-        + num_traits::WrappingMul
-        + num_traits::WrappingAdd
-        + num_traits::WrappingSub,
+        + modmath::NonCt
+        + const_num_traits::ops::overflowing::OverflowingAdd
+        + const_num_traits::WrappingMul
+        + const_num_traits::WrappingAdd
+        + const_num_traits::WrappingSub,
     for<'a> &'a T: core::ops::BitAnd<Output = T>
         + core::ops::Add<&'a T, Output = T>
         + core::ops::Sub<T, Output = T>
@@ -450,10 +461,11 @@ where
         + Copy
         + modmath::WideMul
         + modmath::CiosMontMul
-        + num_traits::ops::overflowing::OverflowingAdd
-        + num_traits::WrappingMul
-        + num_traits::WrappingAdd
-        + num_traits::WrappingSub,
+        + modmath::NonCt
+        + const_num_traits::ops::overflowing::OverflowingAdd
+        + const_num_traits::WrappingMul
+        + const_num_traits::WrappingAdd
+        + const_num_traits::WrappingSub,
     for<'a> &'a T: core::ops::BitAnd<Output = T>
         + core::ops::Add<&'a T, Output = T>
         + core::ops::Sub<T, Output = T>
@@ -474,24 +486,34 @@ where
         + Copy
         + modmath::WideMul
         + modmath::CiosMontMul
-        + num_traits::ops::overflowing::OverflowingAdd
-        + num_traits::WrappingMul
-        + num_traits::WrappingAdd
-        + num_traits::WrappingSub,
+        + modmath::NonCt
+        + const_num_traits::ops::overflowing::OverflowingAdd
+        + const_num_traits::WrappingMul
+        + const_num_traits::WrappingAdd
+        + const_num_traits::WrappingSub,
     for<'a> &'a T: core::ops::BitAnd<Output = T>
         + core::ops::Add<&'a T, Output = T>
         + core::ops::Sub<T, Output = T>
         + core::ops::Sub<&'a T, Output = T>,
 {
-    // Guard: T must be at least 256 bits wide for Ed25519 constants. The
-    // caller-built Field would already encode this implicitly (the
-    // modulus wouldn't fit), but check explicitly to keep behaviour
-    // identical to `verify` for narrow `T`.
-    if modmath::type_bit_width::<T>() < 256 {
-        return false;
+    // Guard: T must be at least 256 bits wide for Ed25519 constants.
+    // `verify_with_field` and the `Verifier` blanket both bottom out
+    // in this inner fn, and either could be handed a narrow `T` via
+    // a caller-built `Curve25519Field::new` bypass. The const-assert
+    // makes that a compile error at monomorphization instead of a
+    // runtime branch — matches the pattern used by `sign_with_fields`
+    // and the x25519 entry points, and removes both the runtime
+    // check and the panic path from `from_le_bytes` at this site
+    // (any monomorphization that reaches the `D_BYTES` load has
+    // `T::BYTE_WIDTH >= 32` by construction).
+    const {
+        assert!(
+            modmath::type_bit_width::<T>() >= 256,
+            "verify: backend T is too narrow for the Curve25519 prime (need >= 256 bits)"
+        );
     }
 
-    let d = T::from_bytes_le(&D_BYTES);
+    let d = crate::from_le_bytes::<T>(&D_BYTES);
 
     // Phase 1: decompress the public key A, then negate (we'll check
     // s·B − h·A = R rather than s·B = h·A + R).
@@ -503,9 +525,13 @@ where
         None => return false,
     };
 
-    let rrs: [u8; 32] = signature[0..32]
-        .try_into()
-        .expect("invalid signature length");
+    // `signature: [u8; 64]` slice halves are provably 32 bytes at
+    // compile time, but `try_into().expect(...)` pulls in a panic
+    // string per site. Fail-closed to `[0u8; 32]` via
+    // `unwrap_or_default` — downstream `decompress_edward_point`
+    // or field-arithmetic checks reject the zero-sig case; no
+    // panic runtime reference from here.
+    let rrs: [u8; 32] = signature[0..32].try_into().unwrap_or_default();
 
     // Phase 2: decompress R.
     let rr = match decompress_edward_point(rrs, d, field) {
@@ -513,15 +539,13 @@ where
         None => return false,
     };
 
-    let s_bytes: [u8; 32] = signature[32..64]
-        .try_into()
-        .expect("invalid signature length");
-    let s = T::from_bytes_le(&s_bytes);
+    let s_bytes: [u8; 32] = signature[32..64].try_into().unwrap_or_default();
+    let s = crate::from_le_bytes::<T>(&s_bytes);
 
     // Phase 3: hash to scalar. `q` is the curve order — separate from the
     // field prime `p`, so it doesn't live inside the field abstraction.
     let h = {
-        let q = T::from_bytes_le(&Q_BYTES);
+        let q = crate::from_le_bytes::<T>(&Q_BYTES);
         if s >= q {
             return false;
         }
@@ -530,10 +554,10 @@ where
 
     // Phase 4: base point G in field form.
     let g: EdPoint<'_, T> = (
-        field.reduce(&T::from_bytes_le(&G_X_BYTES)),
-        field.reduce(&T::from_bytes_le(&G_Y_BYTES)),
+        field.reduce(&crate::from_le_bytes::<T>(&G_X_BYTES)),
+        field.reduce(&crate::from_le_bytes::<T>(&G_Y_BYTES)),
         field.one(),
-        field.reduce(&T::from_bytes_le(&G_T_BYTES)),
+        field.reduce(&crate::from_le_bytes::<T>(&G_T_BYTES)),
     );
 
     // Phase 5: paired NAF double-scalar multiplication. Computes s·G + h·(−A).

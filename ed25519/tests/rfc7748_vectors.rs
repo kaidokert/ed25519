@@ -8,7 +8,7 @@
 use ed25519_heapless::{x25519, x25519_base};
 
 // x25519 requires a Ct-typed backend (secret scalar). Pin P = Ct here.
-type T = fixed_bigint::FixedUInt<u32, 16, fixed_bigint::Ct>;
+type T = fixed_bigint::FixedUInt<u32, 16, const_num_traits::Ct>;
 
 fn hex_to_array_32(hex: &str) -> [u8; 32] {
     assert_eq!(hex.len(), 64);

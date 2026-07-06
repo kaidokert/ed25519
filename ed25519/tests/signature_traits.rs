@@ -11,7 +11,7 @@ type T = fixed_bigint::FixedUInt<u32, 16>;
 // Sign requires the constant-time backend mode; verify is happy with
 // either. Keep both aliases so each test exercises the realistic
 // configuration for its operation.
-type Tct = fixed_bigint::FixedUInt<u32, 16, fixed_bigint::Ct>;
+type Tct = fixed_bigint::FixedUInt<u32, 16, const_num_traits::Ct>;
 
 struct SigWrapper(Vec<u8>);
 

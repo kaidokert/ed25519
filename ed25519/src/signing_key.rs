@@ -48,7 +48,10 @@ pub struct SigningKey<T> {
 impl<T> SigningKey<T>
 where
     T: SignBackend,
-    for<'a> &'a T: core::ops::Add<&'a T, Output = T> + core::ops::Sub<&'a T, Output = T>,
+    for<'a> &'a T: core::ops::Add<&'a T, Output = T>
+        + core::ops::Sub<&'a T, Output = T>
+        + const_num_traits::ToBytes<Bytes = <T as const_num_traits::ToBytes>::Bytes>,
+    <T as const_num_traits::ToBytes>::Bytes: zeroize::Zeroize,
 {
     /// Derive a signing key from a 32-byte seed (RFC 8032 §5.1.5).
     /// Runs `h = SHA-512(seed)`; splits into clamped scalar and nonce
@@ -92,7 +95,10 @@ where
 pub fn sign<T>(sk: &SigningKey<T>, msg: &[u8]) -> Result<[u8; 64], SignError>
 where
     T: SignBackend,
-    for<'a> &'a T: core::ops::Add<&'a T, Output = T> + core::ops::Sub<&'a T, Output = T>,
+    for<'a> &'a T: core::ops::Add<&'a T, Output = T>
+        + core::ops::Sub<&'a T, Output = T>
+        + const_num_traits::ToBytes<Bytes = <T as const_num_traits::ToBytes>::Bytes>,
+    <T as const_num_traits::ToBytes>::Bytes: zeroize::Zeroize,
 {
     let p_field = Curve25519FieldCt::<T>::curve25519()?;
     let q_field = scalar_field::curve25519_ct::<T>()?;
@@ -109,9 +115,27 @@ pub fn sign_with_fields<T>(
 ) -> Result<[u8; 64], SignError>
 where
     T: SignBackend,
-    for<'a> &'a T: core::ops::Add<&'a T, Output = T> + core::ops::Sub<&'a T, Output = T>,
+    for<'a> &'a T: core::ops::Add<&'a T, Output = T>
+        + core::ops::Sub<&'a T, Output = T>
+        + const_num_traits::ToBytes<Bytes = <T as const_num_traits::ToBytes>::Bytes>,
+    <T as const_num_traits::ToBytes>::Bytes: zeroize::Zeroize,
 {
-    let q = T::from_bytes_le(&Q_BYTES);
+    // Backend width is a static property of T; check at
+    // monomorphization. `sign_with_fields` is public and accepts
+    // pre-built fields — a caller could bypass the runtime width
+    // check in `Curve25519FieldCt::curve25519()` by constructing a
+    // narrow field via `Curve25519FieldCt::new`. The const-assert
+    // makes that bypass a compile error and keeps the loading of
+    // `Q_BYTES` below infallible-in-practice (any monomorphization
+    // that reaches this line has `T::BYTE_WIDTH >= 32`).
+    const {
+        assert!(
+            modmath::type_bit_width::<T>() >= 256,
+            "sign_with_fields: backend T is too narrow for the Curve25519 prime (need >= 256 bits)"
+        );
+    }
+
+    let q = crate::from_le_bytes::<T>(&Q_BYTES);
 
     // r = SHA-512(prefix || M) mod q. Secret-derived (prefix is part
     // of the expanded key); CT reduction required. `sha512_modq_ct`
@@ -120,10 +144,11 @@ where
 
     // R = r · G, compressed. Public after this point — but the
     // little-endian serialization of r passed to the ladder is still
-    // the secret nonce, so the scratch buffer must be zeroized.
+    // the secret nonce. Route through `to_le_bytes_ct(&*r)` so no
+    // owned `T` materializes off the `Zeroizing<T>` stack slot.
     let g = base_point_ct(p_field);
-    let mut r_bytes = zeroize::Zeroizing::new([0u8; 64]);
-    let r_bytes_slice = r.to_bytes_le(&mut *r_bytes);
+    let r_bytes = crate::to_le_bytes_ct(&*r);
+    let r_bytes_slice: &[u8] = r_bytes.as_ref();
     let mut r_le = zeroize::Zeroizing::new([0u8; 32]);
     r_le.copy_from_slice(&r_bytes_slice[..32]);
     let r_point = scalar_mult_ct(p_field, &g, &*r_le);
@@ -136,7 +161,7 @@ where
 
     // s = (r + k · a) mod q. Every operand is secret-derived; runs on
     // FieldCt over q.
-    let a_t = zeroize::Zeroizing::new(T::from_bytes_le(&*sk.a_bytes));
+    let a_t = zeroize::Zeroizing::new(crate::from_le_bytes::<T>(&*sk.a_bytes));
     let r_res = q_field.reduce(&*r);
     let k_res = q_field.reduce(&*k);
     let a_res = q_field.reduce(&*a_t);
@@ -145,8 +170,11 @@ where
     let s = q_field.into_raw(&s_res);
 
     // Serialize s to 32 bytes (s < q < 2^253, fits with leading zeros).
-    let mut s_scratch = zeroize::Zeroizing::new([0u8; 64]);
-    let s_bytes_slice = s.to_bytes_le(&mut *s_scratch);
+    // s is public (part of the signature) but route through the same CT
+    // path for uniformity — cost is one BytesHolder allocation on the
+    // stack, no `T` copy.
+    let s_bytes = crate::to_le_bytes_ct(&s);
+    let s_bytes_slice: &[u8] = s_bytes.as_ref();
 
     let mut sig = [0u8; 64];
     sig[..32].copy_from_slice(&r_encoded);
@@ -159,7 +187,7 @@ mod tests {
     use super::*;
     use fixed_bigint::FixedUInt;
 
-    type T = FixedUInt<u32, 16, fixed_bigint::Ct>;
+    type T = FixedUInt<u32, 16, const_num_traits::Ct>;
 
     /// RFC 8032 §7.1 test vector 1.
     #[test]

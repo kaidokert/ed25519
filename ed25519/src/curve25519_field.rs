@@ -33,10 +33,14 @@ use crate::{P_BYTES, UnsignedModularInt};
 /// factories can refuse to construct a field. Both arms are unreachable
 /// for any well-formed backend: `BackendTooNarrow` is a backend-selection
 /// bug, and `InvalidModulus` would require `modmath::Field::new` to
-/// reject `p = 2^255 − 19`. The factories return `Result` instead of
-/// panicking so consumers like [`crate::strict::verify`] can convert
-/// either case into a runtime `false` without pulling the panic
-/// runtime into the linked binary.
+/// reject `p = 2^255 − 19`. The factories return `Result` for the paths
+/// that need runtime handling — notably [`crate::sign_with_fields`] via
+/// [`crate::SigningKey::from_seed`], which propagates the error into
+/// [`crate::SignError::FieldSetup`]. Entry points that can afford it
+/// (`strict::verify`, `sign_with_fields`, and every x25519 fn) now use
+/// a `const { assert!(type_bit_width::<T>() >= 256, ...) }` guard, so
+/// a too-narrow `T` is a compile error at monomorphization and the
+/// `Result` handling on those paths is provably dead code.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CurveSetupError {
     BackendTooNarrow,
@@ -61,28 +65,48 @@ where
     T: Copy
         + PartialEq
         + PartialOrd
-        + num_traits::Zero
-        + num_traits::One
-        + num_traits::ops::overflowing::OverflowingAdd
-        + num_traits::WrappingMul
-        + num_traits::WrappingAdd
-        + num_traits::WrappingSub
+        + const_num_traits::Zero
+        + const_num_traits::One
+        + const_num_traits::ops::overflowing::OverflowingAdd
+        + const_num_traits::WrappingMul
+        + const_num_traits::WrappingAdd
+        + const_num_traits::WrappingSub
         + Parity
         + WideMul
         + CiosMontMul
-        + modmath::MontStorage,
+        + modmath::MontStorage
+        + modmath::NonCt
+        + core::ops::Add<Output = T>
+        + core::ops::Sub<Output = T>
+        + core::ops::Mul<Output = T>,
     for<'a> &'a T: core::ops::Add<&'a T, Output = T> + core::ops::Sub<&'a T, Output = T>,
 {
     pub fn new(modulus: T) -> Option<Self> {
         FieldNct::new(modulus).map(|inner| Curve25519Field { inner, modulus })
     }
 
+    /// Infallible constructor from a proven-odd modulus. The
+    /// [`modmath::Odd`] typestate discharges the parity / non-zero
+    /// check at the trust boundary instead of inside the field
+    /// constructor — see modmath's `Field::new_odd`.
+    pub fn new_odd(modulus: modmath::Odd<T>) -> Self {
+        let raw = modulus.get();
+        let inner = FieldNct::new_odd(modulus);
+        Curve25519Field {
+            inner,
+            modulus: raw,
+        }
+    }
+
     /// Build the Curve25519 field. Returns [`CurveSetupError`] when the
     /// backend `T` is too narrow to hold the 256-bit prime, or in the
-    /// theoretical-but-unreachable case where `modmath::Field::new`
-    /// rejects `p = 2^255 − 19`. The fallible signature is what lets
-    /// [`crate::strict::verify`] handle a wrong-backend `T` as a runtime
-    /// `false` rather than a panic.
+    /// theoretical-but-unreachable case where `Odd::new` rejects
+    /// `p = 2^255 − 19`. The fallible signature exists because callers
+    /// like [`crate::SigningKey::from_seed`] propagate the error into
+    /// [`crate::SignError`]. [`crate::strict::verify`] rejects narrow
+    /// `T` at monomorphization via a `const {}` guard on its inner
+    /// path, so the `Result` handling there is provably unreachable
+    /// but kept for uniformity with the other factory-consuming paths.
     pub fn curve25519() -> Result<Self, CurveSetupError>
     where
         T: UnsignedModularInt,
@@ -90,8 +114,9 @@ where
         if modmath::type_bit_width::<T>() < 256 {
             return Err(CurveSetupError::BackendTooNarrow);
         }
-        let p = T::from_bytes_le(&P_BYTES);
-        Self::new(p).ok_or(CurveSetupError::InvalidModulus)
+        let p = crate::from_le_bytes::<T>(&P_BYTES);
+        let odd = modmath::Odd::new(p).ok_or(CurveSetupError::InvalidModulus)?;
+        Ok(Self::new_odd(odd))
     }
 
     /// Cached modulus accessor. Returns a borrow rather than a copy (unlike
@@ -167,22 +192,36 @@ where
     T: Copy
         + PartialEq
         + PartialOrd
-        + num_traits::Zero
-        + num_traits::One
-        + num_traits::ops::overflowing::OverflowingAdd
-        + num_traits::WrappingMul
-        + num_traits::WrappingAdd
-        + num_traits::WrappingSub
+        + const_num_traits::Zero
+        + const_num_traits::One
+        + const_num_traits::ops::overflowing::OverflowingAdd
+        + const_num_traits::WrappingMul
+        + const_num_traits::WrappingAdd
+        + const_num_traits::WrappingSub
         + Parity
         + WideMul
         + CiosMontMulCt
         + subtle::ConditionallySelectable
         + subtle::ConstantTimeLess
-        + modmath::MontStorage,
+        + modmath::MontStorage
+        + core::ops::Add<Output = T>
+        + core::ops::Sub<Output = T>
+        + core::ops::Mul<Output = T>,
     for<'a> &'a T: core::ops::Add<&'a T, Output = T> + core::ops::Sub<&'a T, Output = T>,
 {
     pub fn new(modulus: T) -> Option<Self> {
         FieldCt::new(modulus).map(|inner| Curve25519FieldCt { inner, modulus })
+    }
+
+    /// Infallible constructor from a proven-odd modulus — see
+    /// [`Curve25519Field::new_odd`].
+    pub fn new_odd(modulus: modmath::Odd<T>) -> Self {
+        let raw = modulus.get();
+        let inner = FieldCt::new_odd(modulus);
+        Curve25519FieldCt {
+            inner,
+            modulus: raw,
+        }
     }
 
     /// Build the constant-time Curve25519 field. Same fallible shape as
@@ -194,8 +233,9 @@ where
         if modmath::type_bit_width::<T>() < 256 {
             return Err(CurveSetupError::BackendTooNarrow);
         }
-        let p = T::from_bytes_le(&P_BYTES);
-        Self::new(p).ok_or(CurveSetupError::InvalidModulus)
+        let p = crate::from_le_bytes::<T>(&P_BYTES);
+        let odd = modmath::Odd::new(p).ok_or(CurveSetupError::InvalidModulus)?;
+        Ok(Self::new_odd(odd))
     }
 
     /// Cached modulus accessor — see [`Curve25519Field::modulus`].
@@ -292,18 +332,19 @@ impl<T> core::ops::Deref for Curve25519FieldCt<T> {
 #[cfg(all(test, feature = "fixed-bigint"))]
 mod tests {
     use super::*;
-    use fixed_bigint::{Ct, FixedUInt, Nct};
+    use const_num_traits::{Ct, Nct};
+    use fixed_bigint::FixedUInt;
 
     type T256 = FixedUInt<u8, 32, Nct>;
     type T256Ct = FixedUInt<u8, 32, Ct>;
 
     fn curve_field() -> Curve25519Field<T256> {
-        let p = T256::from_bytes_le(&P_BYTES);
+        let p = crate::from_le_bytes::<T256>(&P_BYTES);
         Curve25519Field::new(p).unwrap()
     }
 
     fn curve_field_ct() -> Curve25519FieldCt<T256Ct> {
-        let p = T256Ct::from_bytes_le(&P_BYTES);
+        let p = crate::from_le_bytes::<T256Ct>(&P_BYTES);
         Curve25519FieldCt::new(p).unwrap()
     }
 

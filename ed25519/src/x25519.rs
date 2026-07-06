@@ -120,14 +120,17 @@ where
         + modmath::WideMul
         + modmath::CiosMontMulCt
         + modmath::Parity
-        + num_traits::ops::overflowing::OverflowingAdd
-        + num_traits::WrappingMul
-        + num_traits::WrappingAdd
-        + num_traits::WrappingSub
+        + const_num_traits::ops::overflowing::OverflowingAdd
+        + const_num_traits::WrappingMul
+        + const_num_traits::WrappingAdd
+        + const_num_traits::WrappingSub
         + subtle::ConditionallySelectable
         + subtle::ConstantTimeLess
         + core::ops::Sub<Output = T>,
-    for<'a> &'a T: core::ops::Add<&'a T, Output = T> + core::ops::Sub<&'a T, Output = T>,
+    for<'a> &'a T: core::ops::Add<&'a T, Output = T>
+        + core::ops::Sub<&'a T, Output = T>
+        + const_num_traits::ToBytes<Bytes = <T as const_num_traits::ToBytes>::Bytes>,
+    <T as const_num_traits::ToBytes>::Bytes: zeroize::Zeroize,
 {
     x25519::<T>(k, &BASE_U_BYTES)
 }
@@ -162,14 +165,17 @@ where
         + modmath::WideMul
         + modmath::CiosMontMulCt
         + modmath::Parity
-        + num_traits::ops::overflowing::OverflowingAdd
-        + num_traits::WrappingMul
-        + num_traits::WrappingAdd
-        + num_traits::WrappingSub
+        + const_num_traits::ops::overflowing::OverflowingAdd
+        + const_num_traits::WrappingMul
+        + const_num_traits::WrappingAdd
+        + const_num_traits::WrappingSub
         + subtle::ConditionallySelectable
         + subtle::ConstantTimeLess
         + core::ops::Sub<Output = T>,
-    for<'a> &'a T: core::ops::Add<&'a T, Output = T> + core::ops::Sub<&'a T, Output = T>,
+    for<'a> &'a T: core::ops::Add<&'a T, Output = T>
+        + core::ops::Sub<&'a T, Output = T>
+        + const_num_traits::ToBytes<Bytes = <T as const_num_traits::ToBytes>::Bytes>,
+    <T as const_num_traits::ToBytes>::Bytes: zeroize::Zeroize,
 {
     // Backend width is a static property of T. Const-evaluate at
     // monomorphization so wrong backends fail at compile time and the
@@ -185,20 +191,28 @@ where
         );
     }
 
-    let p = T::from_bytes_le(&P_BYTES);
-    let field = Curve25519FieldCt::new(p).unwrap();
+    // The entry-point const-block guards the width case; the Odd
+    // proof inside the factory is statically true for the Curve25519
+    // prime — both Err arms are unreachable here. Fail-closed to
+    // an all-zero shared secret rather than pulling in a panic
+    // string (RFC 7748 §5 tells callers to reject all-zero output
+    // as a suspected attack, so the fallback signals cleanly).
+    let field = match Curve25519FieldCt::curve25519() {
+        Ok(f) => f,
+        Err(_) => return [0u8; 32],
+    };
 
     // RFC 7748 §5: clamp scalar, mask high bit of u-coordinate.
     let k = zeroize::Zeroizing::new(clamp(*k));
     let mut u_bytes = *u_in;
     u_bytes[31] &= 0x7f;
-    let u = T::from_bytes_le(&u_bytes);
+    let u = crate::from_le_bytes::<T>(&u_bytes);
 
     // x1 stays constant throughout the ladder (= peer u in the field).
     // Peer u is public, but every downstream op is CT-typed, so it flows
     // through the CT field and gets the same residue type as everything else.
     let x1 = field.reduce(&u);
-    let a24 = field.reduce(&T::from_bytes_le(&A24_BYTES));
+    let a24 = field.reduce(&crate::from_le_bytes::<T>(&A24_BYTES));
 
     let (x2, z2) = montgomery_ladder(
         &field,
@@ -224,13 +238,14 @@ where
     // — which we require — so `Zeroizing<T>` works without extra bounds.
     let result = zeroize::Zeroizing::new(field.into_raw(&result_res));
 
-    // T can be wider than 32 bytes (e.g. FixedUInt<u32, 16> is 64 bytes). The
-    // MAX_T_BYTES guard above bounds the scratch size; copy out the low 32
-    // bytes — the field element is < p < 2^255 so the high half is zero.
-    let mut scratch = zeroize::Zeroizing::new([0u8; MAX_T_BYTES]);
-    let bytes = result.to_bytes_le(&mut *scratch);
+    // Shared secret is sensitive; route through `to_le_bytes_ct(&*result)`
+    // so no owned `T` copy of the shared secret materializes off the
+    // `Zeroizing<T>` stack slot. Value is < p < 2^255 so the low 32
+    // bytes carry it.
+    let bytes = crate::to_le_bytes_ct(&*result);
+    let bytes_slice: &[u8] = bytes.as_ref();
     let mut out = [0u8; 32];
-    out.copy_from_slice(&bytes[..32]);
+    out.copy_from_slice(&bytes_slice[..32]);
     out
 }
 
@@ -263,14 +278,17 @@ where
         + modmath::WideMul
         + modmath::CiosMontMulCt
         + modmath::Parity
-        + num_traits::ops::overflowing::OverflowingAdd
-        + num_traits::WrappingMul
-        + num_traits::WrappingAdd
-        + num_traits::WrappingSub
+        + const_num_traits::ops::overflowing::OverflowingAdd
+        + const_num_traits::WrappingMul
+        + const_num_traits::WrappingAdd
+        + const_num_traits::WrappingSub
         + subtle::ConditionallySelectable
         + subtle::ConstantTimeLess
         + core::ops::Sub<Output = T>,
-    for<'a> &'a T: core::ops::Add<&'a T, Output = T> + core::ops::Sub<&'a T, Output = T>,
+    for<'a> &'a T: core::ops::Add<&'a T, Output = T>
+        + core::ops::Sub<&'a T, Output = T>
+        + const_num_traits::ToBytes<Bytes = <T as const_num_traits::ToBytes>::Bytes>,
+    <T as const_num_traits::ToBytes>::Bytes: zeroize::Zeroize,
     R: rand_core::CryptoRng,
 {
     const {
@@ -284,8 +302,16 @@ where
         );
     }
 
-    let p = T::from_bytes_le(&P_BYTES);
-    let field = Curve25519FieldCt::new(p).unwrap();
+    // The entry-point const-block guards the width case; the Odd
+    // proof inside the factory is statically true for the Curve25519
+    // prime — both Err arms are unreachable here. Fail-closed to
+    // an all-zero shared secret rather than pulling in a panic
+    // string (RFC 7748 §5 tells callers to reject all-zero output
+    // as a suspected attack, so the fallback signals cleanly).
+    let field = match Curve25519FieldCt::curve25519() {
+        Ok(f) => f,
+        Err(_) => return [0u8; 32],
+    };
 
     let k_clamped = zeroize::Zeroizing::new(clamp(*k));
     let r = rng.next_u32();
@@ -293,9 +319,9 @@ where
 
     let mut u_bytes = *u_in;
     u_bytes[31] &= 0x7f;
-    let u = T::from_bytes_le(&u_bytes);
+    let u = crate::from_le_bytes::<T>(&u_bytes);
     let x1 = field.reduce(&u);
-    let a24 = field.reduce(&T::from_bytes_le(&A24_BYTES));
+    let a24 = field.reduce(&crate::from_le_bytes::<T>(&A24_BYTES));
 
     // Projective re-randomization: scale the starting state by a random
     // nonzero λ ∈ F_p. Same geometric points, different bit patterns
@@ -305,8 +331,8 @@ where
     let mut lambda_bytes = zeroize::Zeroizing::new([0u8; 32]);
     rng.fill_bytes(&mut *lambda_bytes);
     lambda_bytes[31] &= 0x7f;
-    let p_t = T::from_bytes_le(&P_BYTES);
-    let mut lambda_t = zeroize::Zeroizing::new(T::from_bytes_le(&*lambda_bytes));
+    let p_t = crate::from_le_bytes::<T>(&P_BYTES);
+    let mut lambda_t = zeroize::Zeroizing::new(crate::from_le_bytes::<T>(&*lambda_bytes));
     let is_zero = subtle::ConstantTimeEq::ct_eq(&*lambda_t, &T::zero());
     let is_p = subtle::ConstantTimeEq::ct_eq(&*lambda_t, &p_t);
     *lambda_t = T::conditional_select(&*lambda_t, &T::one(), is_zero | is_p);
@@ -329,10 +355,10 @@ where
     let result_res = field.mul(&x2, &z2_inv);
     let result = zeroize::Zeroizing::new(field.into_raw(&result_res));
 
-    let mut scratch = zeroize::Zeroizing::new([0u8; MAX_T_BYTES]);
-    let bytes = result.to_bytes_le(&mut *scratch);
+    let bytes = crate::to_le_bytes_ct(&*result);
+    let bytes_slice: &[u8] = bytes.as_ref();
     let mut out = [0u8; 32];
-    out.copy_from_slice(&bytes[..32]);
+    out.copy_from_slice(&bytes_slice[..32]);
     out
 }
 
@@ -347,14 +373,17 @@ where
         + modmath::WideMul
         + modmath::CiosMontMulCt
         + modmath::Parity
-        + num_traits::ops::overflowing::OverflowingAdd
-        + num_traits::WrappingMul
-        + num_traits::WrappingAdd
-        + num_traits::WrappingSub
+        + const_num_traits::ops::overflowing::OverflowingAdd
+        + const_num_traits::WrappingMul
+        + const_num_traits::WrappingAdd
+        + const_num_traits::WrappingSub
         + subtle::ConditionallySelectable
         + subtle::ConstantTimeLess
         + core::ops::Sub<Output = T>,
-    for<'a> &'a T: core::ops::Add<&'a T, Output = T> + core::ops::Sub<&'a T, Output = T>,
+    for<'a> &'a T: core::ops::Add<&'a T, Output = T>
+        + core::ops::Sub<&'a T, Output = T>
+        + const_num_traits::ToBytes<Bytes = <T as const_num_traits::ToBytes>::Bytes>,
+    <T as const_num_traits::ToBytes>::Bytes: zeroize::Zeroize,
     R: rand_core::CryptoRng,
 {
     x25519_blinded::<T, R>(rng, k, &BASE_U_BYTES)
@@ -384,10 +413,10 @@ where
         + modmath::WideMul
         + modmath::CiosMontMulCt
         + modmath::Parity
-        + num_traits::ops::overflowing::OverflowingAdd
-        + num_traits::WrappingMul
-        + num_traits::WrappingAdd
-        + num_traits::WrappingSub
+        + const_num_traits::ops::overflowing::OverflowingAdd
+        + const_num_traits::WrappingMul
+        + const_num_traits::WrappingAdd
+        + const_num_traits::WrappingSub
         + subtle::ConditionallySelectable
         + subtle::ConstantTimeLess
         + core::ops::Sub<Output = T>,

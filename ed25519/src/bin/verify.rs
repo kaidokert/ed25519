@@ -4,10 +4,11 @@ where
         + Copy
         + modmath::WideMul
         + modmath::CiosMontMul
-        + num_traits::ops::overflowing::OverflowingAdd
-        + num_traits::WrappingMul
-        + num_traits::WrappingAdd
-        + num_traits::WrappingSub,
+        + modmath::NonCt
+        + const_num_traits::ops::overflowing::OverflowingAdd
+        + const_num_traits::WrappingMul
+        + const_num_traits::WrappingAdd
+        + const_num_traits::WrappingSub,
     for<'a> &'a T: core::ops::BitAnd<Output = T>
         + core::ops::Add<&'a T, Output = T>
         + core::ops::Sub<&'a T, Output = T>

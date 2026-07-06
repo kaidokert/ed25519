@@ -1,6 +1,6 @@
 [package]
 name = "ed25519_heapless"
-version = "0.2.1"
+version = "0.3.0"
 edition = "2024"
 description = "Ed25519 signature verification and X25519 key exchange, generic over bigint backends"
 license = "GPL-3.0-only"
@@ -12,10 +12,10 @@ categories = ["cryptography", "no-std", "no-std::no-alloc"]
 [dependencies]
 log = { version = "0.4", optional = true }
 env_logger = { version = "0.11", optional = true }
-modmath = { version = "0.3", features = ["wide-mul", "zeroize"] }
-fixed-bigint = { version = "0.3", features=["use-unsafe", "zeroize"], optional=true }
+modmath = { version = "0.4", features = ["zeroize"] }
+fixed-bigint = { version = "0.4", default-features = false, features = ["use-unsafe", "zeroize", "cios"], optional = true }
 subtle = { version = "2.6", default-features = false }
-num-traits = {  version = "0.2" , default-features = false }
+const-num-traits = { version = "0.1", default-features = false }
 zeroize = { version = "1.8", default-features = false }
 hmac-sha512 = { version = "1", default-features = false, features = ["opt_size"], optional = true }
 sha2 = { version = "0.10", default-features = false, features = ["force-soft-compact"], optional = true }
