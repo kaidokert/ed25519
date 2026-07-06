@@ -33,10 +33,14 @@ use crate::{P_BYTES, UnsignedModularInt};
 /// factories can refuse to construct a field. Both arms are unreachable
 /// for any well-formed backend: `BackendTooNarrow` is a backend-selection
 /// bug, and `InvalidModulus` would require `modmath::Field::new` to
-/// reject `p = 2^255 − 19`. The factories return `Result` instead of
-/// panicking so consumers like [`crate::strict::verify`] can convert
-/// either case into a runtime `false` without pulling the panic
-/// runtime into the linked binary.
+/// reject `p = 2^255 − 19`. The factories return `Result` for the paths
+/// that need runtime handling — notably [`crate::sign_with_fields`] via
+/// [`crate::SigningKey::from_seed`], which propagates the error into
+/// [`crate::SignError::FieldSetup`]. Entry points that can afford it
+/// (`strict::verify`, `sign_with_fields`, and every x25519 fn) now use
+/// a `const { assert!(type_bit_width::<T>() >= 256, ...) }` guard, so
+/// a too-narrow `T` is a compile error at monomorphization and the
+/// `Result` handling on those paths is provably dead code.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CurveSetupError {
     BackendTooNarrow,
@@ -97,9 +101,12 @@ where
     /// Build the Curve25519 field. Returns [`CurveSetupError`] when the
     /// backend `T` is too narrow to hold the 256-bit prime, or in the
     /// theoretical-but-unreachable case where `Odd::new` rejects
-    /// `p = 2^255 − 19`. The fallible signature is what lets
-    /// [`crate::strict::verify`] handle a wrong-backend `T` as a runtime
-    /// `false` rather than a panic.
+    /// `p = 2^255 − 19`. The fallible signature exists because callers
+    /// like [`crate::SigningKey::from_seed`] propagate the error into
+    /// [`crate::SignError`]. [`crate::strict::verify`] rejects narrow
+    /// `T` at monomorphization via a `const {}` guard on its inner
+    /// path, so the `Result` handling there is provably unreachable
+    /// but kept for uniformity with the other factory-consuming paths.
     pub fn curve25519() -> Result<Self, CurveSetupError>
     where
         T: UnsignedModularInt,
