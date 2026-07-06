@@ -408,10 +408,7 @@ where
         + subtle::ConditionallySelectable
         + subtle::ConstantTimeLess
         + core::ops::Sub<Output = T>,
-    for<'a> &'a T: core::ops::Add<&'a T, Output = T>
-        + core::ops::Sub<&'a T, Output = T>
-        + const_num_traits::ToBytes<Bytes = <T as const_num_traits::ToBytes>::Bytes>,
-    <T as const_num_traits::ToBytes>::Bytes: zeroize::Zeroize,
+    for<'a> &'a T: core::ops::Add<&'a T, Output = T> + core::ops::Sub<&'a T, Output = T>,
 {
     let mut swap: u8 = 0;
 
