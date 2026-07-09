@@ -83,13 +83,27 @@ use core::marker::PhantomData;
 /// happens to do.
 ///
 /// The `core::ops::{Add, Sub, Mul}<Output = Self>` bounds stay in the
-/// bundle because `modmath::Field` / `modmath::FieldCt` require them
-/// through their own trait surface. Ed25519 doesn't *use* the
-/// operators directly — modmath does, internally — so the correctness
-/// of ed25519's arithmetic depends only on the wrapping methods here,
-/// and portability across `crypto-bigint` / `bnum` / future backends
-/// pivots on whether modmath itself sheds those operator bounds
-/// upstream. Tracked separately in the modmath project.
+/// bundle because two things force them at the type level:
+///
+/// 1. **Const-num-traits' `WrappingAdd` signature.**
+///    `fn wrapping_add(self, v: Self) -> <Self as Add<Self>>::Output`
+///    routes the return type through `Add`'s associated `Output`.
+///    Without a bound pinning `<T as Add<T>>::Output == T`,
+///    `.wrapping_add(x)`'s result can't be assigned back to a `T`
+///    local. Every call site of `.wrapping_*()` — the whole point
+///    of moving off the operators — would need to carry the same
+///    projection constraint, defeating the exercise.
+/// 2. **Modmath's `Field` / `FieldCt` require them internally.**
+///    Every `field.add / field.mul / field.reduce` call has
+///    `T: Add<Output = T> + Sub<Output = T> + Mul<Output = T>` in
+///    its where-clause upstream.
+///
+/// So the operator bounds appear at the type level, but ed25519 no
+/// longer *uses* the operators — every `+` / `-` / `*` on `T` in
+/// ed25519's own code goes through the wrapping methods. The bug the
+/// fork agent hit (bnum / crypto-bigint backends with panic-or-mode
+/// semantics on `Sub`) is a modmath-side and const-num-traits-side
+/// problem — the ed25519-side of it is closed.
 ///
 /// # Byte serialization
 ///
