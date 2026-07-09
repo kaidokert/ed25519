@@ -94,14 +94,18 @@ impl NafIterator {
     where
         T: const_num_traits::Zero
             + const_num_traits::One
+            + const_num_traits::WrappingAdd
             + Copy
             + PartialOrd
             + PartialEq
             + core::ops::ShrAssign<usize>
+            // `Add<Output = T>` isn't used directly — it's threaded
+            // through `WrappingAdd`'s return type
+            // `<Self as Add<Self>>::Output`, which we need to equal `T`
+            // so the result of `.wrapping_add(...)` is assignable
+            // back to a `T` local.
             + core::ops::Add<Output = T>,
-        for<'a> &'a T: core::ops::BitAnd<Output = T>
-            + core::ops::Add<&'a T, Output = T>
-            + core::ops::Sub<&'a T, Output = T>,
+        for<'a> &'a T: core::ops::BitAnd<Output = T>,
     {
         let mut iter = NafIterator {
             packed: [0u8; PACKED_NAF_BYTES],
@@ -113,11 +117,15 @@ impl NafIterator {
         let mut s_working = s;
         let mut h_working = h;
 
-        // Hoist loop-invariant constants
+        // Hoist loop-invariant constants. Values 2 and 3 fit in any
+        // backend the ed25519 factories accept (>= 256 bits), so the
+        // wrap can never fire in practice — but naming it forces the
+        // trait boundary to promise wrap-around semantics rather than
+        // leaving `+` at the mercy of the backend's implementation.
         let zero = T::zero();
         let one = T::one();
-        let two = one + one;
-        let three = two + one;
+        let two = one.wrapping_add(one);
+        let three = two.wrapping_add(one);
 
         // Process scalars bit by bit to generate NAF digits
         while s_working > zero || h_working > zero {
@@ -158,10 +166,10 @@ impl NafIterator {
             h_working >>= 1;
 
             if s_carry {
-                s_working = s_working + one;
+                s_working = s_working.wrapping_add(one);
             }
             if h_carry {
-                h_working = h_working + one;
+                h_working = h_working.wrapping_add(one);
             }
         }
 

@@ -65,7 +65,34 @@ use core::marker::PhantomData;
 
 /// Bound bundle for the generic bigint backend Ed25519 verify + X25519
 /// build on. Pure marker trait: no methods, just a named alias for the
-/// supertrait union. Byte (de)serialization goes through
+/// supertrait union.
+///
+/// # Arithmetic contract
+///
+/// [`core::ops::Sub`]'s contract is underspecified: Rust's own primitive
+/// integer `Sub` panics on underflow in debug and wraps in release, and
+/// bignum backends have picked incompatible semantics (fixed-bigint
+/// wraps, crypto-bigint panics, bnum dispatches through an
+/// `OverflowMode`). Modular-arithmetic call sites need wrap-around, so
+/// **all ed25519-side arithmetic on `T` goes through the explicit
+/// wrapping methods** — [`WrappingAdd`](const_num_traits::WrappingAdd),
+/// [`WrappingSub`](const_num_traits::WrappingSub),
+/// [`WrappingMul`](const_num_traits::WrappingMul) — never the plain
+/// `+` / `-` / `*` operators. The wrapping traits carry a documented
+/// wrap-around contract regardless of what the underlying `Sub` impl
+/// happens to do.
+///
+/// The `core::ops::{Add, Sub, Mul}<Output = Self>` bounds stay in the
+/// bundle because `modmath::Field` / `modmath::FieldCt` require them
+/// through their own trait surface. Ed25519 doesn't *use* the
+/// operators directly — modmath does, internally — so the correctness
+/// of ed25519's arithmetic depends only on the wrapping methods here,
+/// and portability across `crypto-bigint` / `bnum` / future backends
+/// pivots on whether modmath itself sheds those operator bounds
+/// upstream. Tracked separately in the modmath project.
+///
+/// # Byte serialization
+///
 /// [`const_num_traits::FromByteSlice`] (fallible slice-in) and
 /// [`const_num_traits::ToBytes`] (owned bytes with `AsRef<[u8]>`),
 /// which any conforming backend implements without ed25519 knowing the
@@ -77,6 +104,9 @@ pub trait UnsignedModularInt:
     + const_num_traits::One
     + const_num_traits::Zero
     + const_num_traits::ops::overflowing::OverflowingAdd
+    + const_num_traits::WrappingAdd
+    + const_num_traits::WrappingSub
+    + const_num_traits::WrappingMul
     + core::ops::Shr<usize, Output = Self>
     + core::ops::Add<Output = Self>
     + core::ops::Sub<Output = Self>
@@ -97,6 +127,9 @@ impl<T> UnsignedModularInt for T where
         + const_num_traits::One
         + const_num_traits::Zero
         + const_num_traits::ops::overflowing::OverflowingAdd
+        + const_num_traits::WrappingAdd
+        + const_num_traits::WrappingSub
+        + const_num_traits::WrappingMul
         + core::ops::Shr<usize, Output = Self>
         + core::ops::Add<Output = Self>
         + core::ops::Sub<Output = Self>
