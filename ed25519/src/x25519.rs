@@ -124,6 +124,7 @@ where
         + const_num_traits::WrappingMul
         + const_num_traits::WrappingAdd
         + const_num_traits::WrappingSub
+        + const_num_traits::CtIsZero
         + subtle::ConditionallySelectable
         + subtle::ConstantTimeLess
         + core::ops::Sub<Output = T>,
@@ -169,6 +170,7 @@ where
         + const_num_traits::WrappingMul
         + const_num_traits::WrappingAdd
         + const_num_traits::WrappingSub
+        + const_num_traits::CtIsZero
         + subtle::ConditionallySelectable
         + subtle::ConstantTimeLess
         + core::ops::Sub<Output = T>,
@@ -282,6 +284,7 @@ where
         + const_num_traits::WrappingMul
         + const_num_traits::WrappingAdd
         + const_num_traits::WrappingSub
+        + const_num_traits::CtIsZero
         + subtle::ConditionallySelectable
         + subtle::ConstantTimeLess
         + core::ops::Sub<Output = T>,
@@ -377,6 +380,7 @@ where
         + const_num_traits::WrappingMul
         + const_num_traits::WrappingAdd
         + const_num_traits::WrappingSub
+        + const_num_traits::CtIsZero
         + subtle::ConditionallySelectable
         + subtle::ConstantTimeLess
         + core::ops::Sub<Output = T>,
@@ -417,6 +421,7 @@ where
         + const_num_traits::WrappingMul
         + const_num_traits::WrappingAdd
         + const_num_traits::WrappingSub
+        + const_num_traits::CtIsZero
         + subtle::ConditionallySelectable
         + subtle::ConstantTimeLess
         + core::ops::Sub<Output = T>,

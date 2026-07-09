@@ -220,6 +220,7 @@ pub trait SignBackend:
     + const_num_traits::WrappingMul
     + const_num_traits::WrappingAdd
     + const_num_traits::WrappingSub
+    + const_num_traits::CtIsZero
     + subtle::ConditionallySelectable
     + subtle::ConstantTimeLess
     + zeroize::DefaultIsZeroes
@@ -235,6 +236,7 @@ impl<T> SignBackend for T where
         + const_num_traits::WrappingMul
         + const_num_traits::WrappingAdd
         + const_num_traits::WrappingSub
+        + const_num_traits::CtIsZero
         + subtle::ConditionallySelectable
         + subtle::ConstantTimeLess
         + zeroize::DefaultIsZeroes
