@@ -249,28 +249,25 @@ where
     /// CT lazy add: always compute both `sum` and `sum − modulus`, select
     /// branchlessly. No overflow possible on `sum` (2·p fits in T). The
     /// `sum - self.modulus` candidate underflows when `sum < modulus` —
-    /// that's load-bearing for constant-time: under the `Ct` personality
-    /// `FixedUInt::Sub` discards the overflow flag (silent wrap) by
-    /// typestate design, so the underflowing branch never panics even
-    /// in debug builds. See `ct_add_sub_never_panic_on_underflow_path`
-    /// test for the regression guard.
+    /// that's load-bearing for constant-time: the explicit `.wrapping_sub`
+    /// names wrap-around at the trait boundary, so the underflowing branch
+    /// never panics even in debug builds. See
+    /// `ct_add_sub_never_panic_on_underflow_path` test for the regression
+    /// guard.
     #[inline]
     pub fn add<'f>(&'f self, a: &ResidueCt<'f, T>, b: &ResidueCt<'f, T>) -> ResidueCt<'f, T> {
         // Stay in `&T` for the secret-derived operands so no implicit
         // `T: Copy` materializations land on the stack. `.wrapping_add`
         // / `.wrapping_sub` on `&T` receivers dispatch to fixed-bigint's
-        // `impl Wrapping{Add,Sub} for &FixedUInt<W, N, P>` (added in
-        // v0.5.0-alpha.3), which reads limbs through the reference and
-        // produces a fresh owned `T` — same shape as the previous
-        // `&T + &T` operator dispatch, but with the wrap-around
-        // contract in the trait name.
+        // `impl Wrapping{Add,Sub} for &FixedUInt<W, N, P>`, which reads
+        // limbs through the reference and produces a fresh owned `T`.
         use const_num_traits::{WrappingAdd, WrappingSub};
         let a_m = a.mont_value();
         let b_m = b.mont_value();
         // Explicit UFCS on `<&T as WrappingAdd>` forces dispatch to
         // fixed-bigint's `impl WrappingAdd for &FixedUInt<W, N, P>`
-        // (v0.5.0-alpha.3) instead of falling back to the by-value
-        // impl through autoderef of the receiver.
+        // instead of falling back to the by-value impl through autoderef
+        // of the receiver.
         let sum = zeroize::Zeroizing::new(<&T as WrappingAdd>::wrapping_add(a_m, b_m));
         let reduced =
             zeroize::Zeroizing::new(<&T as WrappingSub>::wrapping_sub(&*sum, &self.modulus));
@@ -287,8 +284,8 @@ where
     /// CT lazy sub: compute both `a − b` (mod 2^W) and `a + modulus − b`,
     /// select branchlessly based on whether `a < b`. Like
     /// [`Self::add`], the `a_m - b_m` candidate underflows when
-    /// `a_m < b_m` — silent wrap under the `Ct` personality by typestate
-    /// design.
+    /// `a_m < b_m` — the explicit `.wrapping_sub` names wrap-around at the
+    /// trait boundary, so the underflow can't panic.
     #[inline]
     pub fn sub<'f>(&'f self, a: &ResidueCt<'f, T>, b: &ResidueCt<'f, T>) -> ResidueCt<'f, T> {
         // Same wrap-everything-in-`Zeroizing` discipline as [`Self::add`],
@@ -323,8 +320,7 @@ where
     where
         T: core::ops::Shr<usize, Output = T> + core::ops::BitAnd<Output = T>,
     {
-        // Exponent `p − 2`. Explicit `.wrapping_sub` names the wrap
-        // contract; `p > 2` so the wrap can't fire in practice.
+        // `p > 2` so the wrap can't fire in practice.
         let exp = self.modulus.wrapping_sub(T::one()).wrapping_sub(T::one());
         self.inner.exp_public_exp(a, &exp)
     }

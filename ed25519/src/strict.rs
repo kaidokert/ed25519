@@ -78,9 +78,6 @@ where
                 acc = added;
             }
             // acc < 2q + 1 here, so at most two subtractions needed.
-            // Move `acc` into `.wrapping_sub` and clone `q` for a
-            // wrap-around contract that doesn't hinge on the backend's
-            // `Sub` impl semantics.
             if &acc >= q {
                 acc = acc.wrapping_sub(q.clone());
             }
@@ -138,13 +135,10 @@ where
     // Phase 2: exponent (p+3)/8. p = 2^255 − 19 → (p+3)/8 = 2^252 − 2,
     // exactly divisible by 8 so we use `>> 3` (no division on T required).
     let exp = {
-        // `three = 1 + 1 + 1` — fits any curve-eligible backend; explicit
-        // `.wrapping_add` names the wrap-around contract.
         let three = T::one().wrapping_add(T::one()).wrapping_add(T::one());
-        // Explicit UFCS on `<&T as WrappingAdd>` forces dispatch to
-        // fixed-bigint's `impl WrappingAdd for &FixedUInt<W, N, P>`
-        // (v0.5.0-alpha.3) — reads limbs through the reference, returns
-        // a fresh owned `T`. No underspecified operator anywhere.
+        // UFCS on `<&T as WrappingAdd>` forces dispatch to fixed-bigint's
+        // `impl WrappingAdd for &FixedUInt<W, N, P>` — reads limbs through
+        // the reference, returns a fresh owned `T`.
         let p3 = <&T as const_num_traits::WrappingAdd>::wrapping_add(field.modulus(), &three);
         p3 >> 3
     };

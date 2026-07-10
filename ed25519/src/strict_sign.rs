@@ -289,9 +289,7 @@ where
 
     for byte_idx in (0..64).rev() {
         for bit_idx in (0..8).rev() {
-            // acc *= 2
-            // const-num-traits' OverflowingAdd / WrappingSub take operands
-            // by value; T: SignBackend → Copy lets us deref-then-copy.
+            // overflowing_add takes T by value; SignBackend: Copy.
             let (doubled, _overflow) = (*acc).overflowing_add(*acc);
             *acc = doubled;
 
