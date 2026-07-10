@@ -113,9 +113,6 @@ where
         + modmath::WideMul
         + modmath::CiosMontMul
         + modmath::NonCt
-        + const_num_traits::ops::overflowing::OverflowingAdd<Output = T>
-        + const_num_traits::WrappingMul<Output = T>
-        + const_num_traits::WrappingAdd<Output = T>
         + const_num_traits::WrappingSub<Output = T>,
     for<'a> &'a T:
         const_num_traits::WrappingAdd<Output = T> + const_num_traits::WrappingSub<Output = T>,
@@ -200,9 +197,6 @@ where
         + modmath::WideMul
         + modmath::CiosMontMul
         + modmath::NonCt
-        + const_num_traits::ops::overflowing::OverflowingAdd<Output = T>
-        + const_num_traits::WrappingMul<Output = T>
-        + const_num_traits::WrappingAdd<Output = T>
         + const_num_traits::WrappingSub<Output = T>,
     for<'a> &'a T:
         const_num_traits::WrappingAdd<Output = T> + const_num_traits::WrappingSub<Output = T>,
@@ -231,9 +225,6 @@ where
         + modmath::WideMul
         + modmath::CiosMontMul
         + modmath::NonCt
-        + const_num_traits::ops::overflowing::OverflowingAdd<Output = T>
-        + const_num_traits::WrappingMul<Output = T>
-        + const_num_traits::WrappingAdd<Output = T>
         + const_num_traits::WrappingSub<Output = T>,
     for<'a> &'a T:
         const_num_traits::WrappingAdd<Output = T> + const_num_traits::WrappingSub<Output = T>,
@@ -274,9 +265,6 @@ where
         + modmath::WideMul
         + modmath::CiosMontMul
         + modmath::NonCt
-        + const_num_traits::ops::overflowing::OverflowingAdd<Output = T>
-        + const_num_traits::WrappingMul<Output = T>
-        + const_num_traits::WrappingAdd<Output = T>
         + const_num_traits::WrappingSub<Output = T>,
     for<'a> &'a T:
         const_num_traits::WrappingAdd<Output = T> + const_num_traits::WrappingSub<Output = T>,
@@ -301,9 +289,6 @@ where
         + modmath::WideMul
         + modmath::CiosMontMul
         + modmath::NonCt
-        + const_num_traits::ops::overflowing::OverflowingAdd<Output = T>
-        + const_num_traits::WrappingMul<Output = T>
-        + const_num_traits::WrappingAdd<Output = T>
         + const_num_traits::WrappingSub<Output = T>,
     for<'a> &'a T:
         const_num_traits::WrappingAdd<Output = T> + const_num_traits::WrappingSub<Output = T>,
@@ -340,9 +325,6 @@ where
         + modmath::WideMul
         + modmath::CiosMontMul
         + modmath::NonCt
-        + const_num_traits::ops::overflowing::OverflowingAdd<Output = T>
-        + const_num_traits::WrappingMul<Output = T>
-        + const_num_traits::WrappingAdd<Output = T>
         + const_num_traits::WrappingSub<Output = T>,
     for<'a> &'a T:
         const_num_traits::WrappingAdd<Output = T> + const_num_traits::WrappingSub<Output = T>,
@@ -371,9 +353,6 @@ where
         + modmath::WideMul
         + modmath::CiosMontMul
         + modmath::NonCt
-        + const_num_traits::ops::overflowing::OverflowingAdd<Output = T>
-        + const_num_traits::WrappingMul<Output = T>
-        + const_num_traits::WrappingAdd<Output = T>
         + const_num_traits::WrappingSub<Output = T>,
     for<'a> &'a T: core::ops::BitAnd<Output = T>
         + const_num_traits::WrappingAdd<Output = T>
@@ -432,9 +411,6 @@ where
         + modmath::WideMul
         + modmath::CiosMontMul
         + modmath::NonCt
-        + const_num_traits::ops::overflowing::OverflowingAdd<Output = T>
-        + const_num_traits::WrappingMul<Output = T>
-        + const_num_traits::WrappingAdd<Output = T>
         + const_num_traits::WrappingSub<Output = T>,
     for<'a> &'a T: core::ops::BitAnd<Output = T>
         + const_num_traits::WrappingAdd<Output = T>
@@ -471,9 +447,6 @@ where
         + modmath::WideMul
         + modmath::CiosMontMul
         + modmath::NonCt
-        + const_num_traits::ops::overflowing::OverflowingAdd<Output = T>
-        + const_num_traits::WrappingMul<Output = T>
-        + const_num_traits::WrappingAdd<Output = T>
         + const_num_traits::WrappingSub<Output = T>,
     for<'a> &'a T: core::ops::BitAnd<Output = T>
         + const_num_traits::WrappingAdd<Output = T>
@@ -495,9 +468,6 @@ where
         + modmath::WideMul
         + modmath::CiosMontMul
         + modmath::NonCt
-        + const_num_traits::ops::overflowing::OverflowingAdd<Output = T>
-        + const_num_traits::WrappingMul<Output = T>
-        + const_num_traits::WrappingAdd<Output = T>
         + const_num_traits::WrappingSub<Output = T>,
     for<'a> &'a T: core::ops::BitAnd<Output = T>
         + const_num_traits::WrappingAdd<Output = T>

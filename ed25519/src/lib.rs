@@ -170,9 +170,6 @@ pub trait SignBackend:
     + Copy
     + modmath::WideMul
     + modmath::CiosMontMulCt
-    + const_num_traits::WrappingMul<Output = Self>
-    + const_num_traits::WrappingAdd<Output = Self>
-    + const_num_traits::WrappingSub<Output = Self>
     + const_num_traits::CtIsZero
     + subtle::ConditionallySelectable
     + subtle::ConstantTimeLess
@@ -186,9 +183,6 @@ impl<T> SignBackend for T where
         + Copy
         + modmath::WideMul
         + modmath::CiosMontMulCt
-        + const_num_traits::WrappingMul<Output = T>
-        + const_num_traits::WrappingAdd<Output = T>
-        + const_num_traits::WrappingSub<Output = T>
         + const_num_traits::CtIsZero
         + subtle::ConditionallySelectable
         + subtle::ConstantTimeLess
@@ -313,15 +307,7 @@ fn parse_signature(signature: &[u8]) -> Result<[u8; 64], signature::Error> {
 impl<T, S> signature::Verifier<S> for VerifyingKey<T>
 where
     S: AsRef<[u8]>,
-    T: UnsignedModularInt
-        + Copy
-        + modmath::WideMul
-        + modmath::CiosMontMul
-        + modmath::NonCt
-        + const_num_traits::ops::overflowing::OverflowingAdd<Output = T>
-        + const_num_traits::WrappingMul<Output = T>
-        + const_num_traits::WrappingAdd<Output = T>
-        + const_num_traits::WrappingSub<Output = T>,
+    T: UnsignedModularInt + Copy + modmath::WideMul + modmath::CiosMontMul + modmath::NonCt,
     for<'a> &'a T: core::ops::BitAnd<Output = T>
         + const_num_traits::WrappingAdd<Output = T>
         + const_num_traits::WrappingSub<Output = T>,

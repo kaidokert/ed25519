@@ -120,10 +120,6 @@ where
         + modmath::WideMul
         + modmath::CiosMontMulCt
         + modmath::Parity
-        + const_num_traits::ops::overflowing::OverflowingAdd<Output = T>
-        + const_num_traits::WrappingMul<Output = T>
-        + const_num_traits::WrappingAdd<Output = T>
-        + const_num_traits::WrappingSub<Output = T>
         + const_num_traits::CtIsZero
         + subtle::ConditionallySelectable
         + subtle::ConstantTimeLess,
@@ -165,10 +161,6 @@ where
         + modmath::WideMul
         + modmath::CiosMontMulCt
         + modmath::Parity
-        + const_num_traits::ops::overflowing::OverflowingAdd<Output = T>
-        + const_num_traits::WrappingMul<Output = T>
-        + const_num_traits::WrappingAdd<Output = T>
-        + const_num_traits::WrappingSub<Output = T>
         + const_num_traits::CtIsZero
         + subtle::ConditionallySelectable
         + subtle::ConstantTimeLess,
@@ -278,10 +270,6 @@ where
         + modmath::WideMul
         + modmath::CiosMontMulCt
         + modmath::Parity
-        + const_num_traits::ops::overflowing::OverflowingAdd<Output = T>
-        + const_num_traits::WrappingMul<Output = T>
-        + const_num_traits::WrappingAdd<Output = T>
-        + const_num_traits::WrappingSub<Output = T>
         + const_num_traits::CtIsZero
         + subtle::ConditionallySelectable
         + subtle::ConstantTimeLess,
@@ -373,10 +361,6 @@ where
         + modmath::WideMul
         + modmath::CiosMontMulCt
         + modmath::Parity
-        + const_num_traits::ops::overflowing::OverflowingAdd<Output = T>
-        + const_num_traits::WrappingMul<Output = T>
-        + const_num_traits::WrappingAdd<Output = T>
-        + const_num_traits::WrappingSub<Output = T>
         + const_num_traits::CtIsZero
         + subtle::ConditionallySelectable
         + subtle::ConstantTimeLess,
@@ -413,11 +397,6 @@ where
         + modmath::WideMul
         + modmath::CiosMontMulCt
         + modmath::Parity
-        + const_num_traits::ops::overflowing::OverflowingAdd<Output = T>
-        + const_num_traits::WrappingMul<Output = T>
-        + const_num_traits::WrappingAdd<Output = T>
-        + const_num_traits::WrappingSub<Output = T>
-        + const_num_traits::CtIsZero
         + subtle::ConditionallySelectable
         + subtle::ConstantTimeLess,
     for<'a> &'a T:
