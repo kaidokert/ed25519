@@ -73,7 +73,8 @@ pub(crate) fn point_double_ct<'f, T>(
 ) -> EdPointCt<'f, T>
 where
     T: SignBackend,
-    for<'a> &'a T: core::ops::Add<&'a T, Output = T> + core::ops::Sub<&'a T, Output = T>,
+    for<'a> &'a T:
+        const_num_traits::WrappingAdd<Output = T> + const_num_traits::WrappingSub<Output = T>,
 {
     // a = X²; b = Y²; c = 2·Z²; d = −A (a = −1 for Ed25519)
     // e = (X+Y)² − a − b; g = d + b; f = g − c; h = d − b
@@ -106,7 +107,8 @@ pub(crate) fn to_niels_ct<'f, T>(
 ) -> NielsPointCt<'f, T>
 where
     T: SignBackend,
-    for<'a> &'a T: core::ops::Add<&'a T, Output = T> + core::ops::Sub<&'a T, Output = T>,
+    for<'a> &'a T:
+        const_num_traits::WrappingAdd<Output = T> + const_num_traits::WrappingSub<Output = T>,
 {
     let y_plus_x = field.add(&pp.1, &pp.0);
     let y_minus_x = field.sub(&pp.1, &pp.0);
@@ -124,7 +126,8 @@ pub(crate) fn point_add_niels_ct<'f, T>(
 ) -> EdPointCt<'f, T>
 where
     T: SignBackend,
-    for<'a> &'a T: core::ops::Add<&'a T, Output = T> + core::ops::Sub<&'a T, Output = T>,
+    for<'a> &'a T:
+        const_num_traits::WrappingAdd<Output = T> + const_num_traits::WrappingSub<Output = T>,
 {
     // A = (Y₁−X₁)·(y−x); B = (Y₁+X₁)·(y+x); C = T₁·2dt; D = 2·Z₁
     let pp_y_minus_x = field.sub(&pp.1, &pp.0);
@@ -185,7 +188,8 @@ pub(crate) fn scalar_mult_ct<'f, T>(
 ) -> EdPointCt<'f, T>
 where
     T: SignBackend,
-    for<'a> &'a T: core::ops::Add<&'a T, Output = T> + core::ops::Sub<&'a T, Output = T>,
+    for<'a> &'a T:
+        const_num_traits::WrappingAdd<Output = T> + const_num_traits::WrappingSub<Output = T>,
 {
     let d_raw = crate::from_le_bytes::<T>(&D_BYTES);
     let base_niels = to_niels_ct(base, d_raw, field);
@@ -220,8 +224,8 @@ pub(crate) fn point_compress_ct<'f, T>(
 ) -> [u8; 32]
 where
     T: SignBackend,
-    for<'a> &'a T: core::ops::Add<&'a T, Output = T>
-        + core::ops::Sub<&'a T, Output = T>
+    for<'a> &'a T: const_num_traits::WrappingAdd<Output = T>
+        + const_num_traits::WrappingSub<Output = T>
         + const_num_traits::ToBytes<Bytes = <T as const_num_traits::ToBytes>::Bytes>,
     <T as const_num_traits::ToBytes>::Bytes: zeroize::Zeroize,
 {
@@ -274,7 +278,8 @@ where
 pub(crate) fn sha512_modq_ct<T>(parts: &[&[u8]], q: &T) -> zeroize::Zeroizing<T>
 where
     T: SignBackend,
-    for<'a> &'a T: core::ops::Add<&'a T, Output = T> + core::ops::Sub<&'a T, Output = T>,
+    for<'a> &'a T:
+        const_num_traits::WrappingAdd<Output = T> + const_num_traits::WrappingSub<Output = T>,
 {
     let hash = sha512(parts);
 
@@ -318,7 +323,8 @@ where
 pub(crate) fn base_point_ct<'f, T>(field: &'f Curve25519FieldCt<T>) -> EdPointCt<'f, T>
 where
     T: SignBackend,
-    for<'a> &'a T: core::ops::Add<&'a T, Output = T> + core::ops::Sub<&'a T, Output = T>,
+    for<'a> &'a T:
+        const_num_traits::WrappingAdd<Output = T> + const_num_traits::WrappingSub<Output = T>,
 {
     let gx = field.reduce(&crate::from_le_bytes::<T>(&crate::G_X_BYTES));
     let gy = field.reduce(&crate::from_le_bytes::<T>(&crate::G_Y_BYTES));

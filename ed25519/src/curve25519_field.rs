@@ -209,7 +209,8 @@ where
         + subtle::ConstantTimeLess
         + modmath::MontStorage
         + const_num_traits::CtIsZero,
-    for<'a> &'a T: core::ops::Add<&'a T, Output = T> + core::ops::Sub<&'a T, Output = T>,
+    for<'a> &'a T:
+        const_num_traits::WrappingAdd<Output = T> + const_num_traits::WrappingSub<Output = T>,
 {
     pub fn new(modulus: T) -> Option<Self> {
         FieldCt::new(modulus).map(|inner| Curve25519FieldCt { inner, modulus })
@@ -256,22 +257,23 @@ where
     #[inline]
     pub fn add<'f>(&'f self, a: &ResidueCt<'f, T>, b: &ResidueCt<'f, T>) -> ResidueCt<'f, T> {
         // Stay in `&T` for the secret-derived operands so no implicit
-        // `T: Copy` materializations land on the stack; every owned
-        // intermediate gets wrapped in `Zeroizing<T>` so its bytes are
-        // wiped at scope end (`FixedUInt` is `Copy + Zeroize`, but
-        // `Copy` is mutually exclusive with `Drop`, so the bare `T`
-        // locals would otherwise sit on the stack until overwritten).
+        // `T: Copy` materializations land on the stack. `.wrapping_add`
+        // / `.wrapping_sub` on `&T` receivers dispatch to fixed-bigint's
+        // `impl Wrapping{Add,Sub} for &FixedUInt<W, N, P>` (added in
+        // v0.5.0-alpha.3), which reads limbs through the reference and
+        // produces a fresh owned `T` — same shape as the previous
+        // `&T + &T` operator dispatch, but with the wrap-around
+        // contract in the trait name.
+        use const_num_traits::{WrappingAdd, WrappingSub};
         let a_m = a.mont_value();
         let b_m = b.mont_value();
-        let sum = zeroize::Zeroizing::new(a_m + b_m);
-        // The `&*sum` / `&self.modulus` refs look needlessly taken to
-        // clippy's `op_ref` lint, which would suggest
-        // `*sum - self.modulus`. Don't take that suggestion: `*sum`
-        // is a deref-copy of `T` out of `Zeroizing<T>` into a bare
-        // stack slot with no `Drop`, re-introducing the very leak
-        // this function plugs.
-        #[allow(clippy::op_ref)]
-        let reduced = zeroize::Zeroizing::new(&*sum - &self.modulus);
+        // Explicit UFCS on `<&T as WrappingAdd>` forces dispatch to
+        // fixed-bigint's `impl WrappingAdd for &FixedUInt<W, N, P>`
+        // (v0.5.0-alpha.3) instead of falling back to the by-value
+        // impl through autoderef of the receiver.
+        let sum = zeroize::Zeroizing::new(<&T as WrappingAdd>::wrapping_add(a_m, b_m));
+        let reduced =
+            zeroize::Zeroizing::new(<&T as WrappingSub>::wrapping_sub(&*sum, &self.modulus));
         // sum < modulus  →  keep sum;  otherwise → use sum − modulus.
         let needs_reduce = !sum.ct_lt(&self.modulus);
         let result = zeroize::Zeroizing::new(T::conditional_select(&*sum, &*reduced, needs_reduce));
@@ -289,13 +291,17 @@ where
     /// design.
     #[inline]
     pub fn sub<'f>(&'f self, a: &ResidueCt<'f, T>, b: &ResidueCt<'f, T>) -> ResidueCt<'f, T> {
-        // Same wrap-everything-in-`Zeroizing` discipline as [`Self::add`].
+        // Same wrap-everything-in-`Zeroizing` discipline as [`Self::add`],
+        // and same explicit `<&T as Wrapping…>` UFCS dispatch to force
+        // the read-through-ref impl on the `&T` operands.
+        use const_num_traits::{WrappingAdd, WrappingSub};
         let a_m = a.mont_value();
         let b_m = b.mont_value();
-        let diff_no_borrow = zeroize::Zeroizing::new(a_m - b_m);
+        let diff_no_borrow = zeroize::Zeroizing::new(<&T as WrappingSub>::wrapping_sub(a_m, b_m));
         let diff_with_borrow = zeroize::Zeroizing::new({
-            let with_modulus = zeroize::Zeroizing::new(a_m + &self.modulus);
-            &*with_modulus - b_m
+            let with_modulus =
+                zeroize::Zeroizing::new(<&T as WrappingAdd>::wrapping_add(a_m, &self.modulus));
+            <&T as WrappingSub>::wrapping_sub(&*with_modulus, b_m)
         });
         let needs_add_p = a_m.ct_lt(b_m);
         let result = zeroize::Zeroizing::new(T::conditional_select(

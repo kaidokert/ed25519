@@ -28,7 +28,8 @@ where
         + CiosMontMulCt
         + subtle::ConditionallySelectable
         + subtle::ConstantTimeLess,
-    for<'a> &'a T: core::ops::Add<&'a T, Output = T> + core::ops::Sub<&'a T, Output = T>,
+    for<'a> &'a T:
+        const_num_traits::WrappingAdd<Output = T> + const_num_traits::WrappingSub<Output = T>,
 {
     if modmath::type_bit_width::<T>() < 256 {
         return Err(CurveSetupError::BackendTooNarrow);

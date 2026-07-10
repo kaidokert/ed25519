@@ -22,7 +22,8 @@ use crate::{D_BYTES, G_T_BYTES, G_X_BYTES, G_Y_BYTES, MODP_SQRT_M1_BYTES, Q_BYTE
 #[inline(never)]
 fn sha512_modq<T: UnsignedModularInt>(parts: &[&[u8]], q: &T) -> T
 where
-    for<'a> &'a T: core::ops::Add<&'a T, Output = T> + core::ops::Sub<&'a T, Output = T>,
+    for<'a> &'a T:
+        const_num_traits::WrappingAdd<Output = T> + const_num_traits::WrappingSub<Output = T>,
 {
     // Enforce "exactly one" SHA-512 backend at compile time. Two
     // mutually-exclusive arms + two compile_error! guards cover all four
@@ -116,9 +117,8 @@ where
         + const_num_traits::WrappingMul<Output = T>
         + const_num_traits::WrappingAdd<Output = T>
         + const_num_traits::WrappingSub<Output = T>,
-    for<'a> &'a T: core::ops::Add<&'a T, Output = T>
-        + core::ops::Sub<T, Output = T>
-        + core::ops::Sub<&'a T, Output = T>,
+    for<'a> &'a T:
+        const_num_traits::WrappingAdd<Output = T> + const_num_traits::WrappingSub<Output = T>,
 {
     // Phase 1: x² = (y² − 1) / (d·y² + 1)
     let x2 = {
@@ -144,7 +144,11 @@ where
         // `three = 1 + 1 + 1` — fits any curve-eligible backend; explicit
         // `.wrapping_add` names the wrap-around contract.
         let three = T::one().wrapping_add(T::one()).wrapping_add(T::one());
-        let p3 = field.modulus() + &three;
+        // Explicit UFCS on `<&T as WrappingAdd>` forces dispatch to
+        // fixed-bigint's `impl WrappingAdd for &FixedUInt<W, N, P>`
+        // (v0.5.0-alpha.3) — reads limbs through the reference, returns
+        // a fresh owned `T`. No underspecified operator anywhere.
+        let p3 = <&T as const_num_traits::WrappingAdd>::wrapping_add(field.modulus(), &three);
         p3 >> 3
     };
 
@@ -200,9 +204,8 @@ where
         + const_num_traits::WrappingMul<Output = T>
         + const_num_traits::WrappingAdd<Output = T>
         + const_num_traits::WrappingSub<Output = T>,
-    for<'a> &'a T: core::ops::Add<&'a T, Output = T>
-        + core::ops::Sub<T, Output = T>
-        + core::ops::Sub<&'a T, Output = T>,
+    for<'a> &'a T:
+        const_num_traits::WrappingAdd<Output = T> + const_num_traits::WrappingSub<Output = T>,
 {
     let mut bytes = encoded;
     let sign = bytes[31] >> 7;
@@ -232,7 +235,8 @@ where
         + const_num_traits::WrappingMul<Output = T>
         + const_num_traits::WrappingAdd<Output = T>
         + const_num_traits::WrappingSub<Output = T>,
-    for<'a> &'a T: core::ops::Add<&'a T, Output = T> + core::ops::Sub<&'a T, Output = T>,
+    for<'a> &'a T:
+        const_num_traits::WrappingAdd<Output = T> + const_num_traits::WrappingSub<Output = T>,
 {
     // Edwards curve doubling on extended-twisted coordinates.
     // A = X²; B = Y²; C = 2·Z²; D = −A (a = −1 for Ed25519)
@@ -274,7 +278,8 @@ where
         + const_num_traits::WrappingMul<Output = T>
         + const_num_traits::WrappingAdd<Output = T>
         + const_num_traits::WrappingSub<Output = T>,
-    for<'a> &'a T: core::ops::Add<&'a T, Output = T> + core::ops::Sub<&'a T, Output = T>,
+    for<'a> &'a T:
+        const_num_traits::WrappingAdd<Output = T> + const_num_traits::WrappingSub<Output = T>,
 {
     let y_plus_x = field.add(&pp.1, &pp.0);
     let y_minus_x = field.sub(&pp.1, &pp.0);
@@ -300,7 +305,8 @@ where
         + const_num_traits::WrappingMul<Output = T>
         + const_num_traits::WrappingAdd<Output = T>
         + const_num_traits::WrappingSub<Output = T>,
-    for<'a> &'a T: core::ops::Add<&'a T, Output = T> + core::ops::Sub<&'a T, Output = T>,
+    for<'a> &'a T:
+        const_num_traits::WrappingAdd<Output = T> + const_num_traits::WrappingSub<Output = T>,
 {
     // A = (Y₁−X₁)·(y−x); B = (Y₁+X₁)·(y+x); C = T₁·2dt; D = 2·Z₁
     let pp_y_minus_x = field.sub(&pp.1, &pp.0);
@@ -338,7 +344,8 @@ where
         + const_num_traits::WrappingMul<Output = T>
         + const_num_traits::WrappingAdd<Output = T>
         + const_num_traits::WrappingSub<Output = T>,
-    for<'a> &'a T: core::ops::Add<&'a T, Output = T> + core::ops::Sub<&'a T, Output = T>,
+    for<'a> &'a T:
+        const_num_traits::WrappingAdd<Output = T> + const_num_traits::WrappingSub<Output = T>,
 {
     // Projective equality: X₁/Z₁ = X₂/Z₂ ↔ X₁·Z₂ = X₂·Z₁ (and same for Y).
     let t1 = field.mul(&pp.0, &qq.2);
@@ -369,8 +376,8 @@ where
         + const_num_traits::WrappingAdd<Output = T>
         + const_num_traits::WrappingSub<Output = T>,
     for<'a> &'a T: core::ops::BitAnd<Output = T>
-        + core::ops::Add<&'a T, Output = T>
-        + core::ops::Sub<&'a T, Output = T>,
+        + const_num_traits::WrappingAdd<Output = T>
+        + const_num_traits::WrappingSub<Output = T>,
 {
     // NAF operates on raw scalars (s, h ∈ Z_q), not field elements.
     let naf = crate::jsf::NafIterator::new(s, h);
@@ -430,9 +437,8 @@ where
         + const_num_traits::WrappingAdd<Output = T>
         + const_num_traits::WrappingSub<Output = T>,
     for<'a> &'a T: core::ops::BitAnd<Output = T>
-        + core::ops::Add<&'a T, Output = T>
-        + core::ops::Sub<T, Output = T>
-        + core::ops::Sub<&'a T, Output = T>,
+        + const_num_traits::WrappingAdd<Output = T>
+        + const_num_traits::WrappingSub<Output = T>,
 {
     let field = match Curve25519Field::curve25519() {
         Ok(f) => f,
@@ -470,9 +476,8 @@ where
         + const_num_traits::WrappingAdd<Output = T>
         + const_num_traits::WrappingSub<Output = T>,
     for<'a> &'a T: core::ops::BitAnd<Output = T>
-        + core::ops::Add<&'a T, Output = T>
-        + core::ops::Sub<T, Output = T>
-        + core::ops::Sub<&'a T, Output = T>,
+        + const_num_traits::WrappingAdd<Output = T>
+        + const_num_traits::WrappingSub<Output = T>,
 {
     verify_inner::<T>(field, public, msg, signature)
 }
@@ -495,9 +500,8 @@ where
         + const_num_traits::WrappingAdd<Output = T>
         + const_num_traits::WrappingSub<Output = T>,
     for<'a> &'a T: core::ops::BitAnd<Output = T>
-        + core::ops::Add<&'a T, Output = T>
-        + core::ops::Sub<T, Output = T>
-        + core::ops::Sub<&'a T, Output = T>,
+        + const_num_traits::WrappingAdd<Output = T>
+        + const_num_traits::WrappingSub<Output = T>,
 {
     // Guard: T must be at least 256 bits wide for Ed25519 constants.
     // `verify_with_field` and the `Verifier` blanket both bottom out

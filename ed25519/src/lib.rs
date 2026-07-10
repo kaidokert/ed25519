@@ -323,9 +323,8 @@ where
         + const_num_traits::WrappingAdd<Output = T>
         + const_num_traits::WrappingSub<Output = T>,
     for<'a> &'a T: core::ops::BitAnd<Output = T>
-        + core::ops::Add<&'a T, Output = T>
-        + core::ops::Sub<T, Output = T>
-        + core::ops::Sub<&'a T, Output = T>,
+        + const_num_traits::WrappingAdd<Output = T>
+        + const_num_traits::WrappingSub<Output = T>,
 {
     fn verify(&self, msg: &[u8], signature: &S) -> Result<(), signature::Error> {
         let signature = parse_signature(signature.as_ref())?;
@@ -341,8 +340,8 @@ where
 impl<T> signature::Signer<[u8; 64]> for SigningKey<T>
 where
     T: SignBackend,
-    for<'a> &'a T: core::ops::Add<&'a T, Output = T>
-        + core::ops::Sub<&'a T, Output = T>
+    for<'a> &'a T: const_num_traits::WrappingAdd<Output = T>
+        + const_num_traits::WrappingSub<Output = T>
         + const_num_traits::ToBytes<Bytes = <T as const_num_traits::ToBytes>::Bytes>,
     <T as const_num_traits::ToBytes>::Bytes: zeroize::Zeroize,
 {
