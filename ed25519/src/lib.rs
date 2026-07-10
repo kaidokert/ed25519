@@ -76,7 +76,10 @@ pub trait UnsignedModularInt:
     + core::cmp::PartialOrd
     + const_num_traits::One
     + const_num_traits::Zero
-    + const_num_traits::ops::overflowing::OverflowingAdd
+    + const_num_traits::ops::overflowing::OverflowingAdd<Output = Self>
+    + const_num_traits::WrappingAdd<Output = Self>
+    + const_num_traits::WrappingSub<Output = Self>
+    + const_num_traits::WrappingMul<Output = Self>
     + core::ops::Shr<usize, Output = Self>
     + core::ops::Add<Output = Self>
     + core::ops::Sub<Output = Self>
@@ -96,7 +99,10 @@ impl<T> UnsignedModularInt for T where
         + core::cmp::PartialOrd
         + const_num_traits::One
         + const_num_traits::Zero
-        + const_num_traits::ops::overflowing::OverflowingAdd
+        + const_num_traits::ops::overflowing::OverflowingAdd<Output = Self>
+        + const_num_traits::WrappingAdd<Output = Self>
+        + const_num_traits::WrappingSub<Output = Self>
+        + const_num_traits::WrappingMul<Output = Self>
         + core::ops::Shr<usize, Output = Self>
         + core::ops::Add<Output = Self>
         + core::ops::Sub<Output = Self>
@@ -170,9 +176,10 @@ pub trait SignBackend:
     + Copy
     + modmath::WideMul
     + modmath::CiosMontMulCt
-    + const_num_traits::WrappingMul
-    + const_num_traits::WrappingAdd
-    + const_num_traits::WrappingSub
+    + const_num_traits::WrappingMul<Output = Self>
+    + const_num_traits::WrappingAdd<Output = Self>
+    + const_num_traits::WrappingSub<Output = Self>
+    + const_num_traits::CtIsZero
     + subtle::ConditionallySelectable
     + subtle::ConstantTimeLess
     + zeroize::DefaultIsZeroes
@@ -185,9 +192,10 @@ impl<T> SignBackend for T where
         + Copy
         + modmath::WideMul
         + modmath::CiosMontMulCt
-        + const_num_traits::WrappingMul
-        + const_num_traits::WrappingAdd
-        + const_num_traits::WrappingSub
+        + const_num_traits::WrappingMul<Output = T>
+        + const_num_traits::WrappingAdd<Output = T>
+        + const_num_traits::WrappingSub<Output = T>
+        + const_num_traits::CtIsZero
         + subtle::ConditionallySelectable
         + subtle::ConstantTimeLess
         + zeroize::DefaultIsZeroes
@@ -316,10 +324,10 @@ where
         + modmath::WideMul
         + modmath::CiosMontMul
         + modmath::NonCt
-        + const_num_traits::ops::overflowing::OverflowingAdd
-        + const_num_traits::WrappingMul
-        + const_num_traits::WrappingAdd
-        + const_num_traits::WrappingSub,
+        + const_num_traits::ops::overflowing::OverflowingAdd<Output = T>
+        + const_num_traits::WrappingMul<Output = T>
+        + const_num_traits::WrappingAdd<Output = T>
+        + const_num_traits::WrappingSub<Output = T>,
     for<'a> &'a T: core::ops::BitAnd<Output = T>
         + core::ops::Add<&'a T, Output = T>
         + core::ops::Sub<T, Output = T>

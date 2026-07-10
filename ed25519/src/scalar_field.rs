@@ -19,10 +19,10 @@ where
     T: UnsignedModularInt
         + Copy
         + PartialEq
-        + const_num_traits::ops::overflowing::OverflowingAdd
-        + const_num_traits::WrappingMul
-        + const_num_traits::WrappingAdd
-        + const_num_traits::WrappingSub
+        + const_num_traits::ops::overflowing::OverflowingAdd<Output = T>
+        + const_num_traits::WrappingMul<Output = T>
+        + const_num_traits::WrappingAdd<Output = T>
+        + const_num_traits::WrappingSub<Output = T>
         + Parity
         + WideMul
         + CiosMontMulCt
