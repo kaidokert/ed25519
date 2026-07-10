@@ -336,7 +336,6 @@ where
 #[cfg(all(test, feature = "fixed-bigint"))]
 mod tests {
     use super::*;
-    use crate::UnsignedModularInt;
     use crate::curve25519_field::Curve25519FieldCt;
     use fixed_bigint::FixedUInt;
 
