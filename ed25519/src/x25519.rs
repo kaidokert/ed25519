@@ -120,15 +120,11 @@ where
         + modmath::WideMul
         + modmath::CiosMontMulCt
         + modmath::Parity
-        + const_num_traits::ops::overflowing::OverflowingAdd
-        + const_num_traits::WrappingMul
-        + const_num_traits::WrappingAdd
-        + const_num_traits::WrappingSub
+        + const_num_traits::CtIsZero
         + subtle::ConditionallySelectable
-        + subtle::ConstantTimeLess
-        + core::ops::Sub<Output = T>,
-    for<'a> &'a T: core::ops::Add<&'a T, Output = T>
-        + core::ops::Sub<&'a T, Output = T>
+        + subtle::ConstantTimeLess,
+    for<'a> &'a T: const_num_traits::WrappingAdd<Output = T>
+        + const_num_traits::WrappingSub<Output = T>
         + const_num_traits::ToBytes<Bytes = <T as const_num_traits::ToBytes>::Bytes>,
     <T as const_num_traits::ToBytes>::Bytes: zeroize::Zeroize,
 {
@@ -165,15 +161,11 @@ where
         + modmath::WideMul
         + modmath::CiosMontMulCt
         + modmath::Parity
-        + const_num_traits::ops::overflowing::OverflowingAdd
-        + const_num_traits::WrappingMul
-        + const_num_traits::WrappingAdd
-        + const_num_traits::WrappingSub
+        + const_num_traits::CtIsZero
         + subtle::ConditionallySelectable
-        + subtle::ConstantTimeLess
-        + core::ops::Sub<Output = T>,
-    for<'a> &'a T: core::ops::Add<&'a T, Output = T>
-        + core::ops::Sub<&'a T, Output = T>
+        + subtle::ConstantTimeLess,
+    for<'a> &'a T: const_num_traits::WrappingAdd<Output = T>
+        + const_num_traits::WrappingSub<Output = T>
         + const_num_traits::ToBytes<Bytes = <T as const_num_traits::ToBytes>::Bytes>,
     <T as const_num_traits::ToBytes>::Bytes: zeroize::Zeroize,
 {
@@ -278,15 +270,11 @@ where
         + modmath::WideMul
         + modmath::CiosMontMulCt
         + modmath::Parity
-        + const_num_traits::ops::overflowing::OverflowingAdd
-        + const_num_traits::WrappingMul
-        + const_num_traits::WrappingAdd
-        + const_num_traits::WrappingSub
+        + const_num_traits::CtIsZero
         + subtle::ConditionallySelectable
-        + subtle::ConstantTimeLess
-        + core::ops::Sub<Output = T>,
-    for<'a> &'a T: core::ops::Add<&'a T, Output = T>
-        + core::ops::Sub<&'a T, Output = T>
+        + subtle::ConstantTimeLess,
+    for<'a> &'a T: const_num_traits::WrappingAdd<Output = T>
+        + const_num_traits::WrappingSub<Output = T>
         + const_num_traits::ToBytes<Bytes = <T as const_num_traits::ToBytes>::Bytes>,
     <T as const_num_traits::ToBytes>::Bytes: zeroize::Zeroize,
     R: rand_core::CryptoRng,
@@ -373,15 +361,11 @@ where
         + modmath::WideMul
         + modmath::CiosMontMulCt
         + modmath::Parity
-        + const_num_traits::ops::overflowing::OverflowingAdd
-        + const_num_traits::WrappingMul
-        + const_num_traits::WrappingAdd
-        + const_num_traits::WrappingSub
+        + const_num_traits::CtIsZero
         + subtle::ConditionallySelectable
-        + subtle::ConstantTimeLess
-        + core::ops::Sub<Output = T>,
-    for<'a> &'a T: core::ops::Add<&'a T, Output = T>
-        + core::ops::Sub<&'a T, Output = T>
+        + subtle::ConstantTimeLess,
+    for<'a> &'a T: const_num_traits::WrappingAdd<Output = T>
+        + const_num_traits::WrappingSub<Output = T>
         + const_num_traits::ToBytes<Bytes = <T as const_num_traits::ToBytes>::Bytes>,
     <T as const_num_traits::ToBytes>::Bytes: zeroize::Zeroize,
     R: rand_core::CryptoRng,
@@ -413,14 +397,10 @@ where
         + modmath::WideMul
         + modmath::CiosMontMulCt
         + modmath::Parity
-        + const_num_traits::ops::overflowing::OverflowingAdd
-        + const_num_traits::WrappingMul
-        + const_num_traits::WrappingAdd
-        + const_num_traits::WrappingSub
         + subtle::ConditionallySelectable
-        + subtle::ConstantTimeLess
-        + core::ops::Sub<Output = T>,
-    for<'a> &'a T: core::ops::Add<&'a T, Output = T> + core::ops::Sub<&'a T, Output = T>,
+        + subtle::ConstantTimeLess,
+    for<'a> &'a T:
+        const_num_traits::WrappingAdd<Output = T> + const_num_traits::WrappingSub<Output = T>,
 {
     let mut swap: u8 = 0;
 

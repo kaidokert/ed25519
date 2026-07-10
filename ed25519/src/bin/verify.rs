@@ -4,15 +4,10 @@ where
         + Copy
         + modmath::WideMul
         + modmath::CiosMontMul
-        + modmath::NonCt
-        + const_num_traits::ops::overflowing::OverflowingAdd
-        + const_num_traits::WrappingMul
-        + const_num_traits::WrappingAdd
-        + const_num_traits::WrappingSub,
+        + modmath::NonCt,
     for<'a> &'a T: core::ops::BitAnd<Output = T>
-        + core::ops::Add<&'a T, Output = T>
-        + core::ops::Sub<&'a T, Output = T>
-        + core::ops::Sub<T, Output = T>,
+        + const_num_traits::WrappingAdd<Output = T>
+        + const_num_traits::WrappingSub<Output = T>,
 {
     let args: Vec<String> = std::env::args().collect();
 

@@ -67,19 +67,15 @@ where
         + PartialOrd
         + const_num_traits::Zero
         + const_num_traits::One
-        + const_num_traits::ops::overflowing::OverflowingAdd
-        + const_num_traits::WrappingMul
-        + const_num_traits::WrappingAdd
-        + const_num_traits::WrappingSub
+        + const_num_traits::ops::overflowing::OverflowingAdd<Output = T>
+        + const_num_traits::WrappingMul<Output = T>
+        + const_num_traits::WrappingAdd<Output = T>
+        + const_num_traits::WrappingSub<Output = T>
         + Parity
         + WideMul
         + CiosMontMul
         + modmath::MontStorage
-        + modmath::NonCt
-        + core::ops::Add<Output = T>
-        + core::ops::Sub<Output = T>
-        + core::ops::Mul<Output = T>,
-    for<'a> &'a T: core::ops::Add<&'a T, Output = T> + core::ops::Sub<&'a T, Output = T>,
+        + modmath::NonCt,
 {
     pub fn new(modulus: T) -> Option<Self> {
         FieldNct::new(modulus).map(|inner| Curve25519Field { inner, modulus })
@@ -130,13 +126,20 @@ where
     /// never overflows `T`. One comparison + at most one subtract. Compare
     /// to `modmath::Field::add` which is wrapping-add + cond-sub for
     /// full-width moduli.
+    ///
+    /// Uses `.wrapping_add` / `.wrapping_sub` explicitly. The `2 * modulus
+    /// < 2^W` slack means the wrap can't fire in the add and the `sum >=
+    /// modulus` predicate means the sub can't underflow — naming
+    /// wrap-around at the trait boundary avoids the backend's `Sub` impl
+    /// choosing panic-on-underflow (crypto-bigint) or dispatching through
+    /// an overflow mode (bnum).
     #[inline]
     pub fn add<'f>(&'f self, a: &ResidueNct<'f, T>, b: &ResidueNct<'f, T>) -> ResidueNct<'f, T> {
-        let a_m = (*a).mont_value();
-        let b_m = (*b).mont_value();
-        let sum = a_m + b_m;
+        let a_m = *(*a).mont_value();
+        let b_m = *(*b).mont_value();
+        let sum = a_m.wrapping_add(b_m);
         let reduced = if sum >= self.modulus {
-            sum - self.modulus
+            sum.wrapping_sub(self.modulus)
         } else {
             sum
         };
@@ -144,15 +147,16 @@ where
     }
 
     /// Lazy sub: when `a < b`, add `modulus` first (still fits in `T` by
-    /// the same 2-p slack); otherwise straight subtract.
+    /// the same 2-p slack); otherwise straight subtract. Same wrap
+    /// contract as [`Self::add`].
     #[inline]
     pub fn sub<'f>(&'f self, a: &ResidueNct<'f, T>, b: &ResidueNct<'f, T>) -> ResidueNct<'f, T> {
         let a_m = *a.mont_value();
         let b_m = *b.mont_value();
         let diff = if a_m >= b_m {
-            a_m - b_m
+            a_m.wrapping_sub(b_m)
         } else {
-            (a_m + self.modulus) - b_m
+            a_m.wrapping_add(self.modulus).wrapping_sub(b_m)
         };
         self.inner.residue_from_mont(diff)
     }
@@ -161,9 +165,9 @@ where
     /// prime modulus (true for Curve25519).
     pub fn inv<'f>(&'f self, a: &ResidueNct<'f, T>) -> ResidueNct<'f, T>
     where
-        T: core::ops::Sub<Output = T> + core::ops::ShrAssign<usize>,
+        T: core::ops::ShrAssign<usize>,
     {
-        let exp = self.modulus - T::one() - T::one();
+        let exp = self.modulus.wrapping_sub(T::one()).wrapping_sub(T::one());
         self.inner.exp(a, &exp)
     }
 }
@@ -194,20 +198,19 @@ where
         + PartialOrd
         + const_num_traits::Zero
         + const_num_traits::One
-        + const_num_traits::ops::overflowing::OverflowingAdd
-        + const_num_traits::WrappingMul
-        + const_num_traits::WrappingAdd
-        + const_num_traits::WrappingSub
+        + const_num_traits::ops::overflowing::OverflowingAdd<Output = T>
+        + const_num_traits::WrappingMul<Output = T>
+        + const_num_traits::WrappingAdd<Output = T>
+        + const_num_traits::WrappingSub<Output = T>
         + Parity
         + WideMul
         + CiosMontMulCt
         + subtle::ConditionallySelectable
         + subtle::ConstantTimeLess
         + modmath::MontStorage
-        + core::ops::Add<Output = T>
-        + core::ops::Sub<Output = T>
-        + core::ops::Mul<Output = T>,
-    for<'a> &'a T: core::ops::Add<&'a T, Output = T> + core::ops::Sub<&'a T, Output = T>,
+        + const_num_traits::CtIsZero,
+    for<'a> &'a T:
+        const_num_traits::WrappingAdd<Output = T> + const_num_traits::WrappingSub<Output = T>,
 {
     pub fn new(modulus: T) -> Option<Self> {
         FieldCt::new(modulus).map(|inner| Curve25519FieldCt { inner, modulus })
@@ -246,30 +249,28 @@ where
     /// CT lazy add: always compute both `sum` and `sum − modulus`, select
     /// branchlessly. No overflow possible on `sum` (2·p fits in T). The
     /// `sum - self.modulus` candidate underflows when `sum < modulus` —
-    /// that's load-bearing for constant-time: under the `Ct` personality
-    /// `FixedUInt::Sub` discards the overflow flag (silent wrap) by
-    /// typestate design, so the underflowing branch never panics even
-    /// in debug builds. See `ct_add_sub_never_panic_on_underflow_path`
-    /// test for the regression guard.
+    /// that's load-bearing for constant-time: the explicit `.wrapping_sub`
+    /// names wrap-around at the trait boundary, so the underflowing branch
+    /// never panics even in debug builds. See
+    /// `ct_add_sub_never_panic_on_underflow_path` test for the regression
+    /// guard.
     #[inline]
     pub fn add<'f>(&'f self, a: &ResidueCt<'f, T>, b: &ResidueCt<'f, T>) -> ResidueCt<'f, T> {
         // Stay in `&T` for the secret-derived operands so no implicit
-        // `T: Copy` materializations land on the stack; every owned
-        // intermediate gets wrapped in `Zeroizing<T>` so its bytes are
-        // wiped at scope end (`FixedUInt` is `Copy + Zeroize`, but
-        // `Copy` is mutually exclusive with `Drop`, so the bare `T`
-        // locals would otherwise sit on the stack until overwritten).
+        // `T: Copy` materializations land on the stack. `.wrapping_add`
+        // / `.wrapping_sub` on `&T` receivers dispatch to fixed-bigint's
+        // `impl Wrapping{Add,Sub} for &FixedUInt<W, N, P>`, which reads
+        // limbs through the reference and produces a fresh owned `T`.
+        use const_num_traits::{WrappingAdd, WrappingSub};
         let a_m = a.mont_value();
         let b_m = b.mont_value();
-        let sum = zeroize::Zeroizing::new(a_m + b_m);
-        // The `&*sum` / `&self.modulus` refs look needlessly taken to
-        // clippy's `op_ref` lint, which would suggest
-        // `*sum - self.modulus`. Don't take that suggestion: `*sum`
-        // is a deref-copy of `T` out of `Zeroizing<T>` into a bare
-        // stack slot with no `Drop`, re-introducing the very leak
-        // this function plugs.
-        #[allow(clippy::op_ref)]
-        let reduced = zeroize::Zeroizing::new(&*sum - &self.modulus);
+        // Explicit UFCS on `<&T as WrappingAdd>` forces dispatch to
+        // fixed-bigint's `impl WrappingAdd for &FixedUInt<W, N, P>`
+        // instead of falling back to the by-value impl through autoderef
+        // of the receiver.
+        let sum = zeroize::Zeroizing::new(<&T as WrappingAdd>::wrapping_add(a_m, b_m));
+        let reduced =
+            zeroize::Zeroizing::new(<&T as WrappingSub>::wrapping_sub(&*sum, &self.modulus));
         // sum < modulus  →  keep sum;  otherwise → use sum − modulus.
         let needs_reduce = !sum.ct_lt(&self.modulus);
         let result = zeroize::Zeroizing::new(T::conditional_select(&*sum, &*reduced, needs_reduce));
@@ -283,17 +284,21 @@ where
     /// CT lazy sub: compute both `a − b` (mod 2^W) and `a + modulus − b`,
     /// select branchlessly based on whether `a < b`. Like
     /// [`Self::add`], the `a_m - b_m` candidate underflows when
-    /// `a_m < b_m` — silent wrap under the `Ct` personality by typestate
-    /// design.
+    /// `a_m < b_m` — the explicit `.wrapping_sub` names wrap-around at the
+    /// trait boundary, so the underflow can't panic.
     #[inline]
     pub fn sub<'f>(&'f self, a: &ResidueCt<'f, T>, b: &ResidueCt<'f, T>) -> ResidueCt<'f, T> {
-        // Same wrap-everything-in-`Zeroizing` discipline as [`Self::add`].
+        // Same wrap-everything-in-`Zeroizing` discipline as [`Self::add`],
+        // and same explicit `<&T as Wrapping…>` UFCS dispatch to force
+        // the read-through-ref impl on the `&T` operands.
+        use const_num_traits::{WrappingAdd, WrappingSub};
         let a_m = a.mont_value();
         let b_m = b.mont_value();
-        let diff_no_borrow = zeroize::Zeroizing::new(a_m - b_m);
+        let diff_no_borrow = zeroize::Zeroizing::new(<&T as WrappingSub>::wrapping_sub(a_m, b_m));
         let diff_with_borrow = zeroize::Zeroizing::new({
-            let with_modulus = zeroize::Zeroizing::new(a_m + &self.modulus);
-            &*with_modulus - b_m
+            let with_modulus =
+                zeroize::Zeroizing::new(<&T as WrappingAdd>::wrapping_add(a_m, &self.modulus));
+            <&T as WrappingSub>::wrapping_sub(&*with_modulus, b_m)
         });
         let needs_add_p = a_m.ct_lt(b_m);
         let result = zeroize::Zeroizing::new(T::conditional_select(
@@ -313,11 +318,10 @@ where
     /// need.
     pub fn inv<'f>(&'f self, a: &ResidueCt<'f, T>) -> ResidueCt<'f, T>
     where
-        T: core::ops::Sub<Output = T>
-            + core::ops::Shr<usize, Output = T>
-            + core::ops::BitAnd<Output = T>,
+        T: core::ops::Shr<usize, Output = T> + core::ops::BitAnd<Output = T>,
     {
-        let exp = self.modulus - T::one() - T::one();
+        // `p > 2` so the wrap can't fire in practice.
+        let exp = self.modulus.wrapping_sub(T::one()).wrapping_sub(T::one());
         self.inner.exp_public_exp(a, &exp)
     }
 }
