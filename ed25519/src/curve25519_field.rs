@@ -75,11 +75,7 @@ where
         + WideMul
         + CiosMontMul
         + modmath::MontStorage
-        + modmath::NonCt
-        + core::ops::Add<Output = T>
-        + core::ops::Sub<Output = T>
-        + core::ops::Mul<Output = T>,
-    for<'a> &'a T: core::ops::Add<&'a T, Output = T> + core::ops::Sub<&'a T, Output = T>,
+        + modmath::NonCt,
 {
     pub fn new(modulus: T) -> Option<Self> {
         FieldNct::new(modulus).map(|inner| Curve25519Field { inner, modulus })
@@ -130,13 +126,20 @@ where
     /// never overflows `T`. One comparison + at most one subtract. Compare
     /// to `modmath::Field::add` which is wrapping-add + cond-sub for
     /// full-width moduli.
+    ///
+    /// Uses `.wrapping_add` / `.wrapping_sub` explicitly. The `2 * modulus
+    /// < 2^W` slack means the wrap can't fire in the add and the `sum >=
+    /// modulus` predicate means the sub can't underflow — naming
+    /// wrap-around at the trait boundary avoids the backend's `Sub` impl
+    /// choosing panic-on-underflow (crypto-bigint) or dispatching through
+    /// an overflow mode (bnum).
     #[inline]
     pub fn add<'f>(&'f self, a: &ResidueNct<'f, T>, b: &ResidueNct<'f, T>) -> ResidueNct<'f, T> {
-        let a_m = (*a).mont_value();
-        let b_m = (*b).mont_value();
-        let sum = a_m + b_m;
+        let a_m = *(*a).mont_value();
+        let b_m = *(*b).mont_value();
+        let sum = a_m.wrapping_add(b_m);
         let reduced = if sum >= self.modulus {
-            sum - self.modulus
+            sum.wrapping_sub(self.modulus)
         } else {
             sum
         };
@@ -144,15 +147,16 @@ where
     }
 
     /// Lazy sub: when `a < b`, add `modulus` first (still fits in `T` by
-    /// the same 2-p slack); otherwise straight subtract.
+    /// the same 2-p slack); otherwise straight subtract. Same wrap
+    /// contract as [`Self::add`].
     #[inline]
     pub fn sub<'f>(&'f self, a: &ResidueNct<'f, T>, b: &ResidueNct<'f, T>) -> ResidueNct<'f, T> {
         let a_m = *a.mont_value();
         let b_m = *b.mont_value();
         let diff = if a_m >= b_m {
-            a_m - b_m
+            a_m.wrapping_sub(b_m)
         } else {
-            (a_m + self.modulus) - b_m
+            a_m.wrapping_add(self.modulus).wrapping_sub(b_m)
         };
         self.inner.residue_from_mont(diff)
     }
@@ -161,9 +165,9 @@ where
     /// prime modulus (true for Curve25519).
     pub fn inv<'f>(&'f self, a: &ResidueNct<'f, T>) -> ResidueNct<'f, T>
     where
-        T: core::ops::Sub<Output = T> + core::ops::ShrAssign<usize>,
+        T: core::ops::ShrAssign<usize>,
     {
-        let exp = self.modulus - T::one() - T::one();
+        let exp = self.modulus.wrapping_sub(T::one()).wrapping_sub(T::one());
         self.inner.exp(a, &exp)
     }
 }
@@ -204,9 +208,7 @@ where
         + subtle::ConditionallySelectable
         + subtle::ConstantTimeLess
         + modmath::MontStorage
-        + core::ops::Add<Output = T>
-        + core::ops::Sub<Output = T>
-        + core::ops::Mul<Output = T>,
+        + const_num_traits::CtIsZero,
     for<'a> &'a T: core::ops::Add<&'a T, Output = T> + core::ops::Sub<&'a T, Output = T>,
 {
     pub fn new(modulus: T) -> Option<Self> {
@@ -313,11 +315,11 @@ where
     /// need.
     pub fn inv<'f>(&'f self, a: &ResidueCt<'f, T>) -> ResidueCt<'f, T>
     where
-        T: core::ops::Sub<Output = T>
-            + core::ops::Shr<usize, Output = T>
-            + core::ops::BitAnd<Output = T>,
+        T: core::ops::Shr<usize, Output = T> + core::ops::BitAnd<Output = T>,
     {
-        let exp = self.modulus - T::one() - T::one();
+        // Exponent `p − 2`. Explicit `.wrapping_sub` names the wrap
+        // contract; `p > 2` so the wrap can't fire in practice.
+        let exp = self.modulus.wrapping_sub(T::one()).wrapping_sub(T::one());
         self.inner.exp_public_exp(a, &exp)
     }
 }

@@ -81,9 +81,6 @@ pub trait UnsignedModularInt:
     + const_num_traits::WrappingSub<Output = Self>
     + const_num_traits::WrappingMul<Output = Self>
     + core::ops::Shr<usize, Output = Self>
-    + core::ops::Add<Output = Self>
-    + core::ops::Sub<Output = Self>
-    + core::ops::Mul<Output = Self>
     + core::ops::BitAnd<Output = Self>
     + core::ops::ShrAssign<usize>
     + modmath::MontStorage
@@ -104,9 +101,6 @@ impl<T> UnsignedModularInt for T where
         + const_num_traits::WrappingSub<Output = Self>
         + const_num_traits::WrappingMul<Output = Self>
         + core::ops::Shr<usize, Output = Self>
-        + core::ops::Add<Output = Self>
-        + core::ops::Sub<Output = Self>
-        + core::ops::Mul<Output = Self>
         + core::ops::BitAnd<Output = Self>
         + core::ops::ShrAssign<usize>
         + modmath::MontStorage

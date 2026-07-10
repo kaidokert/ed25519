@@ -76,12 +76,15 @@ where
                 let (added, _) = acc.overflowing_add(one.clone());
                 acc = added;
             }
-            // acc < 2q + 1 here, so at most two subtractions needed
+            // acc < 2q + 1 here, so at most two subtractions needed.
+            // Move `acc` into `.wrapping_sub` and clone `q` for a
+            // wrap-around contract that doesn't hinge on the backend's
+            // `Sub` impl semantics.
             if &acc >= q {
-                acc = &acc - q;
+                acc = acc.wrapping_sub(q.clone());
             }
             if &acc >= q {
-                acc = &acc - q;
+                acc = acc.wrapping_sub(q.clone());
             }
         }
     }
@@ -112,8 +115,7 @@ where
         + const_num_traits::ops::overflowing::OverflowingAdd<Output = T>
         + const_num_traits::WrappingMul<Output = T>
         + const_num_traits::WrappingAdd<Output = T>
-        + const_num_traits::WrappingSub<Output = T>
-        + core::ops::Sub<Output = T>,
+        + const_num_traits::WrappingSub<Output = T>,
     for<'a> &'a T: core::ops::Add<&'a T, Output = T>
         + core::ops::Sub<T, Output = T>
         + core::ops::Sub<&'a T, Output = T>,
@@ -139,7 +141,9 @@ where
     // Phase 2: exponent (p+3)/8. p = 2^255 − 19 → (p+3)/8 = 2^252 − 2,
     // exactly divisible by 8 so we use `>> 3` (no division on T required).
     let exp = {
-        let three = T::one() + T::one() + T::one();
+        // `three = 1 + 1 + 1` — fits any curve-eligible backend; explicit
+        // `.wrapping_add` names the wrap-around contract.
+        let three = T::one().wrapping_add(T::one()).wrapping_add(T::one());
         let p3 = field.modulus() + &three;
         p3 >> 3
     };
@@ -195,8 +199,7 @@ where
         + const_num_traits::ops::overflowing::OverflowingAdd<Output = T>
         + const_num_traits::WrappingMul<Output = T>
         + const_num_traits::WrappingAdd<Output = T>
-        + const_num_traits::WrappingSub<Output = T>
-        + core::ops::Sub<Output = T>,
+        + const_num_traits::WrappingSub<Output = T>,
     for<'a> &'a T: core::ops::Add<&'a T, Output = T>
         + core::ops::Sub<T, Output = T>
         + core::ops::Sub<&'a T, Output = T>,

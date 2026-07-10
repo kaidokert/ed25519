@@ -94,14 +94,12 @@ impl NafIterator {
     where
         T: const_num_traits::Zero
             + const_num_traits::One
+            + const_num_traits::WrappingAdd<Output = T>
             + Copy
             + PartialOrd
             + PartialEq
-            + core::ops::ShrAssign<usize>
-            + core::ops::Add<Output = T>,
-        for<'a> &'a T: core::ops::BitAnd<Output = T>
-            + core::ops::Add<&'a T, Output = T>
-            + core::ops::Sub<&'a T, Output = T>,
+            + core::ops::ShrAssign<usize>,
+        for<'a> &'a T: core::ops::BitAnd<Output = T>,
     {
         let mut iter = NafIterator {
             packed: [0u8; PACKED_NAF_BYTES],
@@ -113,11 +111,13 @@ impl NafIterator {
         let mut s_working = s;
         let mut h_working = h;
 
-        // Hoist loop-invariant constants
+        // Hoist loop-invariant constants. Values 2 and 3 fit any
+        // curve-eligible backend so the wrap can't fire; the explicit
+        // `.wrapping_add` names the contract at the trait boundary.
         let zero = T::zero();
         let one = T::one();
-        let two = one + one;
-        let three = two + one;
+        let two = one.wrapping_add(one);
+        let three = two.wrapping_add(one);
 
         // Process scalars bit by bit to generate NAF digits
         while s_working > zero || h_working > zero {
@@ -158,10 +158,10 @@ impl NafIterator {
             h_working >>= 1;
 
             if s_carry {
-                s_working = s_working + one;
+                s_working = s_working.wrapping_add(one);
             }
             if h_carry {
-                h_working = h_working + one;
+                h_working = h_working.wrapping_add(one);
             }
         }
 
