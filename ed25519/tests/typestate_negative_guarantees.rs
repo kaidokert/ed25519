@@ -4,10 +4,6 @@
 //! implemented for the listed type, so a regression on the leak-surface
 //! (adding `#[derive(Debug)]` on `SigningKey`, or an accidental
 //! `impl Display`) is caught at `cargo test` rather than in the field.
-//!
-//! Mirrors the pattern from
-//! `fixed-bigint-rs/tests/personality_negative_guarantees.rs` and
-//! `modmath-rs/...`. See `notes/CT_VERIFY.md`.
 
 #![cfg(all(
     feature = "fixed-bigint",
