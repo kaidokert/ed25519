@@ -38,10 +38,8 @@ fixed-bigint-u8 = ["fixed-bigint"]
 # default (~1.6 KiB, no RustCrypto deps). sha2 reuses the RustCrypto
 # digest/generic-array machinery — pick it when the consumer already links
 # sha2 for SHA-256. Size-sensitive targets picking `sha512-sha2` should set
-# `--cfg sha2_backend_soft="compact"` in rustflags — sha2 0.11 moved the
-# compact backend from the removed `force-soft-compact` Cargo feature to a
-# rustc cfg, and without it the non-compact soft backend adds ~6.5 KiB of
-# `.text`.
+# `--cfg sha2_backend_soft="compact"` in rustflags — without it the
+# non-compact soft backend adds ~6.5 KiB of `.text`.
 sha512-hmac-sha512 = ["dep:hmac-sha512"]
 sha512-sha2 = ["dep:sha2"]
 
