@@ -18,7 +18,7 @@ subtle = { version = "2.6", default-features = false }
 const-num-traits = { version = "0.2", default-features = false }
 zeroize = { version = "1.8", default-features = false }
 hmac-sha512 = { version = "1", default-features = false, features = ["opt_size"], optional = true }
-sha2 = { version = "0.10", default-features = false, features = ["force-soft-compact"], optional = true }
+sha2 = { version = "0.11", default-features = false, optional = true }
 signature = { version = "3.0", default-features = false }
 rand_core = { version = "0.10", default-features = false }
 
@@ -37,7 +37,11 @@ fixed-bigint-u8 = ["fixed-bigint"]
 # SHA-512 backend selection (pick exactly one). hmac-sha512 is the standalone
 # default (~1.6 KiB, no RustCrypto deps). sha2 reuses the RustCrypto
 # digest/generic-array machinery — pick it when the consumer already links
-# sha2 for SHA-256
+# sha2 for SHA-256. Size-sensitive targets picking `sha512-sha2` should set
+# `--cfg sha2_backend_soft="compact"` in rustflags — sha2 0.11 moved the
+# compact backend from the removed `force-soft-compact` Cargo feature to a
+# rustc cfg, and without it the non-compact soft backend adds ~6.5 KiB of
+# `.text`.
 sha512-hmac-sha512 = ["dep:hmac-sha512"]
 sha512-sha2 = ["dep:sha2"]
 
