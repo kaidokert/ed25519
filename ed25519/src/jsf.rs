@@ -67,7 +67,7 @@ impl NafIterator {
     fn pack_set(&mut self, idx: usize, s_digit: NafSign, h_digit: NafSign) {
         let byte_idx = idx / 2;
         let nibble = (encode_digit(s_digit) << 2) | encode_digit(h_digit);
-        if idx.is_multiple_of(2) {
+        if idx & 1 == 0 {
             self.packed[byte_idx] = (self.packed[byte_idx] & 0xF0) | nibble;
         } else {
             self.packed[byte_idx] = (self.packed[byte_idx] & 0x0F) | (nibble << 4);
@@ -77,7 +77,7 @@ impl NafIterator {
     /// Read a digit pair from the given index
     fn pack_get(&self, idx: usize) -> NafDigit {
         let byte_idx = idx / 2;
-        let nibble = if idx.is_multiple_of(2) {
+        let nibble = if idx & 1 == 0 {
             self.packed[byte_idx] & 0x0F
         } else {
             self.packed[byte_idx] >> 4
