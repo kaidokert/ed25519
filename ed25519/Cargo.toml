@@ -1,6 +1,6 @@
 [package]
 name = "ed25519_heapless"
-version = "0.4.0"
+version = "0.4.1"
 edition = "2024"
 description = "Ed25519 signature verification and X25519 key exchange, generic over bigint backends"
 license = "GPL-3.0-only"
