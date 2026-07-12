@@ -241,35 +241,29 @@ enum Verdict {
     Mismatch {
         found: u32,
         expected: u32,
-        offenders: Vec<String>,
+        /// Full section (header + all body lines) so a reviewer can
+        /// see the surrounding control flow, not just the branch
+        /// mnemonics we picked out. Wrong-section selection is easy
+        /// to miss from just branch lines.
+        section: Vec<String>,
     },
 }
 
 fn check_ladder(disasm: &str, check: &LadderCheck, isa: &IsaSpec) -> Verdict {
-    let Some((_, body)) = find_ladder(disasm, check.match_substring) else {
+    let Some((header, body)) = find_ladder(disasm, check.match_substring) else {
         return Verdict::NotFound;
     };
     let found = count_conditional_branches(&body, isa);
     if found == check.expected {
         return Verdict::Ok(found);
     }
-    let offenders: Vec<String> = body
-        .iter()
-        .filter(|line| {
-            let Some((_, tail)) = line.split_once('\t') else {
-                return false;
-            };
-            let Some(m) = tail.split_whitespace().next() else {
-                return false;
-            };
-            isa.cond_branches.contains(&(isa.normalize)(m))
-        })
-        .map(|s| s.to_string())
-        .collect();
+    let mut section: Vec<String> = Vec::with_capacity(body.len() + 1);
+    section.push(header.to_string());
+    section.extend(body.iter().map(|s| s.to_string()));
     Verdict::Mismatch {
         found,
         expected: check.expected,
-        offenders,
+        section,
     }
 }
 
@@ -338,13 +332,13 @@ fn main() -> ExitCode {
             Verdict::Mismatch {
                 found,
                 expected,
-                offenders,
+                section,
             } => {
                 eprintln!(
                     "  FAIL: {} — expected {expected} conditional branch(es), found {found}",
                     check.display_name
                 );
-                for line in offenders {
+                for line in section {
                     eprintln!("    {line}");
                 }
                 any_failed = true;
@@ -431,7 +425,7 @@ Disassembly of section .text.something_else:
     }
 
     #[test]
-    fn mismatch_reports_offender_lines() {
+    fn mismatch_reports_full_section() {
         let isa = thumb_isa();
         let check = LadderCheck {
             display_name: "scalar_mult_ct",
@@ -439,12 +433,11 @@ Disassembly of section .text.something_else:
             expected: 99,
         };
         match check_ladder(SAMPLE_DISASM, &check, isa) {
-            Verdict::Mismatch {
-                found, offenders, ..
-            } => {
+            Verdict::Mismatch { found, section, .. } => {
                 assert_eq!(found, 1);
-                assert_eq!(offenders.len(), 1);
-                assert!(offenders[0].contains("beq"));
+                assert!(section[0].contains("scalar_mult_ct"));
+                assert!(section.iter().any(|l| l.contains("beq")));
+                assert!(section.iter().any(|l| l.contains("push")));
             }
             _ => panic!("expected Mismatch"),
         }

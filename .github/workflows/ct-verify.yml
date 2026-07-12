@@ -12,6 +12,8 @@ env:
 jobs:
   panic-free-audit:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:
@@ -30,10 +32,16 @@ jobs:
         working-directory: ct-verify
         run: cargo build --release -p ladder-branches
       - name: Ladder-branch calibration (${{ matrix.target }})
+        # No `--skip-build`: panic-free-audit's check.sh leaves the
+        # archive in the `--features neg-controls` state; force a
+        # fresh positive-mode rebuild before disassembly. Cargo cache
+        # makes this near-instant.
         working-directory: ct-verify
-        run: target/release/ladder-branches --skip-build ${{ matrix.target }}
+        run: target/release/ladder-branches ${{ matrix.target }}
 
   ct-ctgrind:
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:
