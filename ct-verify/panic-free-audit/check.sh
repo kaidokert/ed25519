@@ -71,26 +71,26 @@ echo "[audit] positive pass: $TARGET"
 FOUND="$(walk)"
 if [ -n "$FOUND" ]; then
     echo "panic paths reachable from ed25519_heapless code in ${ARCHIVE}:" >&2
-    echo "$FOUND" >&2
+    printf '%s\n' "$FOUND" >&2
     exit 1
 fi
 echo "  OK: no panic paths in ed25519_heapless code for ${TARGET}"
 
 # --- Pass 2: negative-control self-test ---
 echo "[audit] negative-control pass: $TARGET"
-(cd "$CT_VERIFY_DIR" && cargo build --release -p panic-free-audit --features "panic-handler neg-controls" --target "$TARGET")
+(cd "$CT_VERIFY_DIR" && cargo build --release -p panic-free-audit --features panic-handler,neg-controls --target "$TARGET")
 
 FOUND="$(walk)"
 MISSING=""
 for expected in bounds_check unwrap expect; do
-    if ! echo "$FOUND" | grep -q "panic_audit__neg__${expected}"; then
+    if ! printf '%s\n' "$FOUND" | grep -q "panic_audit__neg__${expected}"; then
         MISSING="${MISSING} ${expected}"
     fi
 done
 if [ -n "$MISSING" ]; then
     echo "harness self-test FAILED: negative controls did not trip:${MISSING}" >&2
     echo "walker output was:" >&2
-    echo "$FOUND" >&2
+    printf '%s\n' "$FOUND" >&2
     exit 1
 fi
 echo "  OK: all negative controls tripped for ${TARGET}"
