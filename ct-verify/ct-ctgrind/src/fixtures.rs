@@ -46,7 +46,7 @@ type T8 = FixedUInt<u8, 32, Ct>;
 // below. Extending to another carrier is one line.
 
 macro_rules! positive_fixtures_for_carrier {
-    ($mod:ident, $carrier:ty, $signing_key:ident, $sign_fx:ident, $x25519_fx:ident, $x25519_base_fx:ident) => {
+    ($carrier:ty, $signing_key:ident, $sign_fx:ident, $x25519_fx:ident, $x25519_base_fx:ident) => {
         ctgrind_fixture!($signing_key, {
             let seed = black_box([0u8; 32]);
             taint_val(&seed);
@@ -93,7 +93,6 @@ macro_rules! positive_fixtures_for_carrier {
 }
 
 positive_fixtures_for_carrier!(
-    u32_carrier,
     T32,
     ct_fix__signing_key_from_seed__u32,
     ct_fix__sign__u32,
@@ -102,7 +101,6 @@ positive_fixtures_for_carrier!(
 );
 
 positive_fixtures_for_carrier!(
-    u8_carrier,
     T8,
     ct_fix__signing_key_from_seed__u8,
     ct_fix__sign__u8,

@@ -101,12 +101,12 @@ component is installed.
 ./panic-free-audit/check.sh riscv32imc-unknown-none-elf
 
 # Per-ISA ladder-branch calibration (reuses the same archive)
-cd ct-verify && cargo build --release -p ladder-branches
+cargo build --release -p ladder-branches
 ./target/release/ladder-branches thumbv7em-none-eabi
 ./target/release/ladder-branches riscv32imc-unknown-none-elf
 
 # ctgrind runtime taint (Linux only; install `valgrind` first)
-cd ct-verify && cargo build --release -p ct-ctgrind
+cargo build --release -p ct-ctgrind
 valgrind --tool=memcheck --error-limit=no --error-exitcode=0 -q \
     target/release/ct-ctgrind
 ```
