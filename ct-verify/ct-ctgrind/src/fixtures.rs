@@ -23,8 +23,15 @@ type T = FixedUInt<u32, 8, Ct>;
 // Positive fixtures — secret input tainted, output observed clean.
 // ============================================================================
 
+// `black_box` on each zero-init input before `taint_val` is
+// load-bearing: without it the fat-LTO release build sees the
+// concrete zero value, const-folds `SigningKey::from_seed` /
+// `x25519` at compile time, and the runtime never actually reads the
+// tainted memory — a false pass. Same story for the negative
+// controls below.
+
 ctgrind_fixture!(ct_fix__signing_key_from_seed, {
-    let seed = [0u8; 32];
+    let seed = black_box([0u8; 32]);
     taint_val(&seed);
     if let Ok(sk) = SigningKey::<T>::from_seed(&seed) {
         let pk = sk.public_key();
@@ -36,22 +43,22 @@ ctgrind_fixture!(ct_fix__signing_key_from_seed, {
 });
 
 ctgrind_fixture!(ct_fix__sign, {
-    let seed = [0u8; 32];
+    let seed = black_box([0u8; 32]);
     // Fixed public message — length + contents are public. Not tainted.
     let msg: &[u8] = b"ct-ctgrind message";
     taint_val(&seed);
-    if let Ok(sk) = SigningKey::<T>::from_seed(&seed)
-        && let Ok(sig) = sign(&sk, msg)
-    {
-        untaint_val(&sig);
-        let _ = black_box(sig);
+    if let Ok(sk) = SigningKey::<T>::from_seed(&seed) {
+        if let Ok(sig) = sign(&sk, msg) {
+            untaint_val(&sig);
+            let _ = black_box(sig);
+        }
     }
 });
 
 ctgrind_fixture!(ct_fix__x25519, {
-    let k = [0u8; 32];
+    let k = black_box([0u8; 32]);
     // u_in is the counterparty coordinate — public per RFC 7748.
-    let u_in = [0u8; 32];
+    let u_in = black_box([0u8; 32]);
     taint_val(&k);
     let out = x25519::<T>(&k, &u_in);
     untaint_val(&out);
@@ -59,7 +66,7 @@ ctgrind_fixture!(ct_fix__x25519, {
 });
 
 ctgrind_fixture!(ct_fix__x25519_base, {
-    let k = [0u8; 32];
+    let k = black_box([0u8; 32]);
     taint_val(&k);
     let out = x25519_base::<T>(&k);
     untaint_val(&out);
@@ -73,7 +80,7 @@ ctgrind_fixture!(ct_fix__x25519_base, {
 // Naked secret-dep branch. Reads the low bit of a tainted byte and
 // takes different code paths on it.
 ctgrind_fixture!(nct_fix__neg__branch_on_secret, {
-    let secret = [0u8; 32];
+    let secret = black_box([0u8; 32]);
     taint_val(&secret);
     let observed = if secret[0] & 1 == 0 {
         black_box(1u8)
@@ -85,8 +92,8 @@ ctgrind_fixture!(nct_fix__neg__branch_on_secret, {
 
 // Secret-index memory access. Uses a tainted byte as a table index.
 ctgrind_fixture!(nct_fix__neg__index_by_secret, {
-    let secret = [0u8; 32];
-    let table = [0u8; 256];
+    let secret = black_box([0u8; 32]);
+    let table = black_box([0u8; 256]);
     taint_val(&secret);
     let idx = secret[0] as usize;
     let observed = table[idx];
@@ -95,7 +102,7 @@ ctgrind_fixture!(nct_fix__neg__index_by_secret, {
 
 // Secret-value equality test. `==` on a tainted operand.
 ctgrind_fixture!(nct_fix__neg__equality_on_secret, {
-    let secret = [0u8; 32];
+    let secret = black_box([0u8; 32]);
     taint_val(&secret);
     let observed = if secret[0] == 42 {
         black_box(1u8)
