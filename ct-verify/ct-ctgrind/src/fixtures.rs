@@ -7,17 +7,21 @@
 //! tainted input and the observed output — including inside inlined
 //! upstream primitives — trips a Valgrind memcheck error.
 //!
-//! Two carriers exercised to catch codegen-shape differences:
+//! Three carriers exercised to catch codegen-shape differences:
 //!
-//! - `FixedUInt<u32, 8, Ct>` — 32-bit word carrier (typical for
-//!   thumbv7em / riscv32 / desktop).
-//! - `FixedUInt<u8, 32, Ct>` — 8-bit word carrier (the shape the
-//!   `avr_demo` and size-constrained MCU builds use).
+//! - `FixedUInt<u32, 8, Ct>` — 32-bit word carrier, minimum size
+//!   (256 bits, exactly one bit above the field prime).
+//! - `FixedUInt<u32, 16, Ct>` — 32-bit word carrier at the shape
+//!   the `cortex_m_demo` and `riscv_demo` examples deploy (512
+//!   bits; matches the SHA-512 hash width without an intermediate
+//!   truncation).
+//! - `FixedUInt<u8, 32, Ct>` — 8-bit word carrier (`avr_demo` and
+//!   the size-constrained cortex_m u8 example).
 //!
 //! "Codegen is width-generic" is an argument, not a verification —
-//! the u8-limb monomorphization has a different loop shape and
-//! memory layout than the u32-limb one, so a leak that only surfaces
-//! in one wouldn't be caught by only fixturing the other.
+//! the u8-limb and 16-limb monomorphizations have different loop
+//! shapes and memory layouts than the 8-limb one, so a leak that
+//! surfaces only in one wouldn't be caught by fixturing another.
 //!
 //! Negative controls do a naive secret-dep operation (branch, index,
 //! equality) that Valgrind MUST flag. If it doesn't, the taint
@@ -29,8 +33,9 @@ use core::hint::black_box;
 use ed25519_heapless::{SigningKey, sign, x25519, x25519_base};
 use fixed_bigint::FixedUInt;
 
-type T32 = FixedUInt<u32, 8, Ct>;
-type T8 = FixedUInt<u8, 32, Ct>;
+type T32x8 = FixedUInt<u32, 8, Ct>;
+type T32x16 = FixedUInt<u32, 16, Ct>;
+type T8x32 = FixedUInt<u8, 32, Ct>;
 
 // ============================================================================
 // Positive fixtures — secret input tainted, output observed clean.
@@ -93,19 +98,27 @@ macro_rules! positive_fixtures_for_carrier {
 }
 
 positive_fixtures_for_carrier!(
-    T32,
-    ct_fix__signing_key_from_seed__u32,
-    ct_fix__sign__u32,
-    ct_fix__x25519__u32,
-    ct_fix__x25519_base__u32
+    T32x8,
+    ct_fix__signing_key_from_seed__u32x8,
+    ct_fix__sign__u32x8,
+    ct_fix__x25519__u32x8,
+    ct_fix__x25519_base__u32x8
 );
 
 positive_fixtures_for_carrier!(
-    T8,
-    ct_fix__signing_key_from_seed__u8,
-    ct_fix__sign__u8,
-    ct_fix__x25519__u8,
-    ct_fix__x25519_base__u8
+    T32x16,
+    ct_fix__signing_key_from_seed__u32x16,
+    ct_fix__sign__u32x16,
+    ct_fix__x25519__u32x16,
+    ct_fix__x25519_base__u32x16
+);
+
+positive_fixtures_for_carrier!(
+    T8x32,
+    ct_fix__signing_key_from_seed__u8x32,
+    ct_fix__sign__u8x32,
+    ct_fix__x25519__u8x32,
+    ct_fix__x25519_base__u8x32
 );
 
 // ============================================================================

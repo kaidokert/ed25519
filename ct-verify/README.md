@@ -27,12 +27,15 @@ Three members, each catching what the others can't:
   `MAKE_MEM_UNDEFINED` via crabgrind. Any conditional jump or memory
   access derived from the tainted bytes — including inside inlined
   upstream primitives — trips a memcheck error. Positive fixtures at
-  two carriers (`FixedUInt<u32, 8, Ct>` and `FixedUInt<u8, 32, Ct>`)
-  cover the desktop / thumbv7em / riscv32 shape and the AVR /
-  size-constrained MCU shape; the u8 monomorphization has a
-  materially different loop layout, so a leak only visible there
-  wouldn't be caught by u32 alone. Negative controls (
-  `nct_fix__neg__branch_on_secret`, `nct_fix__neg__index_by_secret`,
+  three carriers to cover the shapes downstream actually deploys:
+  `FixedUInt<u32, 8, Ct>` (256-bit minimum, one bit above the field
+  prime); `FixedUInt<u32, 16, Ct>` (512-bit, matches the
+  `cortex_m_demo` and `riscv_demo` u32 examples); `FixedUInt<u8, 32,
+  Ct>` (256-bit u8 limbs, matches `avr_demo` and the cortex_m u8
+  example). Different limb widths and counts monomorphize to
+  materially different loop layouts, so a leak visible in only one
+  wouldn't be caught by fixturing another. Negative controls
+  (`nct_fix__neg__branch_on_secret`, `nct_fix__neg__index_by_secret`,
   `nct_fix__neg__equality_on_secret`) MUST trip; the driver
   fails-closed on both a positive that tripped and a negative that
   didn't.
@@ -88,6 +91,14 @@ retest. This crate's harness doesn't re-verify upstream primitives.
   silently adding a fifth branch, but the semantic claim that all
   N branches are public-bounded loop-control rests on the ctgrind
   taint pass.
+
+- **panic-free-audit and ladder-branches instantiate at
+  `FixedUInt<u32, 8, Ct>` only.** That's the minimum-size backend
+  (256 bits); the deployed 512-bit and u8-limb shapes are covered
+  by ctgrind at runtime instead. The structural argument for
+  extrapolating "no reachable panic on `<u32, 8>`" to other widths
+  rests on ed25519_heapless being generic over `T` with no
+  width-conditional code path.
 
 ## Running
 
