@@ -1,29 +1,5 @@
 [workspace]
 resolver = "2"
 
-members = [ "ed25519", "ct-verify/panic-free-audit" ]
-exclude = [ "avr_demo", "cortex_m_demo", "riscv_demo" ]
-
-# `cargo build` at the workspace root builds the library only — the
-# ct-verify sub-crate is host-side tooling reached explicitly via
-# `-p panic-free-audit` (or the ct-verify workflow).
-default-members = [ "ed25519" ]
-
-# Pinned release codegen for the future CT-verification gate. The taint
-# verifier and the asm-grep driver must inspect deployment-shaped code
-# (fat LTO inlines every helper into its call site, matching what a
-# downstream release build sees), and deterministic output means a
-# toolchain bump that perturbs codegen shows up as an explicit,
-# reviewable delta rather than silent drift. Kept in sync with the
-# upstream modmath / fixed-bigint workspace profiles so shared fixtures
-# generate comparable disassembly. See notes/CT_VERIFY.md.
-[profile.release]
-lto = "fat"
-codegen-units = 1
-opt-level = "z"
-panic = "abort"
-# Line tables (not full DWARF) don't perturb codegen and let Valgrind
-# resolve taint violations to source lines instead of bare symbols.
-debug = "line-tables-only"
-overflow-checks = false
-incremental = false
+members = [ "ed25519" ]
+exclude = [ "avr_demo", "cortex_m_demo", "riscv_demo", "ct-verify" ]

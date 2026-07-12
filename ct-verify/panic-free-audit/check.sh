@@ -21,10 +21,11 @@ TARGET="${1:-thumbv7em-none-eabi}"
 HOST="$(rustc -vV | sed -n 's/^host: //p')"
 OBJDUMP="$(rustc --print sysroot)/lib/rustlib/${HOST}/bin/llvm-objdump"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-# Resolve target dir relative to the workspace root so the script
-# works both from the workspace root (CI) and from inside the audit
-# directory (local `./check.sh`).
-TARGET_DIR="${CARGO_TARGET_DIR:-${SCRIPT_DIR}/../../target}"
+CT_VERIFY_DIR="${SCRIPT_DIR}/.."
+# The audit lives in a nested workspace at `ct-verify/` — build from
+# there so its pinned release profile applies (main crate's own
+# `--release` builds don't inherit it).
+TARGET_DIR="${CARGO_TARGET_DIR:-${CT_VERIFY_DIR}/target}"
 ARCHIVE="${TARGET_DIR}/${TARGET}/release/libpanic_free_audit.a"
 
 if [ ! -x "$OBJDUMP" ]; then
@@ -32,7 +33,7 @@ if [ ! -x "$OBJDUMP" ]; then
     exit 2
 fi
 
-cargo build --release -p panic-free-audit --features panic-handler --target "$TARGET"
+(cd "$CT_VERIFY_DIR" && cargo build --release -p panic-free-audit --features panic-handler --target "$TARGET")
 
 # Walk callers of panic entry points. Each `R_* ... panic_bounds_check`
 # / `panic_fmt` / `unwrap_failed` / `expect_failed` / slice-index /
