@@ -1,0 +1,33 @@
+[package]
+name = "ct-ctgrind"
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.86"
+publish = false
+description = "Valgrind taint-based CT verifier for ed25519_heapless's sign / x25519 surface."
+
+[[bin]]
+name = "ct-ctgrind"
+path = "src/main.rs"
+
+[dependencies]
+# Direct Rust call sites into the crate under audit — the taint gate
+# runs against ed25519_heapless's actual public API, not a re-wrapped
+# extern "C" surface. Skipping panic-free-audit here keeps that crate
+# staticlib-only, which is what its DCE audit depends on.
+ed25519_heapless = { path = "../../ed25519", default-features = false, features = ["sha512-hmac-sha512"] }
+fixed-bigint = { version = "0.5", default-features = false, features = ["use-unsafe", "zeroize", "cios"] }
+const-num-traits = { version = "0.2", default-features = false }
+
+# Distributed-slice collection for the fixture registry.
+inventory = "0.3"
+
+# Identifier concatenation in macros (for `run_<fixture_name>`).
+paste = "1.0"
+
+# Valgrind client requests; Linux-only — see `src/valgrind.rs`. On
+# other hosts the driver still builds (as a stub) so workspace-wide
+# `cargo check`/`clippy` doesn't fail, but only Linux can exercise
+# the taint gate.
+[target.'cfg(target_os = "linux")'.dependencies]
+crabgrind = "0.1"

@@ -26,3 +26,25 @@ jobs:
           components: llvm-tools-preview
       - name: Panic-free audit (${{ matrix.target }})
         run: ct-verify/panic-free-audit/check.sh ${{ matrix.target }}
+
+  ct-ctgrind:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            arch: x86_64
+          - runner: ubuntu-24.04-arm
+            arch: aarch64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install valgrind
+        run: sudo apt-get update && sudo apt-get install -y valgrind
+      - name: Build ct-ctgrind
+        working-directory: ct-verify
+        run: cargo build --release -p ct-ctgrind
+      - name: Run under valgrind (${{ matrix.arch }})
+        working-directory: ct-verify
+        run: valgrind --tool=memcheck --error-limit=no --error-exitcode=0 -q target/release/ct-ctgrind
