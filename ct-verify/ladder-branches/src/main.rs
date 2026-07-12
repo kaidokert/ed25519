@@ -95,7 +95,12 @@ fn archive_path(target: &str) -> PathBuf {
 }
 
 fn find_objdump() -> Result<PathBuf, String> {
-    let sysroot_out = Command::new("rustc")
+    // `RUSTC` is the rustc binary path cargo hands to processes it
+    // launches (matters for rustup shims / nested cargo). Fall back
+    // to `rustc` on PATH when the env var is absent (e.g. running the
+    // binary directly outside `cargo run`).
+    let rustc = std::env::var_os("RUSTC").unwrap_or_else(|| "rustc".into());
+    let sysroot_out = Command::new(&rustc)
         .arg("--print=sysroot")
         .output()
         .map_err(|e| format!("rustc --print=sysroot failed: {e}"))?;
@@ -105,10 +110,16 @@ fn find_objdump() -> Result<PathBuf, String> {
     let sysroot = String::from_utf8_lossy(&sysroot_out.stdout)
         .trim()
         .to_string();
-    let host_out = Command::new("rustc")
+    let host_out = Command::new(&rustc)
         .arg("-vV")
         .output()
         .map_err(|e| format!("rustc -vV failed: {e}"))?;
+    if !host_out.status.success() {
+        return Err(format!(
+            "rustc -vV failed: {}",
+            String::from_utf8_lossy(&host_out.stderr)
+        ));
+    }
     let host = String::from_utf8_lossy(&host_out.stdout)
         .lines()
         .find_map(|l| l.strip_prefix("host: "))
@@ -130,7 +141,11 @@ fn find_objdump() -> Result<PathBuf, String> {
 
 fn build_archive(target: &str) -> Result<(), String> {
     let ws = workspace_dir();
-    let status = Command::new("cargo")
+    // `CARGO` is the cargo binary path cargo hands to processes it
+    // launches — using it (rather than `"cargo"` on PATH) keeps the
+    // nested build on the same toolchain the outer invocation uses.
+    let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
+    let status = Command::new(cargo)
         .arg("build")
         .arg("--release")
         .arg("-p")
