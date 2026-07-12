@@ -1,0 +1,11 @@
+[package]
+name = "ladder-branches"
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.86"
+publish = false
+description = "Narrow-scope calibrated branch-count check for ed25519_heapless's CT scalar-mul ladders."
+
+[[bin]]
+name = "ladder-branches"
+path = "src/main.rs"
