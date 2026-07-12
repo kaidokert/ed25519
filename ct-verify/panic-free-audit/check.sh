@@ -13,9 +13,8 @@
 # to an `ed25519_heapless::` section. Upstream (`hmac_sha512`, `sha2`,
 # `digest`, `hybrid_array`, `modmath`, `fixed-bigint`, `subtle`,
 # `zeroize`, core intrinsics) is assumed panic-free — that's an
-# upstream concern, tracked upstream. Cross-boundary regressions get
-# caught by the RFC 8032 integration tests run under ctgrind, not
-# here.
+# upstream concern, tracked upstream. Cross-boundary regressions are
+# covered by higher-level integration tests, not this audit.
 set -eu
 
 TARGET="${1:-thumbv7em-none-eabi}"

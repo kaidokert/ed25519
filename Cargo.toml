@@ -5,8 +5,8 @@ members = [ "ed25519", "ct-verify/panic-free-audit" ]
 exclude = [ "avr_demo", "cortex_m_demo", "riscv_demo" ]
 
 # `cargo build` at the workspace root builds the library only — the
-# ct-verify sub-crates are host-side tooling and are reached explicitly
-# via `-p panic-free-audit` (or the ct-verify workflow).
+# ct-verify sub-crate is host-side tooling reached explicitly via
+# `-p panic-free-audit` (or the ct-verify workflow).
 default-members = [ "ed25519" ]
 
 # Pinned release codegen for the future CT-verification gate. The taint
