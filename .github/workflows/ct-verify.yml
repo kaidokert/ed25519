@@ -26,8 +26,12 @@ jobs:
           components: llvm-tools-preview
       - name: Panic-free audit (${{ matrix.target }})
         run: ct-verify/panic-free-audit/check.sh ${{ matrix.target }}
+      - name: Build ladder-branches
+        working-directory: ct-verify
+        run: cargo build --release -p ladder-branches
       - name: Ladder-branch calibration (${{ matrix.target }})
-        run: ct-verify/ladder-branches/check.sh ${{ matrix.target }}
+        working-directory: ct-verify
+        run: target/release/ladder-branches --skip-build ${{ matrix.target }}
 
   ct-ctgrind:
     strategy:
