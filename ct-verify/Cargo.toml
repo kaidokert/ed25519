@@ -1,7 +1,7 @@
 [workspace]
 resolver = "2"
 
-members = [ "panic-free-audit" ]
+members = [ "panic-free-audit", "ct-ctgrind" ]
 
 # Pinned release codegen for the CT-verification gate. The taint
 # verifier and the asm-grep driver must inspect deployment-shaped
