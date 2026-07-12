@@ -63,25 +63,38 @@ pub struct NafIterator {
 }
 
 impl NafIterator {
-    /// Store a digit pair at the given index
+    /// Store a digit pair at the given index. Out-of-range indices
+    /// silently drop the write. The recoding-carry bound is proven
+    /// (255 scalar bits + 1 carry ≤ [`MAX_NAF_DIGITS`]) so this can't
+    /// fire in practice, but `packed[byte_idx] =` synthesizes a
+    /// `panic_bounds_check` call the linker can't DCE. `.get_mut()` +
+    /// `let Some ... else` gives the same runtime shape without the
+    /// panic path.
     fn pack_set(&mut self, idx: usize, s_digit: NafSign, h_digit: NafSign) {
         let byte_idx = idx / 2;
+        let Some(cell) = self.packed.get_mut(byte_idx) else {
+            return;
+        };
         let nibble = (encode_digit(s_digit) << 2) | encode_digit(h_digit);
         if idx & 1 == 0 {
-            self.packed[byte_idx] = (self.packed[byte_idx] & 0xF0) | nibble;
+            *cell = (*cell & 0xF0) | nibble;
         } else {
-            self.packed[byte_idx] = (self.packed[byte_idx] & 0x0F) | (nibble << 4);
+            *cell = (*cell & 0x0F) | (nibble << 4);
         }
     }
 
-    /// Read a digit pair from the given index
+    /// Read a digit pair from the given index. Out-of-range indices
+    /// return `Zero`/`Zero`, matching the same fail-closed shape as
+    /// [`decode_digit`]'s unused-bit-pattern fallback.
     fn pack_get(&self, idx: usize) -> NafDigit {
         let byte_idx = idx / 2;
-        let nibble = if idx & 1 == 0 {
-            self.packed[byte_idx] & 0x0F
-        } else {
-            self.packed[byte_idx] >> 4
+        let Some(&cell) = self.packed.get(byte_idx) else {
+            return NafDigit {
+                s_digit: NafSign::Zero,
+                h_digit: NafSign::Zero,
+            };
         };
+        let nibble = if idx & 1 == 0 { cell & 0x0F } else { cell >> 4 };
         NafDigit {
             s_digit: decode_digit((nibble >> 2) & 0x03),
             h_digit: decode_digit(nibble & 0x03),

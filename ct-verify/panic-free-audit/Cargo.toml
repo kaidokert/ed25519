@@ -1,0 +1,27 @@
+[package]
+name = "panic-free-audit"
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.86"
+publish = false
+description = "Linker-DCE audit: confirm ed25519_heapless's sign / verify / x25519 surface synthesizes no panic symbols."
+
+[lib]
+# staticlib so a cross-target build produces a `.a` that llvm-nm can
+# read without needing a linker script or runtime.
+crate-type = ["staticlib"]
+
+[features]
+default = []
+# See lib.rs — enabled by check.sh for the cross-built staticlib. When
+# off, the host build links std (workspace clippy / cargo check) which
+# supplies its own panic handler.
+panic-handler = []
+
+[dependencies]
+ed25519_heapless = { path = "../../ed25519", default-features = false, features = ["sha512-hmac-sha512"] }
+fixed-bigint = { version = "0.5", default-features = false, features = ["use-unsafe", "zeroize", "cios"] }
+const-num-traits = { version = "0.2", default-features = false }
+
+# Workspace `[profile.release]` (lto=fat, codegen-units=1, opt-level=z,
+# panic=abort) is what makes DCE worth measuring; do not override here.
