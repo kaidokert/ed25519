@@ -9,7 +9,11 @@
 //! formatting path's cost depends on the values being formatted).
 //!
 //! `black_box` at every boundary so the optimizer can't fold inputs
-//! through and DCE the body wholesale.
+//! through and DCE the body wholesale. Each fixture null-guards its
+//! pointer parameters so the compiler can't reason `deref of `*const T`
+//! is UB if null, therefore null is impossible, therefore ... DCE the
+//! body`. That's not just paranoia — Rust's noundef load rules let
+//! LLVM propagate exactly those assumptions.
 
 #![cfg_attr(feature = "panic-handler", no_std)]
 #![allow(clippy::not_unsafe_ptr_arg_deref)]
@@ -33,6 +37,9 @@ pub extern "C" fn panic_audit__signing_key_from_seed(
     seed: *const [u8; 32],
     out_pubkey: *mut [u8; 32],
 ) -> u8 {
+    if seed.is_null() || out_pubkey.is_null() {
+        return 0;
+    }
     let seed = unsafe { *seed };
     let sk = SigningKey::<TCt>::from_seed(black_box(&seed));
     if let Ok(ref k) = sk {
@@ -51,8 +58,16 @@ pub extern "C" fn panic_audit__sign_from_seed(
     msg_len: usize,
     out_sig: *mut [u8; 64],
 ) -> u8 {
+    if seed.is_null() || out_sig.is_null() {
+        return 0;
+    }
     let seed = unsafe { *seed };
-    let msg = unsafe { core::slice::from_raw_parts(black_box(msg), black_box(msg_len)) };
+    // `from_raw_parts(null, 0)` is UB even at length 0.
+    let msg: &[u8] = if msg.is_null() {
+        &[]
+    } else {
+        unsafe { core::slice::from_raw_parts(black_box(msg), black_box(msg_len)) }
+    };
     let Ok(sk) = SigningKey::<TCt>::from_seed(black_box(&seed)) else {
         return 0;
     };
@@ -73,9 +88,16 @@ pub extern "C" fn panic_audit__verify(
     msg_len: usize,
     signature: *const [u8; 64],
 ) -> u8 {
+    if public.is_null() || signature.is_null() {
+        return 0;
+    }
     let public = unsafe { *public };
     let signature = unsafe { *signature };
-    let msg = unsafe { core::slice::from_raw_parts(black_box(msg), black_box(msg_len)) };
+    let msg: &[u8] = if msg.is_null() {
+        &[]
+    } else {
+        unsafe { core::slice::from_raw_parts(black_box(msg), black_box(msg_len)) }
+    };
     let ok = verify::<TNct>(black_box(public), msg, black_box(signature));
     black_box(ok as u8)
 }
@@ -87,6 +109,9 @@ pub extern "C" fn panic_audit__x25519(
     u_in: *const [u8; 32],
     out: *mut [u8; 32],
 ) {
+    if k.is_null() || u_in.is_null() || out.is_null() {
+        return;
+    }
     let k = unsafe { *k };
     let u_in = unsafe { *u_in };
     let r = x25519::<TCt>(black_box(&k), black_box(&u_in));
@@ -96,6 +121,9 @@ pub extern "C" fn panic_audit__x25519(
 /// X25519 scalar × basepoint (public-key derivation).
 #[unsafe(no_mangle)]
 pub extern "C" fn panic_audit__x25519_base(k: *const [u8; 32], out: *mut [u8; 32]) {
+    if k.is_null() || out.is_null() {
+        return;
+    }
     let k = unsafe { *k };
     let r = x25519_base::<TCt>(black_box(&k));
     unsafe { *out = black_box(r) }
