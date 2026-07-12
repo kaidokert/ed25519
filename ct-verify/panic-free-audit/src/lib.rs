@@ -24,6 +24,9 @@ use const_num_traits::{Ct, Nct};
 use ed25519_heapless::{SigningKey, sign, verify, x25519, x25519_base};
 use fixed_bigint::FixedUInt;
 
+#[cfg(feature = "neg-controls")]
+mod neg_controls;
+
 // Ct carrier for the sign / x25519 secret-touching paths.
 type TCt = FixedUInt<u32, 8, Ct>;
 // Nct carrier for `verify` — the verify path takes only public
