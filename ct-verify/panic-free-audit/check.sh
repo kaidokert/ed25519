@@ -39,10 +39,22 @@ fi
 # / `panic_fmt` / `unwrap_failed` / `expect_failed` / slice-index /
 # len-mismatch line in the disassembly is a call site; the
 # `Disassembly of section` line above names the caller's symbol.
+#
+# Only report sections whose DEFINITION lives in ed25519_heapless (not
+# upstream generics that got monomorphized in our compilation unit).
+# In legacy Itanium mangling `_ZN<len><crate>` the first crate is
+# always the definition site. In Rust v0 mangling `_R…Cs<hash>_<len>
+# <crate>` the FIRST `Cs<hash>_<len><crate>` block after `_R` is the
+# definition site (later `Cs` blocks are instantiation-site suffixes
+# and don't identify code we own).
 FOUND="$("$OBJDUMP" -d -r --demangle "$ARCHIVE" 2>/dev/null | awk '
     /^Disassembly of section/ { section = $NF; next }
     /^[[:space:]]+[0-9a-f]+:[[:space:]]+R_.*(panicking|slice_index_fail|len_mismatch_fail|slice_start_index|slice_end_index|unwrap_failed|expect_failed)/ {
-        if (section ~ /(ed25519_heapless|panic_audit__)/) print section
+        if (section ~ /panic_audit__/ ||
+            section ~ /_ZN16ed25519_heapless/ ||
+            section ~ /_R[^C]*Cs[^_]*_16ed25519_heapless/) {
+            print section
+        }
     }
 ' | sort -u)"
 
