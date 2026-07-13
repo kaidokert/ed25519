@@ -1,91 +1,232 @@
-//! Compile + smoke test with fixed-bigint 0.6's `HeaplessBigInt` as
-//! the backend `T`. The runtime-length carrier is a fresh type on
-//! the alpha ecosystem — this test proves it satisfies every trait
-//! bound ed25519_heapless demands on both the CT (sign / x25519)
-//! and NCT (verify) sides, and that the entry points at least
-//! COMPILE and don't panic on well-formed inputs.
+//! Cross-backend equivalence probes against `FixedUInt<u32, 8, _>` vs
+//! `HeaplessBigInt<u32, 8, _>`, from smallest primitive to full
+//! ed25519 entry point. Every backend-independent property should hold
+//! between the two carriers — the FIRST test in this file that fails
+//! localizes the bug to the layer named in the test.
 //!
-//! Runtime semantic equivalence with the `FixedUInt` backend is
-//! NOT holding on this alpha stack as of `v0.6.0-alpha.14`
-//! (fixed-bigint) + `v0.6.0-alpha.cios.2` (modmath). Symptoms:
+//! Ordering (outer → inner is the READING order; the actual
+//! localization is inner → outer):
 //!
-//! - `sign_verify_roundtrip_over_heapless_bigint`: sign produces a
-//!   signature that `verify::<HeaplessBigInt>` rejects.
-//! - `public_key_matches_fixeduint_backend`: same seed derives
-//!   DIFFERENT public keys under `HeaplessBigInt<u32, 8, Ct>` vs
-//!   `FixedUInt<u32, 8, Ct>`.
-//! - `verify_matches_fixeduint_backend`: `verify::<HeaplessBigInt>`
-//!   rejects a signature the `FixedUInt`-instantiated verify
-//!   accepts.
+//! 1. `byte_roundtrip_bytes_match` — `FromByteSlice` + `ToBytes` on T
+//!    alone. Fails ⇒ backend disagrees on canonical encoding; nothing
+//!    below can be right.
+//! 2. `field_reduce_of_small_value_matches` — `Field::reduce(&raw)`
+//!    then `Field::into_raw(&residue)` on a value < modulus. Fails ⇒
+//!    Montgomery form / R conversion disagrees.
+//! 3. `field_mul_by_one_is_identity` — CIOS multiplication vs the
+//!    field's `one()`. Fails ⇒ CIOS is broken for this shape.
+//! 4. `field_mul_of_two_small_values_matches` — CIOS on two
+//!    reduce'd small integers. Fails ⇒ general CIOS.
+//! 5. `x25519_base_output_matches` — output of the Curve25519 scalar
+//!    ladder with the base point. Fails ⇒ ladder / field composition.
+//! 6. `signing_key_public_matches` — end-to-end ed25519 sign-side
+//!    pubkey derivation.
 //!
-//! ed25519's source didn't change on this branch — the runtime
-//! disagreement is somewhere in the modmath ↔ HeaplessBigInt
-//! binding, likely around how `len` is threaded through Montgomery
-//! multiplication when the carrier's used-limb count is runtime-set
-//! rather than always-CAP. Tests are kept as expected-fail so the
-//! signal remains visible while upstream integration matures; flip
-//! them back to `#[test]` (they already are) — no `#[ignore]` — as
-//! soon as the alpha stack fixes this.
+//! On the `experiment/heapless-runtime-len` branch as of writing,
+//! items 2 onward fail; item 1 passes. That places the divergence
+//! inside modmath's Ct field constructor / reducer against the
+//! runtime-length HeaplessBigInt.
 
 #![cfg(all(
     feature = "fixed-bigint",
     any(feature = "sha512-hmac-sha512", feature = "sha512-sha2"),
 ))]
 
-use const_num_traits::{Ct, Nct};
-use ed25519_heapless::{SigningKey, sign, verify, x25519, x25519_base};
+use const_num_traits::{Ct, FromByteSlice, ToBytes};
+use ed25519_heapless::{Curve25519FieldCt, P_BYTES, SigningKey, x25519_base};
 use fixed_bigint::{FixedUInt, HeaplessBigInt};
+use modmath::CiosMontMulCt;
 
-// Curve25519-shaped: 8 × u32 = 256 bits, mirrors the FixedUInt<u32, 8, _>
-// path the existing test suite exercises so results are directly comparable.
-type TCt = HeaplessBigInt<u32, 8, Ct>;
-type TNct = HeaplessBigInt<u32, 8, Nct>;
 type FCt = FixedUInt<u32, 8, Ct>;
-type FNct = FixedUInt<u32, 8, Nct>;
+type HCt = HeaplessBigInt<u32, 8, Ct>;
+
+/// Encode a `T` to its 32-byte little-endian form.
+fn le_bytes<T: ToBytes + Copy>(v: &T) -> [u8; 32] {
+    let bytes = (*v).to_le_bytes();
+    let slice: &[u8] = bytes.as_ref();
+    let mut out = [0u8; 32];
+    // Backends may zero-extend or truncate to their T::BYTE_WIDTH;
+    // copy up to 32 bytes and pad with zero. Both sides do the
+    // same thing so any difference reflects a real disagreement.
+    let n = slice.len().min(32);
+    out[..n].copy_from_slice(&slice[..n]);
+    out
+}
+
+// ---------------------------------------------------------------------------
+// 1. Byte roundtrip — FromByteSlice + ToBytes
+// ---------------------------------------------------------------------------
 
 #[test]
-fn public_key_matches_fixeduint_backend() {
-    let seed = [7u8; 32];
-    let pk_hb = SigningKey::<TCt>::from_seed(&seed)
-        .expect("from_seed heapless")
-        .public_key();
-    let pk_fb = SigningKey::<FCt>::from_seed(&seed)
-        .expect("from_seed fixeduint")
-        .public_key();
+fn byte_roundtrip_bytes_match() {
+    // A value < p so no reduction is even conceptually involved.
+    let mut input = [0u8; 32];
+    input[0] = 42;
+    input[15] = 0x5a;
+    input[30] = 0x3c;
+
+    let f: FCt = FCt::from_le_slice(&input).expect("FixedUInt from_le_slice");
+    let h: HCt = HCt::from_le_slice(&input).expect("HeaplessBigInt from_le_slice");
+
+    assert_eq!(le_bytes(&f), input, "FixedUInt bytes didn't roundtrip");
+    assert_eq!(le_bytes(&h), input, "HeaplessBigInt bytes didn't roundtrip");
     assert_eq!(
-        pk_hb, pk_fb,
-        "sign-side pubkey disagreement between backends"
+        le_bytes(&f),
+        le_bytes(&h),
+        "same input encoded differently between backends"
     );
 }
 
-#[test]
-fn verify_matches_fixeduint_backend() {
-    let seed = [7u8; 32];
-    let sk = SigningKey::<FCt>::from_seed(&seed).expect("from_seed");
-    let pk = sk.public_key();
-    let msg = b"hello, HeaplessBigInt";
-    let sig = sign(&sk, msg).expect("sign");
-    // Same signature, verified through each backend.
-    let ok_fb = verify::<FNct>(pk, msg, sig);
-    let ok_hb = verify::<TNct>(pk, msg, sig);
-    assert!(ok_fb, "verify::<FixedUInt> rejected a valid signature");
-    assert!(ok_hb, "verify::<HeaplessBigInt> rejected a valid signature");
+// ---------------------------------------------------------------------------
+// 2. Field reduce roundtrip
+// ---------------------------------------------------------------------------
+
+fn field_reduce_bytes<T>(input: &[u8; 32]) -> [u8; 32]
+where
+    T: ed25519_heapless::UnsignedModularInt
+        + Copy
+        + PartialEq
+        + modmath::WideMul
+        + CiosMontMulCt
+        + const_num_traits::CtIsZero
+        + subtle::ConditionallySelectable
+        + subtle::ConstantTimeLess,
+    for<'a> &'a T:
+        const_num_traits::WrappingAdd<Output = T> + const_num_traits::WrappingSub<Output = T>,
+{
+    let field = Curve25519FieldCt::<T>::curve25519().expect("curve25519");
+    let raw = <T as FromByteSlice>::from_le_slice(input).expect("from_le_slice");
+    let residue = field.reduce(&raw);
+    let out = field.into_raw(&residue);
+    le_bytes(&out)
 }
 
 #[test]
-fn sign_verify_roundtrip_over_heapless_bigint() {
-    let seed = [7u8; 32];
-    let sk = SigningKey::<TCt>::from_seed(&seed).expect("from_seed");
-    let pk = sk.public_key();
-    let msg = b"hello, HeaplessBigInt";
-    let sig = sign(&sk, msg).expect("sign");
-    assert!(verify::<TNct>(pk, msg, sig));
+fn field_reduce_of_small_value_matches() {
+    let mut input = [0u8; 32];
+    input[0] = 7;
+    let fb = field_reduce_bytes::<FCt>(&input);
+    let hb = field_reduce_bytes::<HCt>(&input);
+    assert_eq!(fb, input, "FixedUInt reduce(7) didn't roundtrip to 7");
+    assert_eq!(hb, input, "HeaplessBigInt reduce(7) didn't roundtrip to 7");
+    assert_eq!(
+        fb, hb,
+        "reduce/into_raw of the same small value disagrees between backends"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 3. Field mul by one is identity
+// ---------------------------------------------------------------------------
+
+fn field_mul_by_one_bytes<T>(input: &[u8; 32]) -> [u8; 32]
+where
+    T: ed25519_heapless::UnsignedModularInt
+        + Copy
+        + PartialEq
+        + modmath::WideMul
+        + CiosMontMulCt
+        + const_num_traits::CtIsZero
+        + subtle::ConditionallySelectable
+        + subtle::ConstantTimeLess,
+    for<'a> &'a T:
+        const_num_traits::WrappingAdd<Output = T> + const_num_traits::WrappingSub<Output = T>,
+{
+    let field = Curve25519FieldCt::<T>::curve25519().expect("curve25519");
+    let raw = <T as FromByteSlice>::from_le_slice(input).expect("from_le_slice");
+    let residue = field.reduce(&raw);
+    let one = field.one();
+    let product = field.mul(&residue, &one);
+    let out = field.into_raw(&product);
+    le_bytes(&out)
 }
 
 #[test]
-fn x25519_completes_over_heapless_bigint() {
+fn field_mul_by_one_is_identity() {
+    let mut input = [0u8; 32];
+    input[0] = 7;
+    let fb = field_mul_by_one_bytes::<FCt>(&input);
+    let hb = field_mul_by_one_bytes::<HCt>(&input);
+    assert_eq!(fb, input, "FixedUInt mul-by-one didn't preserve 7");
+    assert_eq!(hb, input, "HeaplessBigInt mul-by-one didn't preserve 7");
+    assert_eq!(fb, hb, "mul-by-one output disagrees between backends");
+}
+
+// ---------------------------------------------------------------------------
+// 4. Field mul of two small values
+// ---------------------------------------------------------------------------
+
+fn field_mul_bytes<T>(a: &[u8; 32], b: &[u8; 32]) -> [u8; 32]
+where
+    T: ed25519_heapless::UnsignedModularInt
+        + Copy
+        + PartialEq
+        + modmath::WideMul
+        + CiosMontMulCt
+        + const_num_traits::CtIsZero
+        + subtle::ConditionallySelectable
+        + subtle::ConstantTimeLess,
+    for<'a> &'a T:
+        const_num_traits::WrappingAdd<Output = T> + const_num_traits::WrappingSub<Output = T>,
+{
+    let field = Curve25519FieldCt::<T>::curve25519().expect("curve25519");
+    let a_raw = <T as FromByteSlice>::from_le_slice(a).expect("from_le_slice a");
+    let b_raw = <T as FromByteSlice>::from_le_slice(b).expect("from_le_slice b");
+    let ra = field.reduce(&a_raw);
+    let rb = field.reduce(&b_raw);
+    let product = field.mul(&ra, &rb);
+    let out = field.into_raw(&product);
+    le_bytes(&out)
+}
+
+#[test]
+fn field_mul_of_two_small_values_matches() {
+    // 6 * 7 = 42, no reduction needed; if backends disagree here it's
+    // pure schoolbook CIOS on tiny values.
+    let mut a = [0u8; 32];
+    let mut b = [0u8; 32];
+    a[0] = 6;
+    b[0] = 7;
+    let mut expected = [0u8; 32];
+    expected[0] = 42;
+    let fb = field_mul_bytes::<FCt>(&a, &b);
+    let hb = field_mul_bytes::<HCt>(&a, &b);
+    assert_eq!(fb, expected, "FixedUInt 6*7 != 42");
+    assert_eq!(hb, expected, "HeaplessBigInt 6*7 != 42");
+    assert_eq!(fb, hb, "6*7 output disagrees between backends");
+}
+
+// ---------------------------------------------------------------------------
+// 5. x25519 base ladder output
+// ---------------------------------------------------------------------------
+
+#[test]
+fn x25519_base_output_matches() {
     let k = [3u8; 32];
-    let u = [5u8; 32];
-    let _ = x25519::<TCt>(&k, &u);
-    let _ = x25519_base::<TCt>(&k);
+    let fb = x25519_base::<FCt>(&k);
+    let hb = x25519_base::<HCt>(&k);
+    assert_eq!(fb, hb, "x25519_base(k=3) output disagrees between backends");
 }
+
+// ---------------------------------------------------------------------------
+// 6. Ed25519 public-key derivation from a seed
+// ---------------------------------------------------------------------------
+
+#[test]
+fn signing_key_public_matches() {
+    let seed = [7u8; 32];
+    let fb = SigningKey::<FCt>::from_seed(&seed)
+        .expect("from_seed FixedUInt")
+        .public_key();
+    let hb = SigningKey::<HCt>::from_seed(&seed)
+        .expect("from_seed HeaplessBigInt")
+        .public_key();
+    assert_eq!(
+        fb, hb,
+        "SigningKey::from_seed pubkey disagrees between backends"
+    );
+}
+
+// Sanity: make sure the P_BYTES import is used (silences dead-code
+// warning if we ever trim the file down).
+const _: [u8; 32] = P_BYTES;
