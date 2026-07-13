@@ -229,12 +229,16 @@ where
         + const_num_traits::ToBytes<Bytes = <T as const_num_traits::ToBytes>::Bytes>,
     <T as const_num_traits::ToBytes>::Bytes: zeroize::Zeroize,
 {
-    const {
-        // x25519.rs caps T at 64 bytes; the same bound applies here so
-        // the scratch buffer below can be a stack array.
-        assert!(core::mem::size_of::<T>() <= 64);
-    }
-
+    // No width guard here: this function's only width requirement is
+    // `T::Bytes >= 32` (for the `[..32]` slice below), which every
+    // caller upholds by building the field through
+    // `Curve25519FieldCt::curve25519()` — that constructor rejects
+    // sub-256-bit backends before any point op runs. A local
+    // `size_of::<T>()` check would be wrong for runtime-length
+    // carriers anyway: `HeaplessBigInt<u32, 16>` is ~68 B of struct
+    // (limbs + `len`) but only 512 numeric bits, and a `const {}`
+    // form const-evaluates at monomorphization, hard-erroring even in
+    // verify-only builds that never call the sign path.
     let z_inv = field.inv(&pp.2);
     let x = field.mul(&pp.0, &z_inv);
     let y = field.mul(&pp.1, &z_inv);

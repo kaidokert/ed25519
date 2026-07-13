@@ -39,6 +39,12 @@ use modmath::CiosMontMulCt;
 
 type FCt = FixedUInt<u32, 8, Ct>;
 type HCt = HeaplessBigInt<u32, 8, Ct>;
+// The wide runtime-length carrier the cortex_m / riscv demos deploy
+// (`u32×16` = 512-bit). Its struct footprint (~68 B: limbs + `len`)
+// exceeds a naive `size_of::<T>() <= 64` cap even though its numeric
+// width is only 512 bits — the exact case that used to trip a stale
+// const assert in `point_compress_ct`.
+type HCt16 = HeaplessBigInt<u32, 16, Ct>;
 
 /// Encode a `T` to its 32-byte little-endian form.
 fn le_bytes<T: ToBytes + Copy>(v: &T) -> [u8; 32] {
@@ -305,6 +311,66 @@ fn signing_key_public_matches() {
     assert_eq!(
         fb, hb,
         "SigningKey::from_seed pubkey disagrees between backends"
+    );
+}
+
+// Localizers for the wide-carrier (u32×16) divergence: run the same
+// primitive probes over the 512-bit carrier. A `HeaplessBigInt` whose
+// carrier is strictly wider than the 256-bit modulus should still
+// produce identical field results to the narrow carriers (Montgomery
+// form is internal; `reduce`/`into_raw` must round-trip regardless of
+// how many leading zero limbs the carrier carries).
+
+#[test]
+fn wide_carrier_field_reduce_matches() {
+    let mut input = [0u8; 32];
+    input[0] = 7;
+    let narrow = field_reduce_bytes::<HCt>(&input);
+    let wide = field_reduce_bytes::<HCt16>(&input);
+    assert_eq!(narrow, input, "u32x8 reduce(7) != 7");
+    assert_eq!(
+        wide, input,
+        "u32x16 reduce(7) != 7 — wide-carrier field reduce is wrong"
+    );
+}
+
+#[test]
+fn wide_carrier_field_mul_matches() {
+    let mut a = [0u8; 32];
+    let mut b = [0u8; 32];
+    a[0] = 6;
+    b[0] = 7;
+    let mut expected = [0u8; 32];
+    expected[0] = 42;
+    let narrow = field_mul_bytes::<HCt>(&a, &b);
+    let wide = field_mul_bytes::<HCt16>(&a, &b);
+    assert_eq!(narrow, expected, "u32x8 6*7 != 42");
+    assert_eq!(
+        wide, expected,
+        "u32x16 6*7 != 42 — wide-carrier field mul is wrong"
+    );
+}
+
+// Regression: `HeaplessBigInt<u32, 16, Ct>` (~68 B struct, 512 numeric
+// bits) drives the sign path — including `point_compress_ct`, which
+// used to carry a `const { size_of::<T>() <= 64 }` guard that
+// const-evaluated to `false` for this carrier and hard-errored at
+// monomorphization (blocking even verify-only builds that compile but
+// never call the sign path). The pubkey is a deterministic function of
+// the seed, independent of carrier width, so it must match the narrow
+// carriers bit-for-bit.
+#[test]
+fn signing_key_public_wide_carrier_matches() {
+    let seed = [7u8; 32];
+    let narrow = SigningKey::<HCt>::from_seed(&seed)
+        .expect("from_seed u32x8")
+        .public_key();
+    let wide = SigningKey::<HCt16>::from_seed(&seed)
+        .expect("from_seed u32x16")
+        .public_key();
+    assert_eq!(
+        narrow, wide,
+        "pubkey disagrees between u32x8 and u32x16 HeaplessBigInt carriers"
     );
 }
 
