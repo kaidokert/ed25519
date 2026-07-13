@@ -22,17 +22,14 @@ use subtle::Choice;
 // X25519-specific constants
 // =========================================================================
 
-/// a24 = (A - 2) / 4 where A = 486662 is the Montgomery curve coefficient.
-/// a24 = 121665 = 0x0001_DB41, little-endian.
-pub const A24_BYTES: [u8; 32] = [
-    0x41, 0xdb, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-];
+/// A24 = (A - 2) / 4 = 121665, where A = 486662 is the Montgomery
+/// curve coefficient (RFC 7748 §4.1).
+pub const A24_BYTES: [u8; 32] =
+    crate::hx_le("000000000000000000000000000000000000000000000000000000000001db41");
 
-/// The u-coordinate of the X25519 base point. u = 9, little-endian.
-pub const BASE_U_BYTES: [u8; 32] = [
-    9, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-];
+/// The u-coordinate of the X25519 base point. u = 9 (RFC 7748).
+pub const BASE_U_BYTES: [u8; 32] =
+    crate::hx_le("0000000000000000000000000000000000000000000000000000000000000009");
 
 /// Universal blinding modulus: `lcm(curve_order, twist_order) = 8·ℓ·ℓ'`
 /// where `ℓ` is the curve subgroup order and `ℓ'` is the twist
@@ -41,12 +38,9 @@ pub const BASE_U_BYTES: [u8; 32] = [
 /// 32-byte u-coordinate the X25519 ladder accepts. `8·ℓ` alone would
 /// only work for curve points; using the LCM costs ~2× ladder
 /// iterations but eliminates the twist-conformance gap.
-pub const BLINDING_MODULUS_BYTES: [u8; 64] = [
-    0xc8, 0xce, 0xb3, 0x29, 0x3b, 0xb8, 0xf4, 0x0b, 0xd9, 0xb1, 0xd1, 0x00, 0x00, 0x92, 0x10, 0xa1,
-    0x13, 0xa4, 0x80, 0xde, 0xc2, 0x38, 0x11, 0x23, 0x5c, 0xf6, 0x3c, 0x48, 0xee, 0x6b, 0xc6, 0x64,
-    0xfb, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-    0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x0f,
-];
+pub const BLINDING_MODULUS_BYTES: [u8; 64] = crate::hx_le(
+    "0ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffb64c66bee483cf65c231138c2de80a413a110920000d1b1d90bf4b83b29b3cec8",
+);
 
 /// Backends wider than this are rejected at runtime. 64 bytes covers all
 /// currently registered `FixedUInt` impls (u32×16, u64×8, u64×4, u8×32) and

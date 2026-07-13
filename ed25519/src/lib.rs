@@ -196,11 +196,12 @@ impl<T> SignBackend for T where
 // the rest of the crate uses. Compile-time only: bad hex or wrong
 // length is a build error, and rodata is identical to a hand-written
 // LE array.
-const fn hx_le<const N: usize>(s: &str) -> [u8; N] {
+pub(crate) const fn hx_le<const N: usize>(s: &str) -> [u8; N] {
     const fn nib(c: u8) -> u8 {
         match c {
             b'0'..=b'9' => c - b'0',
             b'a'..=b'f' => c - b'a' + 10,
+            b'A'..=b'F' => c - b'A' + 10,
             _ => panic!("bad hex digit in curve constant"),
         }
     }
