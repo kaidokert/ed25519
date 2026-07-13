@@ -1,376 +1,693 @@
-//! Cross-backend equivalence probes: `FixedUInt<u32, 8, _>` vs
-//! `HeaplessBigInt<u32, 8, _>` (narrow carrier) and vs
-//! `HeaplessBigInt<u32, 16, _>` (wide carrier — the shape the
-//! cortex_m / riscv demos deploy). Every backend-independent property
-//! must hold across all three; each test is layered smallest primitive
-//! to full ed25519 entry point, so a regression's FIRST failing test
-//! names the layer it broke.
+//! Carrier-generic cross-backend equivalence suite.
 //!
-//! Ordering (inner → outer):
+//! Each test is a generic `inner::<T>()` body run against every
+//! deployment carrier — `FixedUInt` and `HeaplessBigInt`, both
+//! personalities, at the widths downstream actually ships. A test
+//! asserting a KNOWN answer (not merely cross-carrier agreement)
+//! means the FIRST failing `(test, carrier)` pair names both the
+//! broken layer and the exact carrier configuration.
 //!
-//! 1. `byte_roundtrip_bytes_match` — `FromByteSlice` + `ToBytes` on T.
-//! 2. `carrying_mul_*` / `wide_mul_*` — the widening-multiply primitive
-//!    modmath's Montgomery machinery calls through.
-//! 3. `field_reduce_of_small_value_matches` — `reduce` → `into_raw`.
-//! 4. `field_mul_by_one_is_identity` / `field_mul_of_two_small_values`
-//!    — CIOS multiplication.
-//! 5. `x25519_base_output_matches` — Curve25519 scalar ladder.
-//! 6. `signing_key_public_matches` — end-to-end sign-side pubkey.
-//! 7. `wide_carrier_*` — items 3-6 repeated on the 512-bit carrier.
+//! Carriers under test:
+//!   - `FixedUInt<u32, 8, {Ct,Nct}>` — the reference fixed carrier.
+//!   - `HeaplessBigInt<u32, 8, {Ct,Nct}>` — narrow runtime-length.
+//!   - `HeaplessBigInt<u32, 16, {Ct,Nct}>` — wide runtime-length
+//!     (512-bit box holding a 255-bit value → `len < CAP`), the
+//!     cortex_m / riscv / krabitls deploy shape.
 //!
-//! History: three distinct upstream bugs surfaced and were fixed
-//! through this reducer — a sub-width CarryingMul split (fixed-bigint
-//! alpha.16), a reduce/into_raw limb shift (modmath cios.5), and a
-//! carrier-wider-than-modulus Montgomery error (modmath cios.6). All
-//! layers now agree across the three carriers.
+//! History — three upstream bugs surfaced and fixed through this
+//! reducer: a sub-width CarryingMul split (fixed-bigint alpha.16), a
+//! reduce/into_raw limb shift (modmath cios.5), and a
+//! carrier-wider-than-modulus Montgomery error (modmath cios.6).
 
 #![cfg(all(
     feature = "fixed-bigint",
     any(feature = "sha512-hmac-sha512", feature = "sha512-sha2"),
 ))]
 
-use const_num_traits::{CarryingMul, Ct, FromByteSlice, ToBytes, Zero};
-use ed25519_heapless::{Curve25519FieldCt, P_BYTES, SigningKey, x25519_base};
+use const_num_traits::{
+    CarryingMul, Ct, FromByteSlice, Nct, One, OverflowingAdd, ToBytes, WrappingSub, Zero,
+};
+use ed25519_heapless::{
+    Curve25519Field, Curve25519FieldCt, D_BYTES, G_Y_BYTES, Q_BYTES, SigningKey,
+    UnsignedModularInt, sign, verify, x25519_base,
+};
 use fixed_bigint::{FixedUInt, HeaplessBigInt};
-use modmath::CiosMontMulCt;
+use modmath::{CiosMontMul, CiosMontMulCt};
 
-type FCt = FixedUInt<u32, 8, Ct>;
-type HCt = HeaplessBigInt<u32, 8, Ct>;
-// The wide runtime-length carrier the cortex_m / riscv demos deploy
-// (`u32×16` = 512-bit). Its struct footprint (~68 B: limbs + `len`)
-// exceeds a naive `size_of::<T>() <= 64` cap even though its numeric
-// width is only 512 bits — the exact case that used to trip a stale
-// const assert in `point_compress_ct`.
-type HCt16 = HeaplessBigInt<u32, 16, Ct>;
+// ---------------------------------------------------------------------------
+// Carrier bound bundles.
+// ---------------------------------------------------------------------------
 
-/// Encode a `T` to its 32-byte little-endian form.
-fn le_bytes<T: ToBytes + Copy>(v: &T) -> [u8; 32] {
+/// Full CT sign / x25519 carrier bound (the personality verify does
+/// NOT use).
+trait CtCarrier:
+    UnsignedModularInt
+    + Copy
+    + PartialEq
+    + modmath::WideMul
+    + CiosMontMulCt
+    + const_num_traits::CtIsZero
+    + subtle::ConditionallySelectable
+    + subtle::ConstantTimeLess
+where
+    for<'a> &'a Self: const_num_traits::WrappingAdd<Output = Self> + WrappingSub<Output = Self>,
+{
+}
+impl<T> CtCarrier for T
+where
+    T: UnsignedModularInt
+        + Copy
+        + PartialEq
+        + modmath::WideMul
+        + CiosMontMulCt
+        + const_num_traits::CtIsZero
+        + subtle::ConditionallySelectable
+        + subtle::ConstantTimeLess,
+    for<'a> &'a T: const_num_traits::WrappingAdd<Output = T> + WrappingSub<Output = T>,
+{
+}
+
+/// Full Nct verify carrier bound.
+trait NctCarrier:
+    UnsignedModularInt + Copy + PartialEq + modmath::WideMul + CiosMontMul + modmath::NonCt
+where
+    for<'a> &'a Self: const_num_traits::WrappingAdd<Output = Self> + WrappingSub<Output = Self>,
+{
+}
+impl<T> NctCarrier for T
+where
+    T: UnsignedModularInt + Copy + PartialEq + modmath::WideMul + CiosMontMul + modmath::NonCt,
+    for<'a> &'a T: const_num_traits::WrappingAdd<Output = T> + WrappingSub<Output = T>,
+{
+}
+
+// ---------------------------------------------------------------------------
+// Helpers.
+// ---------------------------------------------------------------------------
+
+/// Encode a `T` to its low 32 little-endian bytes.
+fn le32<T: ToBytes + Copy>(v: &T) -> [u8; 32] {
     let bytes = (*v).to_le_bytes();
     let slice: &[u8] = bytes.as_ref();
     let mut out = [0u8; 32];
-    // Backends may zero-extend or truncate to their T::BYTE_WIDTH;
-    // copy up to 32 bytes and pad with zero. Both sides do the
-    // same thing so any difference reflects a real disagreement.
     let n = slice.len().min(32);
     out[..n].copy_from_slice(&slice[..n]);
     out
 }
 
+/// A 32-byte LE buffer with `v` in the low byte.
+fn small(v: u8) -> [u8; 32] {
+    let mut b = [0u8; 32];
+    b[0] = v;
+    b
+}
+
+fn decode<T: FromByteSlice>(bytes: &[u8; 32]) -> T {
+    <T as FromByteSlice>::from_le_slice(bytes).expect("from_le_slice")
+}
+
 // ---------------------------------------------------------------------------
-// 1. Byte roundtrip — FromByteSlice + ToBytes
+// 1. Byte roundtrip — FromByteSlice + ToBytes.
 // ---------------------------------------------------------------------------
 
 #[test]
-fn byte_roundtrip_bytes_match() {
-    // A value < p so no reduction is even conceptually involved.
-    let mut input = [0u8; 32];
-    input[0] = 42;
-    input[15] = 0x5a;
-    input[30] = 0x3c;
-
-    let f: FCt = FCt::from_le_slice(&input).expect("FixedUInt from_le_slice");
-    let h: HCt = HCt::from_le_slice(&input).expect("HeaplessBigInt from_le_slice");
-
-    assert_eq!(le_bytes(&f), input, "FixedUInt bytes didn't roundtrip");
-    assert_eq!(le_bytes(&h), input, "HeaplessBigInt bytes didn't roundtrip");
-    assert_eq!(
-        le_bytes(&f),
-        le_bytes(&h),
-        "same input encoded differently between backends"
-    );
+fn byte_roundtrip() {
+    fn inner<T: FromByteSlice + ToBytes + Copy>() {
+        let input = {
+            let mut b = [0u8; 32];
+            b[0] = 42;
+            b[15] = 0x5a;
+            b[30] = 0x3c;
+            b
+        };
+        assert_eq!(le32(&decode::<T>(&input)), input);
+    }
+    inner::<FixedUInt<u32, 8, Ct>>();
+    inner::<HeaplessBigInt<u32, 8, Ct>>();
+    inner::<HeaplessBigInt<u32, 16, Ct>>();
+    inner::<FixedUInt<u32, 8, Nct>>();
+    inner::<HeaplessBigInt<u32, 8, Nct>>();
+    inner::<HeaplessBigInt<u32, 16, Nct>>();
 }
 
 // ---------------------------------------------------------------------------
-// 1.5 Direct `CarryingMul` primitive: exactly the shape modmath's
-//     WideMul blanket calls through — `carrying_mul(a, b, zero)`.
-//     If the fix in alpha.16 landed and modmath's blanket resolves
-//     to it, `38 * 38` here must produce identical `lo`/`hi` on both
-//     carriers.
+// 2. Widening multiply primitive.
 // ---------------------------------------------------------------------------
 
-fn carrying_mul_bytes<T>(a: u8, b: u8) -> ([u8; 32], [u8; 32])
-where
-    T: FromByteSlice + ToBytes + Copy + Zero + CarryingMul<Unsigned = T, Output = T>,
-{
-    let mut a_bytes = [0u8; 32];
-    a_bytes[0] = a;
-    let mut b_bytes = [0u8; 32];
-    b_bytes[0] = b;
-    let av = <T as FromByteSlice>::from_le_slice(&a_bytes).expect("from a");
-    let bv = <T as FromByteSlice>::from_le_slice(&b_bytes).expect("from b");
-    let (lo, hi) = <T as CarryingMul>::carrying_mul(av, bv, <T as Zero>::zero());
-    (le_bytes(&lo), le_bytes(&hi))
+#[test]
+fn carrying_mul_38() {
+    // 38 * 38 = 1444 = 0x05a4, hi = 0. The exact operand pair
+    // Curve25519's r2_mod_n setup feeds through the widening mul.
+    fn inner<T>()
+    where
+        T: FromByteSlice + ToBytes + Copy + Zero + CarryingMul<Unsigned = T, Output = T>,
+    {
+        let a = decode::<T>(&small(38));
+        let b = decode::<T>(&small(38));
+        let (lo, hi) = <T as CarryingMul>::carrying_mul(a, b, <T as Zero>::zero());
+        let mut expected_lo = [0u8; 32];
+        expected_lo[0] = 0xa4;
+        expected_lo[1] = 0x05;
+        assert_eq!(le32(&lo), expected_lo, "carrying_mul lo");
+        assert_eq!(le32(&hi), [0u8; 32], "carrying_mul hi");
+    }
+    inner::<FixedUInt<u32, 8, Ct>>();
+    inner::<HeaplessBigInt<u32, 8, Ct>>();
+    inner::<HeaplessBigInt<u32, 16, Ct>>();
+    inner::<FixedUInt<u32, 8, Nct>>();
+    inner::<HeaplessBigInt<u32, 16, Nct>>();
 }
 
 #[test]
-fn carrying_mul_of_38_matches_between_backends() {
-    // 38 * 38 = 1444 = 0x5a4. Should land entirely in lo[0..2],
-    // hi should be all zeros. This is the exact operand pair
-    // Curve25519's `r2_mod_n = (2^256 mod p)^2 mod p` setup uses.
-    let (fb_lo, fb_hi) = carrying_mul_bytes::<FCt>(38, 38);
-    let (hb_lo, hb_hi) = carrying_mul_bytes::<HCt>(38, 38);
-    assert_eq!(fb_lo, hb_lo, "carrying_mul(38, 38): lo disagrees");
-    assert_eq!(fb_hi, hb_hi, "carrying_mul(38, 38): hi disagrees");
-    // Also assert the expected numeric answer so the test is
-    // meaningful even if both backends agree on the wrong value.
-    let mut expected_lo = [0u8; 32];
-    expected_lo[0] = 0xa4;
-    expected_lo[1] = 0x05;
-    let expected_hi = [0u8; 32];
-    assert_eq!(
-        fb_lo, expected_lo,
-        "FixedUInt carrying_mul(38,38) lo != 1444"
-    );
-    assert_eq!(fb_hi, expected_hi, "FixedUInt carrying_mul(38,38) hi != 0");
+fn wide_mul_38() {
+    fn inner<T: FromByteSlice + ToBytes + Copy + modmath::WideMul>() {
+        let a = decode::<T>(&small(38));
+        let b = decode::<T>(&small(38));
+        let (lo, hi) = a.wide_mul(&b);
+        let mut expected_lo = [0u8; 32];
+        expected_lo[0] = 0xa4;
+        expected_lo[1] = 0x05;
+        assert_eq!(le32(&lo), expected_lo, "wide_mul lo");
+        assert_eq!(le32(&hi), [0u8; 32], "wide_mul hi");
+    }
+    inner::<FixedUInt<u32, 8, Ct>>();
+    inner::<HeaplessBigInt<u32, 8, Ct>>();
+    inner::<HeaplessBigInt<u32, 16, Ct>>();
+    inner::<FixedUInt<u32, 8, Nct>>();
+    inner::<HeaplessBigInt<u32, 16, Nct>>();
 }
 
 // ---------------------------------------------------------------------------
-// 1.75 modmath's `WideMul::wide_mul` on the same tiny inputs — the
-//     blanket impl over `CarryingMul` should produce the same
-//     `(lo, hi)` split. If this passes on both backends but field
-//     reduce still fails, the divergence is inside modmath's
-//     Montgomery machinery further up (r2_mod_n setup, or the
-//     Montgomery-reduction loop itself).
+// 3. Ct field: reduce / mul / inv (the sign / x25519 personality).
 // ---------------------------------------------------------------------------
 
-fn wide_mul_bytes<T>(a: u8, b: u8) -> ([u8; 32], [u8; 32])
-where
-    T: FromByteSlice + ToBytes + Copy + modmath::WideMul,
-{
-    let mut a_bytes = [0u8; 32];
-    a_bytes[0] = a;
-    let mut b_bytes = [0u8; 32];
-    b_bytes[0] = b;
-    let av = <T as FromByteSlice>::from_le_slice(&a_bytes).expect("from a");
-    let bv = <T as FromByteSlice>::from_le_slice(&b_bytes).expect("from b");
-    let (lo, hi) = av.wide_mul(&bv);
-    (le_bytes(&lo), le_bytes(&hi))
+#[test]
+fn ct_field_reduce_roundtrips() {
+    fn inner<T: CtCarrier>()
+    where
+        for<'a> &'a T: const_num_traits::WrappingAdd<Output = T> + WrappingSub<Output = T>,
+    {
+        let field = Curve25519FieldCt::<T>::curve25519().expect("curve25519");
+        let r = field.reduce(&decode::<T>(&small(7)));
+        assert_eq!(le32(&field.into_raw(&r)), small(7));
+    }
+    inner::<FixedUInt<u32, 8, Ct>>();
+    inner::<HeaplessBigInt<u32, 8, Ct>>();
+    inner::<HeaplessBigInt<u32, 16, Ct>>();
 }
 
 #[test]
-fn wide_mul_of_38_matches_between_backends() {
-    let (fb_lo, fb_hi) = wide_mul_bytes::<FCt>(38, 38);
-    let (hb_lo, hb_hi) = wide_mul_bytes::<HCt>(38, 38);
-    assert_eq!(fb_lo, hb_lo, "wide_mul(38, 38): lo disagrees");
-    assert_eq!(fb_hi, hb_hi, "wide_mul(38, 38): hi disagrees");
-    let mut expected_lo = [0u8; 32];
-    expected_lo[0] = 0xa4;
-    expected_lo[1] = 0x05;
-    let expected_hi = [0u8; 32];
-    assert_eq!(fb_lo, expected_lo, "FixedUInt wide_mul(38,38) lo != 1444");
-    assert_eq!(fb_hi, expected_hi, "FixedUInt wide_mul(38,38) hi != 0");
+fn ct_field_mul_small() {
+    fn inner<T: CtCarrier>()
+    where
+        for<'a> &'a T: const_num_traits::WrappingAdd<Output = T> + WrappingSub<Output = T>,
+    {
+        let field = Curve25519FieldCt::<T>::curve25519().expect("curve25519");
+        let a = field.reduce(&decode::<T>(&small(6)));
+        let b = field.reduce(&decode::<T>(&small(7)));
+        assert_eq!(le32(&field.into_raw(&field.mul(&a, &b))), small(42));
+    }
+    inner::<FixedUInt<u32, 8, Ct>>();
+    inner::<HeaplessBigInt<u32, 8, Ct>>();
+    inner::<HeaplessBigInt<u32, 16, Ct>>();
 }
 
 // ---------------------------------------------------------------------------
-// 2. Field reduce roundtrip
+// 4. Nct field: reduce / mul / inv (the VERIFY personality — the one
+//    krabitls hits and the Ct probes above never covered).
 // ---------------------------------------------------------------------------
 
-fn field_reduce_bytes<T>(input: &[u8; 32]) -> [u8; 32]
-where
-    T: ed25519_heapless::UnsignedModularInt
-        + Copy
-        + PartialEq
-        + modmath::WideMul
-        + CiosMontMulCt
-        + const_num_traits::CtIsZero
-        + subtle::ConditionallySelectable
-        + subtle::ConstantTimeLess,
-    for<'a> &'a T:
-        const_num_traits::WrappingAdd<Output = T> + const_num_traits::WrappingSub<Output = T>,
-{
-    let field = Curve25519FieldCt::<T>::curve25519().expect("curve25519");
-    let raw = <T as FromByteSlice>::from_le_slice(input).expect("from_le_slice");
-    let residue = field.reduce(&raw);
-    let out = field.into_raw(&residue);
-    le_bytes(&out)
+#[test]
+fn nct_field_reduce_roundtrips() {
+    fn inner<T: NctCarrier>()
+    where
+        for<'a> &'a T: const_num_traits::WrappingAdd<Output = T> + WrappingSub<Output = T>,
+    {
+        let field = Curve25519Field::<T>::curve25519().expect("curve25519");
+        let r = field.reduce(&decode::<T>(&small(7)));
+        assert_eq!(le32(&field.into_raw(&r)), small(7));
+    }
+    inner::<FixedUInt<u32, 8, Nct>>();
+    inner::<HeaplessBigInt<u32, 8, Nct>>();
+    inner::<HeaplessBigInt<u32, 16, Nct>>();
 }
 
 #[test]
-fn field_reduce_of_small_value_matches() {
-    let mut input = [0u8; 32];
-    input[0] = 7;
-    let fb = field_reduce_bytes::<FCt>(&input);
-    let hb = field_reduce_bytes::<HCt>(&input);
-    assert_eq!(fb, input, "FixedUInt reduce(7) didn't roundtrip to 7");
-    assert_eq!(hb, input, "HeaplessBigInt reduce(7) didn't roundtrip to 7");
-    assert_eq!(
-        fb, hb,
-        "reduce/into_raw of the same small value disagrees between backends"
-    );
+fn nct_field_mul_small() {
+    fn inner<T: NctCarrier>()
+    where
+        for<'a> &'a T: const_num_traits::WrappingAdd<Output = T> + WrappingSub<Output = T>,
+    {
+        let field = Curve25519Field::<T>::curve25519().expect("curve25519");
+        let a = field.reduce(&decode::<T>(&small(6)));
+        let b = field.reduce(&decode::<T>(&small(7)));
+        assert_eq!(le32(&field.into_raw(&field.mul(&a, &b))), small(42));
+    }
+    inner::<FixedUInt<u32, 8, Nct>>();
+    inner::<HeaplessBigInt<u32, 8, Nct>>();
+    inner::<HeaplessBigInt<u32, 16, Nct>>();
+}
+
+#[test]
+fn nct_field_inv_known_answer() {
+    // inv is Fermat exponentiation a^(p-2); inv(a)*a == 1.
+    fn inner<T: NctCarrier>()
+    where
+        for<'a> &'a T: const_num_traits::WrappingAdd<Output = T> + WrappingSub<Output = T>,
+    {
+        let field = Curve25519Field::<T>::curve25519().expect("curve25519");
+        let a = field.reduce(&decode::<T>(&small(7)));
+        let a_inv = field.inv(&a);
+        assert_eq!(le32(&field.into_raw(&field.mul(&a, &a_inv))), small(1));
+    }
+    inner::<FixedUInt<u32, 8, Nct>>();
+    inner::<HeaplessBigInt<u32, 8, Nct>>();
+    inner::<HeaplessBigInt<u32, 16, Nct>>();
 }
 
 // ---------------------------------------------------------------------------
-// 3. Field mul by one is identity
+// 5. Raw-`T` scalar arithmetic (sha512_modq shape) — outside the field
+//    abstraction, directly on the carrier's runtime-length limbs. This
+//    is what verify's scalar reduction and the `s >= q` / `acc >= q`
+//    range checks exercise.
 // ---------------------------------------------------------------------------
 
-fn field_mul_by_one_bytes<T>(input: &[u8; 32]) -> [u8; 32]
+#[test]
+fn raw_scalar_reduce_over_q() {
+    // acc = q + 1; `acc >= q` must be true; `acc - q` must be 1.
+    fn inner<T: UnsignedModularInt + Copy + PartialOrd>() {
+        let q = decode::<T>(&Q_BYTES);
+        let one = <T as One>::one();
+        let (acc, _ovf) = <T as OverflowingAdd>::overflowing_add(q, one);
+        assert!(acc >= q, "q+1 >= q comparison wrong");
+        let reduced = <T as WrappingSub>::wrapping_sub(acc, q);
+        assert_eq!(le32(&reduced), small(1), "(q+1) - q != 1");
+    }
+    inner::<FixedUInt<u32, 8, Nct>>();
+    inner::<HeaplessBigInt<u32, 8, Nct>>();
+    inner::<HeaplessBigInt<u32, 16, Nct>>();
+}
+
+// ---------------------------------------------------------------------------
+// 5.5 Chained Nct field computation — the `recover_x` phase-1 formula
+//     x² = (y² − 1) / (d·y² + 1) on a real 255-bit input (base point y).
+//     Seven chained ops (reduce/mul/sub/mul/add/inv/mul) reusing
+//     residues, vs single-op probes above. Discriminates "chained
+//     field arithmetic" from the point-op / NAF / point_equal layer.
+//     Cross-checked heapless-Nct against the FixedUInt-Nct reference.
+// ---------------------------------------------------------------------------
+
+fn recover_x2_bytes<T>() -> [u8; 32]
 where
-    T: ed25519_heapless::UnsignedModularInt
-        + Copy
-        + PartialEq
-        + modmath::WideMul
-        + CiosMontMulCt
-        + const_num_traits::CtIsZero
-        + subtle::ConditionallySelectable
-        + subtle::ConstantTimeLess,
-    for<'a> &'a T:
-        const_num_traits::WrappingAdd<Output = T> + const_num_traits::WrappingSub<Output = T>,
+    T: NctCarrier,
+    for<'a> &'a T: const_num_traits::WrappingAdd<Output = T> + WrappingSub<Output = T>,
 {
-    let field = Curve25519FieldCt::<T>::curve25519().expect("curve25519");
-    let raw = <T as FromByteSlice>::from_le_slice(input).expect("from_le_slice");
-    let residue = field.reduce(&raw);
+    let field = Curve25519Field::<T>::curve25519().expect("curve25519");
+    let y = field.reduce(&decode::<T>(&G_Y_BYTES));
+    let d = field.reduce(&decode::<T>(&D_BYTES));
+    let y2 = field.mul(&y, &y);
     let one = field.one();
-    let product = field.mul(&residue, &one);
-    let out = field.into_raw(&product);
-    le_bytes(&out)
+    let numerator = field.sub(&y2, &one);
+    let dy2 = field.mul(&d, &y2);
+    let denominator = field.add(&dy2, &one);
+    let inv_denom = field.inv(&denominator);
+    let x2 = field.mul(&numerator, &inv_denom);
+    le32(&field.into_raw(&x2))
 }
 
 #[test]
-fn field_mul_by_one_is_identity() {
-    let mut input = [0u8; 32];
-    input[0] = 7;
-    let fb = field_mul_by_one_bytes::<FCt>(&input);
-    let hb = field_mul_by_one_bytes::<HCt>(&input);
-    assert_eq!(fb, input, "FixedUInt mul-by-one didn't preserve 7");
-    assert_eq!(hb, input, "HeaplessBigInt mul-by-one didn't preserve 7");
-    assert_eq!(fb, hb, "mul-by-one output disagrees between backends");
+fn nct_recover_x2_chain_matches_reference() {
+    let reference = recover_x2_bytes::<FixedUInt<u32, 8, Nct>>();
+    assert_eq!(
+        recover_x2_bytes::<HeaplessBigInt<u32, 8, Nct>>(),
+        reference,
+        "HeaplessBigInt<u32,8,Nct> recover_x² chain diverges"
+    );
+    assert_eq!(
+        recover_x2_bytes::<HeaplessBigInt<u32, 16, Nct>>(),
+        reference,
+        "HeaplessBigInt<u32,16,Nct> recover_x² chain diverges"
+    );
 }
 
 // ---------------------------------------------------------------------------
-// 4. Field mul of two small values
+// 5.75 `&T: BitAnd` — used ONLY by the verify-side NAF recoding
+//      (`jsf.rs` does `&s & &one`, `&s & &three`), never by sign or
+//      x25519. Verify's where-clause is the only one that bounds
+//      `for<'a> &'a T: BitAnd`. If the runtime-length `&T & &T` impl
+//      is wrong, NAF digits are corrupt → wrong double-scalar-mul →
+//      verify returns false, exactly the observed failure.
 // ---------------------------------------------------------------------------
 
-fn field_mul_bytes<T>(a: &[u8; 32], b: &[u8; 32]) -> [u8; 32]
+#[test]
+fn ref_bitand_known_answers() {
+    fn inner<T>()
+    where
+        T: FromByteSlice + ToBytes + Copy + PartialEq + One,
+        for<'a> &'a T: core::ops::BitAnd<Output = T>,
+    {
+        let one = <T as One>::one();
+        // 0b...0111 & 0b...0011 = 0b...0011  (7 & 3 == 3)
+        let seven = decode::<T>(&small(7));
+        let three = decode::<T>(&small(3));
+        assert_eq!(le32(&(&seven & &three)), small(3), "7 & 3 != 3");
+        // low bit: 7 & 1 == 1, 6 & 1 == 0 — exactly the NAF parity test.
+        assert_eq!(le32(&(&seven & &one)), small(1), "7 & 1 != 1");
+        let six = decode::<T>(&small(6));
+        assert_eq!(le32(&(&six & &one)), small(0), "6 & 1 != 0");
+        // A wide operand: bit 200 set, & with 3 clears it → 0.
+        let mut widebits = [0u8; 32];
+        widebits[25] = 1 << 1; // bit 201
+        let wide = decode::<T>(&widebits);
+        assert_eq!(le32(&(&wide & &three)), small(0), "highbit & 3 != 0");
+    }
+    inner::<FixedUInt<u32, 8, Nct>>();
+    inner::<HeaplessBigInt<u32, 8, Nct>>();
+    inner::<HeaplessBigInt<u32, 16, Nct>>();
+}
+
+// ---------------------------------------------------------------------------
+// 5.9 `Shr<usize>` / `ShrAssign<usize>` on the raw scalar — the NAF
+//     recoding does `s_working >>= 1` up to 256× to consume the scalar
+//     bit by bit; `recover_x` does `p3 >> 3`. Sign traverses the
+//     scalar as bytes and never shifts a `T`, so this is a verify-only
+//     path. alpha.21 reworked `Shl`; a symmetric `Shr` len-tracking
+//     bug on the runtime-length carrier would corrupt NAF and fail
+//     verify while leaving sign untouched.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn shr_by_value_known_answers() {
+    fn inner<T>()
+    where
+        T: FromByteSlice + ToBytes + Copy + core::ops::Shr<usize, Output = T>,
+    {
+        // 8 >> 1 == 4, 8 >> 3 == 1.
+        assert_eq!(
+            le32(&(decode::<T>(&small(8)) >> 1)),
+            small(4),
+            "8 >> 1 != 4"
+        );
+        assert_eq!(
+            le32(&(decode::<T>(&small(8)) >> 3)),
+            small(1),
+            "8 >> 3 != 1"
+        );
+        // Bit 200 >> 200 == 1.
+        let mut hb = [0u8; 32];
+        hb[25] = 1; // bit 200
+        assert_eq!(
+            le32(&(decode::<T>(&hb) >> 200)),
+            small(1),
+            "bit200 >> 200 != 1"
+        );
+    }
+    inner::<FixedUInt<u32, 8, Nct>>();
+    inner::<HeaplessBigInt<u32, 8, Nct>>();
+    inner::<HeaplessBigInt<u32, 16, Nct>>();
+}
+
+#[test]
+fn shr_assign_bit_walk() {
+    // Mirror the NAF consume loop: shift a high bit down one step at a
+    // time and check it lands where expected, then falls off to zero.
+    fn inner<T>()
+    where
+        T: FromByteSlice + ToBytes + Copy + PartialEq + Zero + core::ops::ShrAssign<usize>,
+    {
+        let mut hb = [0u8; 32];
+        hb[25] = 1; // bit 200
+        let mut v = decode::<T>(&hb);
+        for _ in 0..200 {
+            v >>= 1;
+        }
+        assert_eq!(le32(&v), small(1), "after 200 >>=1 steps != 1");
+        v >>= 1;
+        assert_eq!(le32(&v), small(0), "after 201 >>=1 steps != 0");
+    }
+    inner::<FixedUInt<u32, 8, Nct>>();
+    inner::<HeaplessBigInt<u32, 8, Nct>>();
+    inner::<HeaplessBigInt<u32, 16, Nct>>();
+}
+
+// ---------------------------------------------------------------------------
+// 5.95 Full `sha512_modq` Horner reduction — the raw-`T` scalar-mod-q
+//      path VERIFY uses (sign reduces mod q through modmath's Ct field
+//      instead, which is why sign passes and verify fails on the same
+//      carrier). 512 iterations of `acc = 2*acc + bit` then up to two
+//      `>= q` subtracts, reusing `acc` throughout. A len-tracking drift
+//      in the doubling or comparison over 512 rounds produces a wrong
+//      reduced scalar → verify's `s·G == R + h·A` check fails.
+// ---------------------------------------------------------------------------
+
+fn horner_mod_q<T>(hash: &[u8; 64]) -> [u8; 32]
 where
-    T: ed25519_heapless::UnsignedModularInt
-        + Copy
-        + PartialEq
-        + modmath::WideMul
-        + CiosMontMulCt
-        + const_num_traits::CtIsZero
-        + subtle::ConditionallySelectable
-        + subtle::ConstantTimeLess,
-    for<'a> &'a T:
-        const_num_traits::WrappingAdd<Output = T> + const_num_traits::WrappingSub<Output = T>,
+    T: UnsignedModularInt + Copy + PartialOrd,
 {
-    let field = Curve25519FieldCt::<T>::curve25519().expect("curve25519");
-    let a_raw = <T as FromByteSlice>::from_le_slice(a).expect("from_le_slice a");
-    let b_raw = <T as FromByteSlice>::from_le_slice(b).expect("from_le_slice b");
-    let ra = field.reduce(&a_raw);
-    let rb = field.reduce(&b_raw);
-    let product = field.mul(&ra, &rb);
-    let out = field.into_raw(&product);
-    le_bytes(&out)
+    let q = decode::<T>(&Q_BYTES);
+    let one = <T as One>::one();
+    let mut acc = <T as Zero>::zero();
+    for byte_idx in (0..64).rev() {
+        for bit_idx in (0..8).rev() {
+            let (doubled, _ovf) = <T as OverflowingAdd>::overflowing_add(acc, acc);
+            acc = doubled;
+            if (hash[byte_idx] >> bit_idx) & 1 == 1 {
+                let (added, _) = <T as OverflowingAdd>::overflowing_add(acc, one);
+                acc = added;
+            }
+            if acc >= q {
+                acc = <T as WrappingSub>::wrapping_sub(acc, q);
+            }
+            if acc >= q {
+                acc = <T as WrappingSub>::wrapping_sub(acc, q);
+            }
+        }
+    }
+    le32(&acc)
 }
 
 #[test]
-fn field_mul_of_two_small_values_matches() {
-    // 6 * 7 = 42, no reduction needed; if backends disagree here it's
-    // pure schoolbook CIOS on tiny values.
-    let mut a = [0u8; 32];
-    let mut b = [0u8; 32];
-    a[0] = 6;
-    b[0] = 7;
-    let mut expected = [0u8; 32];
-    expected[0] = 42;
-    let fb = field_mul_bytes::<FCt>(&a, &b);
-    let hb = field_mul_bytes::<HCt>(&a, &b);
-    assert_eq!(fb, expected, "FixedUInt 6*7 != 42");
-    assert_eq!(hb, expected, "HeaplessBigInt 6*7 != 42");
-    assert_eq!(fb, hb, "6*7 output disagrees between backends");
+fn mixed_len_compare_against_q() {
+    // The Horner loop compares a swinging-width `acc` against full-len
+    // `q`. Test PartialOrd with a SHORT-len operand (7, len 1) vs the
+    // full-len q — the config the single-step reduce test (acc = q+1,
+    // len 8) never hit.
+    fn inner<T: FromByteSlice + Copy + PartialOrd>() {
+        let q = decode::<T>(&Q_BYTES);
+        let seven = decode::<T>(&small(7));
+        assert!(seven < q, "7 < q should hold (short-len vs full-len)");
+        assert!(!(seven >= q), "7 >= q should be false");
+        assert!(q >= seven, "q >= 7 should hold");
+        assert!(q > seven, "q > 7 should hold");
+    }
+    inner::<FixedUInt<u32, 8, Nct>>();
+    inner::<HeaplessBigInt<u32, 8, Nct>>();
+    inner::<HeaplessBigInt<u32, 16, Nct>>();
+}
+
+#[test]
+fn overflowing_add_self_double() {
+    // Minimal reproducer under the Horner failure: `overflowing_add(v, v)`
+    // must double `v`. The Horner loop collapses because self-doubling a
+    // runtime-length value doesn't grow its length.
+    fn inner<T: FromByteSlice + ToBytes + Copy + OverflowingAdd<Output = T>>() {
+        // 1 doubled 40× = 2^40, which lands in byte 5 (bit 40).
+        let mut v = decode::<T>(&small(1));
+        for _ in 0..40 {
+            let (d, _ovf) = <T as OverflowingAdd>::overflowing_add(v, v);
+            v = d;
+        }
+        let mut expected = [0u8; 32];
+        expected[5] = 1; // 2^40 = bit 40 = byte 5, bit 0
+        assert_eq!(le32(&v), expected, "1 doubled 40x != 2^40");
+    }
+    inner::<FixedUInt<u32, 8, Nct>>();
+    inner::<HeaplessBigInt<u32, 8, Nct>>();
+    inner::<HeaplessBigInt<u32, 16, Nct>>();
+}
+
+#[test]
+fn overflowing_add_self_double_to_cap() {
+    // Double `1` all the way to the top bit the carrier holds. On
+    // u32×8 (CAP=8) that's 2^255 (byte 31, bit 7) after 255 steps —
+    // len grows 1→8 across every limb boundary. A `len`-vs-`CAP`
+    // overflow bug (doubling wraps at the current len instead of
+    // extending) would collapse the value here.
+    fn inner<T: FromByteSlice + ToBytes + Copy + OverflowingAdd<Output = T>>(steps: usize) {
+        let mut v = decode::<T>(&small(1));
+        for _ in 0..steps {
+            let (d, _ovf) = <T as OverflowingAdd>::overflowing_add(v, v);
+            v = d;
+        }
+        let mut expected = [0u8; 32];
+        let bit = steps;
+        expected[bit / 8] = 1 << (bit % 8);
+        assert_eq!(le32(&v), expected, "1 doubled {steps}x != 2^{steps}");
+    }
+    // u32×8 tops out at 2^255 (bit 255). u32×16 has headroom to 2^511
+    // but the ed25519 scalars only reach ~2^254, so 255 is the
+    // deployment-relevant ceiling for both.
+    inner::<FixedUInt<u32, 8, Nct>>(255);
+    inner::<HeaplessBigInt<u32, 8, Nct>>(255);
+    inner::<HeaplessBigInt<u32, 16, Nct>>(255);
+}
+
+#[test]
+fn add_carry_into_second_limb() {
+    // A single carry from limb 0 into limb 1 is handled CORRECTLY —
+    // `0xC000_0000 + 0xC000_0000 = 0x1_8000_0000` preserves bit 32 on
+    // both carriers. This rules out the trivial "addition drops the
+    // carry" explanation and proves the Horner divergence
+    // (`horner_mod_q_matches_reference`) is a STATEFUL bug in the
+    // doubling + reduce sequence, not any single add.
+    fn inner<T: FromByteSlice + ToBytes + Copy + OverflowingAdd<Output = T>>() {
+        let mut x = [0u8; 32];
+        x[3] = 0xc0; // 0xC000_0000 in limb 0
+        let v = decode::<T>(&x);
+        let (sum, _ovf) = <T as OverflowingAdd>::overflowing_add(v, v);
+        let mut expected = [0u8; 32];
+        expected[3] = 0x80; // limb 0 = 0x8000_0000
+        expected[4] = 0x01; // limb 1 = 1  (the carry bit 32)
+        assert_eq!(
+            le32(&sum),
+            expected,
+            "0xC0000000 doubled lost the carry into limb 1"
+        );
+    }
+    inner::<FixedUInt<u32, 8, Nct>>();
+    inner::<HeaplessBigInt<u32, 8, Nct>>();
+    inner::<HeaplessBigInt<u32, 16, Nct>>();
+}
+
+#[test]
+fn double_dense_value() {
+    // Double `q` (a dense ~253-bit value, not a clean power of two).
+    // 2*q must equal q + q. Cross-checked heapless vs fixed. The
+    // self-double probes used single-bit values; the Horner loop
+    // doubles DENSE accumulators.
+    fn dbl<T: FromByteSlice + ToBytes + Copy + OverflowingAdd<Output = T>>() -> [u8; 32] {
+        let q = decode::<T>(&Q_BYTES);
+        let (d, _ovf) = <T as OverflowingAdd>::overflowing_add(q, q);
+        le32(&d)
+    }
+    let reference = dbl::<FixedUInt<u32, 8, Nct>>();
+    assert_eq!(
+        dbl::<HeaplessBigInt<u32, 8, Nct>>(),
+        reference,
+        "2*q dense-double diverges on u32x8"
+    );
+    assert_eq!(
+        dbl::<HeaplessBigInt<u32, 16, Nct>>(),
+        reference,
+        "2*q dense-double diverges on u32x16"
+    );
+}
+
+// FAILING REPRODUCER (as of modmath cios.8 / fixed-bigint alpha.21):
+// the raw-`T` `sha512_modq` Horner reduction diverges between
+// FixedUInt and HeaplessBigInt on the Nct personality, and this
+// single divergence cascades into `verify_accepts_valid_signature`
+// (the krabitls certificate_verify failure).
+//
+// Everything below the composition passes on all carriers — byte ops,
+// widening mul, Ct/Nct field reduce/mul/inv, chained field
+// arithmetic, raw single-step reduce, mixed-len compare, self-double
+// to 2^255, dense doubling, single carry-into-limb-1, bitand, shr.
+// Only the 512-round doubling+reduce SEQUENCE fails.
+//
+// Bisected first divergence: bit 35. At that step FixedUInt has bit 32
+// set (`[…, 48, 1, 0, …]`) and HeaplessBigInt does not (`[…, 48, 0,
+// 0, …]`) — a carry that should have propagated into limb 1 across the
+// accumulated doubling+reduce state was dropped. Since single carries
+// are correct (see `add_carry_into_second_limb`), this is a stateful
+// `len`-tracking bug in the runtime-length carrier's add/sub sequence
+// — the alpha.21 value-tight-addition class. Hand off to fixed-bigint.
+#[test]
+fn horner_mod_q_matches_reference() {
+    // A realistic full-width hash-shaped input (not all-zero, MSB set).
+    let mut hash = [0u8; 64];
+    for (i, b) in hash.iter_mut().enumerate() {
+        *b = (i as u8).wrapping_mul(37).wrapping_add(11);
+    }
+    let reference = horner_mod_q::<FixedUInt<u32, 8, Nct>>(&hash);
+    assert_eq!(
+        horner_mod_q::<HeaplessBigInt<u32, 8, Nct>>(&hash),
+        reference,
+        "HeaplessBigInt<u32,8,Nct> sha512_modq Horner diverges"
+    );
+    assert_eq!(
+        horner_mod_q::<HeaplessBigInt<u32, 16, Nct>>(&hash),
+        reference,
+        "HeaplessBigInt<u32,16,Nct> sha512_modq Horner diverges"
+    );
 }
 
 // ---------------------------------------------------------------------------
-// 5. x25519 base ladder output
+// 6. End-to-end: x25519, sign-side pubkey, and the full Nct verify path.
 // ---------------------------------------------------------------------------
 
 #[test]
-fn x25519_base_output_matches() {
+fn x25519_base_matches_reference() {
     let k = [3u8; 32];
-    let fb = x25519_base::<FCt>(&k);
-    let hb = x25519_base::<HCt>(&k);
-    assert_eq!(fb, hb, "x25519_base(k=3) output disagrees between backends");
+    let expected = x25519_base::<FixedUInt<u32, 8, Ct>>(&k);
+    fn inner<T: CtCarrier>(k: &[u8; 32], expected: &[u8; 32])
+    where
+        for<'a> &'a T: const_num_traits::WrappingAdd<Output = T>
+            + WrappingSub<Output = T>
+            + const_num_traits::ToBytes<Bytes = <T as const_num_traits::ToBytes>::Bytes>,
+        <T as const_num_traits::ToBytes>::Bytes: zeroize::Zeroize,
+        T: modmath::Parity,
+    {
+        assert_eq!(&x25519_base::<T>(k), expected);
+    }
+    inner::<HeaplessBigInt<u32, 8, Ct>>(&k, &expected);
+    inner::<HeaplessBigInt<u32, 16, Ct>>(&k, &expected);
 }
 
-// ---------------------------------------------------------------------------
-// 6. Ed25519 public-key derivation from a seed
-// ---------------------------------------------------------------------------
-
 #[test]
-fn signing_key_public_matches() {
+fn sign_pubkey_matches_reference() {
     let seed = [7u8; 32];
-    let fb = SigningKey::<FCt>::from_seed(&seed)
-        .expect("from_seed FixedUInt")
+    let expected = SigningKey::<FixedUInt<u32, 8, Ct>>::from_seed(&seed)
+        .expect("from_seed reference")
         .public_key();
-    let hb = SigningKey::<HCt>::from_seed(&seed)
-        .expect("from_seed HeaplessBigInt")
-        .public_key();
-    assert_eq!(
-        fb, hb,
-        "SigningKey::from_seed pubkey disagrees between backends"
-    );
-}
-
-// Wide-carrier (u32×16) regression guards: a `HeaplessBigInt` whose
-// carrier is strictly wider than the 256-bit modulus must produce
-// identical field results to the narrow carriers (Montgomery form is
-// internal; `reduce`/`into_raw` round-trips regardless of how many
-// leading zero limbs the carrier carries). These caught the
-// carrier-wider-than-modulus Montgomery bug fixed in modmath cios.6.
-
-#[test]
-fn wide_carrier_field_reduce_matches() {
-    let mut input = [0u8; 32];
-    input[0] = 7;
-    let narrow = field_reduce_bytes::<HCt>(&input);
-    let wide = field_reduce_bytes::<HCt16>(&input);
-    assert_eq!(narrow, input, "u32x8 reduce(7) != 7");
-    assert_eq!(
-        wide, input,
-        "u32x16 reduce(7) != 7 — wide-carrier field reduce is wrong"
-    );
+    fn inner<T>(seed: &[u8; 32], expected: &[u8; 32])
+    where
+        T: ed25519_heapless::SignBackend,
+        for<'a> &'a T: const_num_traits::WrappingAdd<Output = T>
+            + WrappingSub<Output = T>
+            + const_num_traits::ToBytes<Bytes = <T as const_num_traits::ToBytes>::Bytes>,
+        <T as const_num_traits::ToBytes>::Bytes: zeroize::Zeroize,
+    {
+        let pk = SigningKey::<T>::from_seed(seed)
+            .expect("from_seed")
+            .public_key();
+        assert_eq!(&pk, expected);
+    }
+    inner::<HeaplessBigInt<u32, 8, Ct>>(&seed, &expected);
+    inner::<HeaplessBigInt<u32, 16, Ct>>(&seed, &expected);
 }
 
 #[test]
-fn wide_carrier_field_mul_matches() {
-    let mut a = [0u8; 32];
-    let mut b = [0u8; 32];
-    a[0] = 6;
-    b[0] = 7;
-    let mut expected = [0u8; 32];
-    expected[0] = 42;
-    let narrow = field_mul_bytes::<HCt>(&a, &b);
-    let wide = field_mul_bytes::<HCt16>(&a, &b);
-    assert_eq!(narrow, expected, "u32x8 6*7 != 42");
-    assert_eq!(
-        wide, expected,
-        "u32x16 6*7 != 42 — wide-carrier field mul is wrong"
-    );
-}
-
-// Regression: `HeaplessBigInt<u32, 16, Ct>` (~68 B struct, 512 numeric
-// bits) drives the sign path — including `point_compress_ct`, which
-// used to carry a `const { size_of::<T>() <= 64 }` guard that
-// const-evaluated to `false` for this carrier and hard-errored at
-// monomorphization (blocking even verify-only builds that compile but
-// never call the sign path). The pubkey is a deterministic function of
-// the seed, independent of carrier width, so it must match the narrow
-// carriers bit-for-bit.
-#[test]
-fn signing_key_public_wide_carrier_matches() {
+fn verify_accepts_valid_signature() {
+    // Produce a valid (pk, msg, sig) with a known-good Ct carrier.
     let seed = [7u8; 32];
-    let narrow = SigningKey::<HCt>::from_seed(&seed)
-        .expect("from_seed u32x8")
-        .public_key();
-    let wide = SigningKey::<HCt16>::from_seed(&seed)
-        .expect("from_seed u32x16")
-        .public_key();
-    assert_eq!(
-        narrow, wide,
-        "pubkey disagrees between u32x8 and u32x16 HeaplessBigInt carriers"
-    );
-}
+    let sk = SigningKey::<HeaplessBigInt<u32, 8, Ct>>::from_seed(&seed).expect("from_seed");
+    let pk = sk.public_key();
+    let msg = b"krabitls certificate_verify";
+    let sig = sign(&sk, msg).expect("sign");
 
-// Sanity: make sure the P_BYTES import is used (silences dead-code
-// warning if we ever trim the file down).
-const _: [u8; 32] = P_BYTES;
+    fn inner<T: NctCarrier>(pk: &[u8; 32], msg: &[u8], sig: &[u8; 64], label: &str)
+    where
+        for<'a> &'a T: core::ops::BitAnd<Output = T>
+            + const_num_traits::WrappingAdd<Output = T>
+            + WrappingSub<Output = T>,
+    {
+        assert!(
+            verify::<T>(*pk, msg, *sig),
+            "verify rejected a valid signature on {label}"
+        );
+    }
+    inner::<FixedUInt<u32, 8, Nct>>(&pk, msg, &sig, "FixedUInt<u32,8,Nct>");
+    inner::<HeaplessBigInt<u32, 8, Nct>>(&pk, msg, &sig, "HeaplessBigInt<u32,8,Nct>");
+    inner::<HeaplessBigInt<u32, 16, Nct>>(&pk, msg, &sig, "HeaplessBigInt<u32,16,Nct>");
+}
