@@ -163,19 +163,22 @@ where
         + const_num_traits::ToBytes<Bytes = <T as const_num_traits::ToBytes>::Bytes>,
     <T as const_num_traits::ToBytes>::Bytes: zeroize::Zeroize,
 {
-    // Backend width is a static property of T. Const-evaluate at
-    // monomorphization so wrong backends fail at compile time and the
-    // runtime panic path doesn't reach the linker.
-    const {
-        assert!(
-            modmath::type_bit_width::<T>() >= 256,
-            "x25519: backend T is too narrow for the Curve25519 prime (need >= 256 bits)"
-        );
-        assert!(
-            modmath::type_bit_width::<T>() <= MAX_T_BYTES * 8,
-            "x25519: backend T is wider than the fixed-size scratch buffer (MAX_T_BYTES * 8)"
-        );
-    }
+    // Backend width check. Runtime — `BitsPrecision::bits_precision`
+    // needs a `T` value and is not const-callable across carriers on
+    // the alpha stack (runtime-length backends only know their width
+    // per-value). Panics on wrong backend selection; downstream
+    // panic-free audit treats these as backend-config errors, not
+    // secret-dependent panics.
+    let width = const_num_traits::BitsPrecision::bits_precision(crate::from_le_bytes::<T>(&P_BYTES))
+        as usize;
+    assert!(
+        width >= 256,
+        "x25519: backend T is too narrow for the Curve25519 prime (need >= 256 bits)"
+    );
+    assert!(
+        width <= MAX_T_BYTES * 8,
+        "x25519: backend T is wider than the fixed-size scratch buffer (MAX_T_BYTES * 8)"
+    );
 
     // The entry-point const-block guards the width case; the Odd
     // proof inside the factory is statically true for the Curve25519
@@ -273,16 +276,16 @@ where
     <T as const_num_traits::ToBytes>::Bytes: zeroize::Zeroize,
     R: rand_core::CryptoRng,
 {
-    const {
-        assert!(
-            modmath::type_bit_width::<T>() >= 256,
-            "x25519_blinded: backend T is too narrow for the Curve25519 prime (need >= 256 bits)"
-        );
-        assert!(
-            modmath::type_bit_width::<T>() <= MAX_T_BYTES * 8,
-            "x25519_blinded: backend T is wider than the fixed-size scratch buffer (MAX_T_BYTES * 8)"
-        );
-    }
+    let width = const_num_traits::BitsPrecision::bits_precision(crate::from_le_bytes::<T>(&P_BYTES))
+        as usize;
+    assert!(
+        width >= 256,
+        "x25519_blinded: backend T is too narrow for the Curve25519 prime (need >= 256 bits)"
+    );
+    assert!(
+        width <= MAX_T_BYTES * 8,
+        "x25519_blinded: backend T is wider than the fixed-size scratch buffer (MAX_T_BYTES * 8)"
+    );
 
     // The entry-point const-block guards the width case; the Odd
     // proof inside the factory is statically true for the Curve25519

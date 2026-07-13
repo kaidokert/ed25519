@@ -76,6 +76,7 @@ pub trait UnsignedModularInt:
     + core::cmp::PartialOrd
     + const_num_traits::One
     + const_num_traits::Zero
+    + const_num_traits::BitsPrecision
     + const_num_traits::ops::overflowing::OverflowingAdd<Output = Self>
     + const_num_traits::WrappingAdd<Output = Self>
     + const_num_traits::WrappingSub<Output = Self>
@@ -96,6 +97,7 @@ impl<T> UnsignedModularInt for T where
         + core::cmp::PartialOrd
         + const_num_traits::One
         + const_num_traits::Zero
+        + const_num_traits::BitsPrecision
         + const_num_traits::ops::overflowing::OverflowingAdd<Output = Self>
         + const_num_traits::WrappingAdd<Output = Self>
         + const_num_traits::WrappingSub<Output = Self>

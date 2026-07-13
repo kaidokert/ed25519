@@ -477,12 +477,12 @@ where
     // check and the panic path from `from_le_bytes` at this site
     // (any monomorphization that reaches the `D_BYTES` load has
     // `T::BYTE_WIDTH >= 32` by construction).
-    const {
-        assert!(
-            modmath::type_bit_width::<T>() >= 256,
-            "verify: backend T is too narrow for the Curve25519 prime (need >= 256 bits)"
-        );
-    }
+    assert!(
+        (const_num_traits::BitsPrecision::bits_precision(crate::from_le_bytes::<T>(&crate::P_BYTES))
+            as usize)
+            >= 256,
+        "verify: backend T is too narrow for the Curve25519 prime (need >= 256 bits)"
+    );
 
     let d = crate::from_le_bytes::<T>(&D_BYTES);
 

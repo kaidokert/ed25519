@@ -128,12 +128,12 @@ where
     // makes that bypass a compile error and keeps the loading of
     // `Q_BYTES` below infallible-in-practice (any monomorphization
     // that reaches this line has `T::BYTE_WIDTH >= 32`).
-    const {
-        assert!(
-            modmath::type_bit_width::<T>() >= 256,
-            "sign_with_fields: backend T is too narrow for the Curve25519 prime (need >= 256 bits)"
-        );
-    }
+    assert!(
+        (const_num_traits::BitsPrecision::bits_precision(crate::from_le_bytes::<T>(&crate::P_BYTES))
+            as usize)
+            >= 256,
+        "sign_with_fields: backend T is too narrow for the Curve25519 prime (need >= 256 bits)"
+    );
 
     let q = crate::from_le_bytes::<T>(&Q_BYTES);
 

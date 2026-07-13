@@ -75,7 +75,8 @@ where
         + WideMul
         + CiosMontMul
         + modmath::MontStorage
-        + modmath::NonCt,
+        + modmath::NonCt
+        + const_num_traits::BitsPrecision,
 {
     pub fn new(modulus: T) -> Option<Self> {
         FieldNct::new(modulus).map(|inner| Curve25519Field { inner, modulus })
@@ -107,10 +108,15 @@ where
     where
         T: UnsignedModularInt,
     {
-        if modmath::type_bit_width::<T>() < 256 {
+        let p = crate::from_le_bytes::<T>(&P_BYTES);
+        // Runtime-length carriers report width per-value, so we must
+        // probe a fully-populated value — decode P (all 32 bytes used)
+        // and check its precision. For fixed-carrier types this is
+        // still `carrier_bits`; for HeaplessBigInt it's `len * word_bits`
+        // after `from_le_slice` set len to CAP.
+        if (const_num_traits::BitsPrecision::bits_precision(p) as usize) < 256 {
             return Err(CurveSetupError::BackendTooNarrow);
         }
-        let p = crate::from_le_bytes::<T>(&P_BYTES);
         let odd = modmath::Odd::new(p).ok_or(CurveSetupError::InvalidModulus)?;
         Ok(Self::new_odd(odd))
     }
@@ -208,7 +214,8 @@ where
         + subtle::ConditionallySelectable
         + subtle::ConstantTimeLess
         + modmath::MontStorage
-        + const_num_traits::CtIsZero,
+        + const_num_traits::CtIsZero
+        + const_num_traits::BitsPrecision,
     for<'a> &'a T:
         const_num_traits::WrappingAdd<Output = T> + const_num_traits::WrappingSub<Output = T>,
 {
@@ -233,10 +240,15 @@ where
     where
         T: UnsignedModularInt,
     {
-        if modmath::type_bit_width::<T>() < 256 {
+        let p = crate::from_le_bytes::<T>(&P_BYTES);
+        // Runtime-length carriers report width per-value, so we must
+        // probe a fully-populated value — decode P (all 32 bytes used)
+        // and check its precision. For fixed-carrier types this is
+        // still `carrier_bits`; for HeaplessBigInt it's `len * word_bits`
+        // after `from_le_slice` set len to CAP.
+        if (const_num_traits::BitsPrecision::bits_precision(p) as usize) < 256 {
             return Err(CurveSetupError::BackendTooNarrow);
         }
-        let p = crate::from_le_bytes::<T>(&P_BYTES);
         let odd = modmath::Odd::new(p).ok_or(CurveSetupError::InvalidModulus)?;
         Ok(Self::new_odd(odd))
     }
