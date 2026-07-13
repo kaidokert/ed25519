@@ -3,3 +3,12 @@ resolver = "2"
 
 members = [ "ed25519" ]
 exclude = [ "avr_demo", "cortex_m_demo", "riscv_demo", "ct-verify" ]
+
+# Alpha ecosystem pin for the heapless-runtime-len experiment. Tracks
+# the pre-release const-num-traits + modmath work that pairs with the
+# runtime-length fixed-bigint feature. Drop this block once the
+# upstream tags graduate to crates.io.
+[patch.crates-io]
+const-num-traits = { git = "https://github.com/kaidokert/num-traits.git", tag = "v0.2.1-alpha.1" }
+modmath = { git = "https://github.com/kaidokert/modmath-rs.git", tag = "v0.6.0-alpha.cios.2" }
+modmath-cios = { git = "https://github.com/kaidokert/modmath-rs.git", tag = "v0.6.0-alpha.cios.2" }

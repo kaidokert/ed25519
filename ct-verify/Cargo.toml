@@ -3,6 +3,15 @@ resolver = "2"
 
 members = [ "panic-free-audit", "ct-ctgrind", "ladder-branches" ]
 
+# Nested workspaces don't inherit `[patch.crates-io]` from the root —
+# mirror the alpha-stack pins here so panic-free-audit and ct-ctgrind
+# resolve the same graph the main crate does. Drop when upstream tags
+# graduate to crates.io.
+[patch.crates-io]
+const-num-traits = { git = "https://github.com/kaidokert/num-traits.git", tag = "v0.2.1-alpha.1" }
+modmath = { git = "https://github.com/kaidokert/modmath-rs.git", tag = "v0.6.0-alpha.cios.2" }
+modmath-cios = { git = "https://github.com/kaidokert/modmath-rs.git", tag = "v0.6.0-alpha.cios.2" }
+
 # Pinned release codegen for the CT-verification gate. The taint
 # verifier and the asm-grep driver must inspect deployment-shaped
 # code (fat LTO inlines every helper into its call site, matching
