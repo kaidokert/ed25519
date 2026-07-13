@@ -32,7 +32,7 @@
     any(feature = "sha512-hmac-sha512", feature = "sha512-sha2"),
 ))]
 
-use const_num_traits::{Ct, FromByteSlice, ToBytes};
+use const_num_traits::{CarryingMul, Ct, FromByteSlice, ToBytes, Zero};
 use ed25519_heapless::{Curve25519FieldCt, P_BYTES, SigningKey, x25519_base};
 use fixed_bigint::{FixedUInt, HeaplessBigInt};
 use modmath::CiosMontMulCt;
@@ -75,6 +75,87 @@ fn byte_roundtrip_bytes_match() {
         le_bytes(&h),
         "same input encoded differently between backends"
     );
+}
+
+// ---------------------------------------------------------------------------
+// 1.5 Direct `CarryingMul` primitive: exactly the shape modmath's
+//     WideMul blanket calls through — `carrying_mul(a, b, zero)`.
+//     If the fix in alpha.16 landed and modmath's blanket resolves
+//     to it, `38 * 38` here must produce identical `lo`/`hi` on both
+//     carriers.
+// ---------------------------------------------------------------------------
+
+fn carrying_mul_bytes<T>(a: u8, b: u8) -> ([u8; 32], [u8; 32])
+where
+    T: FromByteSlice + ToBytes + Copy + Zero + CarryingMul<Unsigned = T, Output = T>,
+{
+    let mut a_bytes = [0u8; 32];
+    a_bytes[0] = a;
+    let mut b_bytes = [0u8; 32];
+    b_bytes[0] = b;
+    let av = <T as FromByteSlice>::from_le_slice(&a_bytes).expect("from a");
+    let bv = <T as FromByteSlice>::from_le_slice(&b_bytes).expect("from b");
+    let (lo, hi) = <T as CarryingMul>::carrying_mul(av, bv, <T as Zero>::zero());
+    (le_bytes(&lo), le_bytes(&hi))
+}
+
+#[test]
+fn carrying_mul_of_38_matches_between_backends() {
+    // 38 * 38 = 1444 = 0x5a4. Should land entirely in lo[0..2],
+    // hi should be all zeros. This is the exact operand pair
+    // Curve25519's `r2_mod_n = (2^256 mod p)^2 mod p` setup uses.
+    let (fb_lo, fb_hi) = carrying_mul_bytes::<FCt>(38, 38);
+    let (hb_lo, hb_hi) = carrying_mul_bytes::<HCt>(38, 38);
+    assert_eq!(fb_lo, hb_lo, "carrying_mul(38, 38): lo disagrees");
+    assert_eq!(fb_hi, hb_hi, "carrying_mul(38, 38): hi disagrees");
+    // Also assert the expected numeric answer so the test is
+    // meaningful even if both backends agree on the wrong value.
+    let mut expected_lo = [0u8; 32];
+    expected_lo[0] = 0xa4;
+    expected_lo[1] = 0x05;
+    let expected_hi = [0u8; 32];
+    assert_eq!(
+        fb_lo, expected_lo,
+        "FixedUInt carrying_mul(38,38) lo != 1444"
+    );
+    assert_eq!(fb_hi, expected_hi, "FixedUInt carrying_mul(38,38) hi != 0");
+}
+
+// ---------------------------------------------------------------------------
+// 1.75 modmath's `WideMul::wide_mul` on the same tiny inputs — the
+//     blanket impl over `CarryingMul` should produce the same
+//     `(lo, hi)` split. If this passes on both backends but field
+//     reduce still fails, the divergence is inside modmath's
+//     Montgomery machinery further up (r2_mod_n setup, or the
+//     Montgomery-reduction loop itself).
+// ---------------------------------------------------------------------------
+
+fn wide_mul_bytes<T>(a: u8, b: u8) -> ([u8; 32], [u8; 32])
+where
+    T: FromByteSlice + ToBytes + Copy + modmath::WideMul,
+{
+    let mut a_bytes = [0u8; 32];
+    a_bytes[0] = a;
+    let mut b_bytes = [0u8; 32];
+    b_bytes[0] = b;
+    let av = <T as FromByteSlice>::from_le_slice(&a_bytes).expect("from a");
+    let bv = <T as FromByteSlice>::from_le_slice(&b_bytes).expect("from b");
+    let (lo, hi) = av.wide_mul(&bv);
+    (le_bytes(&lo), le_bytes(&hi))
+}
+
+#[test]
+fn wide_mul_of_38_matches_between_backends() {
+    let (fb_lo, fb_hi) = wide_mul_bytes::<FCt>(38, 38);
+    let (hb_lo, hb_hi) = wide_mul_bytes::<HCt>(38, 38);
+    assert_eq!(fb_lo, hb_lo, "wide_mul(38, 38): lo disagrees");
+    assert_eq!(fb_hi, hb_hi, "wide_mul(38, 38): hi disagrees");
+    let mut expected_lo = [0u8; 32];
+    expected_lo[0] = 0xa4;
+    expected_lo[1] = 0x05;
+    let expected_hi = [0u8; 32];
+    assert_eq!(fb_lo, expected_lo, "FixedUInt wide_mul(38,38) lo != 1444");
+    assert_eq!(fb_hi, expected_hi, "FixedUInt wide_mul(38,38) hi != 0");
 }
 
 // ---------------------------------------------------------------------------
