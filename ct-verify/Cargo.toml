@@ -9,8 +9,8 @@ members = [ "panic-free-audit", "ct-ctgrind", "ladder-branches" ]
 # graduate to crates.io.
 [patch.crates-io]
 const-num-traits = { git = "https://github.com/kaidokert/num-traits.git", tag = "v0.2.1-alpha.1" }
-modmath = { git = "https://github.com/kaidokert/modmath-rs.git", tag = "v0.6.0-alpha.cios.6" }
-modmath-cios = { git = "https://github.com/kaidokert/modmath-rs.git", tag = "v0.6.0-alpha.cios.6" }
+modmath = { git = "https://github.com/kaidokert/modmath-rs.git", tag = "v0.6.0-alpha.cios.8" }
+modmath-cios = { git = "https://github.com/kaidokert/modmath-rs.git", tag = "v0.6.0-alpha.cios.8" }
 
 # Pinned release codegen for the CT-verification gate. The taint
 # verifier and the asm-grep driver must inspect deployment-shaped
