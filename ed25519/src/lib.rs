@@ -190,40 +190,55 @@ impl<T> SignBackend for T where
 {
 }
 
-// ED25519 constants
-pub const P_BYTES: [u8; 32] = [
-    237, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
-    255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 127,
-];
-pub const D_BYTES: [u8; 32] = [
-    163, 120, 89, 19, 202, 77, 235, 117, 171, 216, 65, 65, 77, 10, 112, 0, 152, 232, 121, 119, 121,
-    64, 199, 140, 115, 254, 111, 43, 238, 108, 3, 82,
-];
-pub const Q_BYTES: [u8; 32] = [
-    237, 211, 245, 92, 26, 99, 18, 88, 214, 156, 247, 162, 222, 249, 222, 20, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 16,
-];
+// ED25519 constants. Hex text is big-endian (matches every reference —
+// RFC 8032, dalek, `python -c 'print(hex(p))'` — so bytes can be
+// checked by eye); `hx_le` reverses to the little-endian byte order
+// the rest of the crate uses. Compile-time only: bad hex or wrong
+// length is a build error, and rodata is identical to a hand-written
+// LE array.
+const fn hx_le<const N: usize>(s: &str) -> [u8; N] {
+    const fn nib(c: u8) -> u8 {
+        match c {
+            b'0'..=b'9' => c - b'0',
+            b'a'..=b'f' => c - b'a' + 10,
+            _ => panic!("bad hex digit in curve constant"),
+        }
+    }
+    let s = s.as_bytes();
+    assert!(s.len() == 2 * N, "hex length must be 2*N chars");
+    let mut out = [0u8; N];
+    let mut i = 0;
+    while i < N {
+        // byte j of the big-endian text lands at index N-1-j in the LE array.
+        out[N - 1 - i] = (nib(s[2 * i]) << 4) | nib(s[2 * i + 1]);
+        i += 1;
+    }
+    out
+}
 
-pub const G_X_BYTES: [u8; 32] = [
-    26, 213, 37, 143, 96, 45, 86, 201, 178, 167, 37, 149, 96, 199, 44, 105, 92, 220, 214, 253, 49,
-    226, 164, 192, 254, 83, 110, 205, 211, 54, 105, 33,
-];
-pub const G_Y_BYTES: [u8; 32] = [
-    88, 102, 102, 102, 102, 102, 102, 102, 102, 102, 102, 102, 102, 102, 102, 102, 102, 102, 102,
-    102, 102, 102, 102, 102, 102, 102, 102, 102, 102, 102, 102, 102,
-];
-pub const G_T_BYTES: [u8; 32] = [
-    163, 221, 183, 165, 179, 138, 222, 109, 245, 82, 81, 119, 128, 159, 240, 32, 125, 227, 171,
-    100, 142, 78, 234, 102, 101, 118, 139, 215, 15, 95, 135, 103,
-];
+// p = 2^255 - 19 (field prime).
+pub const P_BYTES: [u8; 32] =
+    hx_le("7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffed");
+// d = -121665/121666 mod p (twist coefficient of the edwards form).
+pub const D_BYTES: [u8; 32] =
+    hx_le("52036cee2b6ffe738cc740797779e89800700a4d4141d8ab75eb4dca135978a3");
+// q = 2^252 + 27742317777372353535851937790883648493 (scalar order).
+pub const Q_BYTES: [u8; 32] =
+    hx_le("1000000000000000000000000000000014def9dea2f79cd65812631a5cf5d3ed");
 
-// Precomputed modp_sqrt_m1 = 2^((p-1)/4) mod p for Ed25519
-// This is sqrt(-1) mod p used in point decompression
-// Value: 2b8324804fc1df0b2b4d00993dfbd7a72f431806ad2fe478c4ee1b274a0ea0b0 (hex, big-endian)
-pub const MODP_SQRT_M1_BYTES: [u8; 32] = [
-    0xb0, 0xa0, 0x0e, 0x4a, 0x27, 0x1b, 0xee, 0xc4, 0x78, 0xe4, 0x2f, 0xad, 0x06, 0x18, 0x43, 0x2f,
-    0xa7, 0xd7, 0xfb, 0x3d, 0x99, 0x00, 0x4d, 0x2b, 0x0b, 0xdf, 0xc1, 0x4f, 0x80, 0x24, 0x83, 0x2b,
-];
+// Base point B = (Gx, Gy) with Gy = 4/5 mod p, plus Gt = Gx·Gy for
+// the extended-twisted-edwards coordinate that carries the precomputed
+// product.
+pub const G_X_BYTES: [u8; 32] =
+    hx_le("216936d3cd6e53fec0a4e231fdd6dc5c692cc7609525a7b2c9562d608f25d51a");
+pub const G_Y_BYTES: [u8; 32] =
+    hx_le("6666666666666666666666666666666666666666666666666666666666666658");
+pub const G_T_BYTES: [u8; 32] =
+    hx_le("67875f0fd78b766566ea4e8e64abe37d20f09f80775152f56dde8ab3a5b7dda3");
+
+// modp_sqrt_m1 = 2^((p-1)/4) mod p = sqrt(-1) mod p, used in point decompression.
+pub const MODP_SQRT_M1_BYTES: [u8; 32] =
+    hx_le("2b8324804fc1df0b2b4d00993dfbd7a72f431806ad2fe478c4ee1b274a0ea0b0");
 
 /// Verify an Ed25519 signature.
 ///
