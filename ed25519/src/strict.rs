@@ -61,7 +61,15 @@ where
     // without requiring T to hold all 64 bytes. Works for any T >= 253 bits
     // (> q). At each step acc < q, so 2*acc < 2q < 2^254, which fits in
     // 256-bit T.
-    let mut acc = T::zero();
+    //
+    // Seed the accumulator at `q`'s width, not `T::zero()`. On a
+    // runtime-width backend `zero()` is minimal-width (it can't guess
+    // the intended width), so `2*acc` would wrap at the low limb and
+    // the reduction would silently compute a truncated result. `q - q`
+    // is a zero carrying q's full width, so the doubling has room to
+    // carry. (Fixed-width backends are unaffected: their `zero()` is
+    // already full width.)
+    let mut acc = <&T as const_num_traits::WrappingSub>::wrapping_sub(q, q);
     let one = T::one();
     // Process from most significant bit (byte 63, bit 7) to least (byte 0, bit 0)
     // Hash is little-endian: byte 63 is MSB

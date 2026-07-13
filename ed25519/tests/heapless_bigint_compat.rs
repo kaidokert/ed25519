@@ -14,10 +14,15 @@
 //!     (512-bit box holding a 255-bit value → `len < CAP`), the
 //!     cortex_m / riscv / krabitls deploy shape.
 //!
-//! History — three upstream bugs surfaced and fixed through this
-//! reducer: a sub-width CarryingMul split (fixed-bigint alpha.16), a
-//! reduce/into_raw limb shift (modmath cios.5), and a
-//! carrier-wider-than-modulus Montgomery error (modmath cios.6).
+//! History — bugs surfaced and fixed through this reducer:
+//!   - sub-width CarryingMul split (fixed-bigint alpha.16),
+//!   - reduce/into_raw limb shift (modmath cios.5),
+//!   - carrier-wider-than-modulus Montgomery error (modmath cios.6),
+//!   - minimal-width `zero()` seed in `sha512_modq` breaking verify on
+//!     runtime-width carriers (ed25519-side fix: seed at q's width).
+//!     `len` is the number's width, not corruptible metadata; a
+//!     runtime-width `zero()` is a 32-bit integer, not a truncated
+//!     256-bit one.
 
 #![cfg(all(
     feature = "fixed-bigint",
@@ -432,21 +437,30 @@ fn shr_assign_bit_walk() {
 
 // ---------------------------------------------------------------------------
 // 5.95 Full `sha512_modq` Horner reduction — the raw-`T` scalar-mod-q
-//      path VERIFY uses (sign reduces mod q through modmath's Ct field
-//      instead, which is why sign passes and verify fails on the same
-//      carrier). 512 iterations of `acc = 2*acc + bit` then up to two
-//      `>= q` subtracts, reusing `acc` throughout. A len-tracking drift
-//      in the doubling or comparison over 512 rounds produces a wrong
-//      reduced scalar → verify's `s·G == R + h·A` check fails.
+//      path VERIFY uses (sign reduces mod q through modmath's Ct field,
+//      whose CT `conditional_select` widens the accumulator to full CAP
+//      on the first reduce; verify's plain `if acc >= q` branch does
+//      not — which is why sign passed and verify failed on the same
+//      carrier).
+//
+//      Root cause was NOT a carrier bug: `<T as Zero>::zero()` on a
+//      runtime-width backend is minimal-width, so a zero-seeded acc is
+//      a 32-bit integer and `2*acc` correctly wraps at 2^32 — it never
+//      reaches q, never widens, and the reduction silently truncates.
+//      Seeding at q's width (`q - q`, the fix mirrored from
+//      `strict::sha512_modq`) gives the accumulator room to carry.
+//      `len` is the number's WIDTH, not corruptible metadata.
 // ---------------------------------------------------------------------------
 
 fn horner_mod_q<T>(hash: &[u8; 64]) -> [u8; 32]
 where
     T: UnsignedModularInt + Copy + PartialOrd,
+    for<'a> &'a T: WrappingSub<Output = T>,
 {
     let q = decode::<T>(&Q_BYTES);
     let one = <T as One>::one();
-    let mut acc = <T as Zero>::zero();
+    // Seed at q's width, not zero()'s minimal width — the actual fix.
+    let mut acc = <&T as WrappingSub>::wrapping_sub(&q, &q);
     for byte_idx in (0..64).rev() {
         for bit_idx in (0..8).rev() {
             let (doubled, _ovf) = <T as OverflowingAdd>::overflowing_add(acc, acc);
@@ -487,9 +501,10 @@ fn mixed_len_compare_against_q() {
 
 #[test]
 fn overflowing_add_self_double() {
-    // Minimal reproducer under the Horner failure: `overflowing_add(v, v)`
-    // must double `v`. The Horner loop collapses because self-doubling a
-    // runtime-length value doesn't grow its length.
+    // Self-doubling a value that was decoded (so it has the width of
+    // its bytes) grows correctly across limb boundaries. Doubling only
+    // "loses" bits when the value is minimal-width to begin with — see
+    // the seed-width note on `horner_mod_q`.
     fn inner<T: FromByteSlice + ToBytes + Copy + OverflowingAdd<Output = T>>() {
         // 1 doubled 40× = 2^40, which lands in byte 5 (bit 40).
         let mut v = decode::<T>(&small(1));
@@ -534,12 +549,11 @@ fn overflowing_add_self_double_to_cap() {
 
 #[test]
 fn add_carry_into_second_limb() {
-    // A single carry from limb 0 into limb 1 is handled CORRECTLY —
-    // `0xC000_0000 + 0xC000_0000 = 0x1_8000_0000` preserves bit 32 on
-    // both carriers. This rules out the trivial "addition drops the
-    // carry" explanation and proves the Horner divergence
-    // (`horner_mod_q_matches_reference`) is a STATEFUL bug in the
-    // doubling + reduce sequence, not any single add.
+    // A single carry from limb 0 into limb 1 is handled correctly on a
+    // decoded (byte-width) value: `0xC000_0000 + 0xC000_0000 =
+    // 0x1_8000_0000` preserves bit 32 on both carriers. The Horner
+    // failure was never here — it was the minimal-width `zero()` seed
+    // (see `horner_mod_q`).
     fn inner<T: FromByteSlice + ToBytes + Copy + OverflowingAdd<Output = T>>() {
         let mut x = [0u8; 32];
         x[3] = 0xc0; // 0xC000_0000 in limb 0
@@ -583,25 +597,18 @@ fn double_dense_value() {
     );
 }
 
-// FAILING REPRODUCER (as of modmath cios.8 / fixed-bigint alpha.21):
-// the raw-`T` `sha512_modq` Horner reduction diverges between
-// FixedUInt and HeaplessBigInt on the Nct personality, and this
-// single divergence cascades into `verify_accepts_valid_signature`
-// (the krabitls certificate_verify failure).
+// Regression guard for the krabitls verify failure. The raw-`T`
+// `sha512_modq` Horner reduction reproduces `verify`'s scalar-mod-q
+// path. It failed on HeaplessBigInt purely because the accumulator was
+// seeded with `<T as Zero>::zero()`, which is MINIMAL width on a
+// runtime-width carrier — so acc was a 32-bit integer, `2*acc` wrapped
+// at 2^32 (correct for a 32-bit number), acc never reached q, never
+// widened, and the reduction silently truncated. `FixedUInt<u32,8>`
+// was unaffected because its `zero()` is intrinsically 256-bit.
 //
-// Everything below the composition passes on all carriers — byte ops,
-// widening mul, Ct/Nct field reduce/mul/inv, chained field
-// arithmetic, raw single-step reduce, mixed-len compare, self-double
-// to 2^255, dense doubling, single carry-into-limb-1, bitand, shr.
-// Only the 512-round doubling+reduce SEQUENCE fails.
-//
-// Bisected first divergence: bit 35. At that step FixedUInt has bit 32
-// set (`[…, 48, 1, 0, …]`) and HeaplessBigInt does not (`[…, 48, 0,
-// 0, …]`) — a carry that should have propagated into limb 1 across the
-// accumulated doubling+reduce state was dropped. Since single carries
-// are correct (see `add_carry_into_second_limb`), this is a stateful
-// `len`-tracking bug in the runtime-length carrier's add/sub sequence
-// — the alpha.21 value-tight-addition class. Hand off to fixed-bigint.
+// Not a carrier bug — `len` is the number's width, not corruptible
+// metadata. The fix (mirrored here and in `strict::sha512_modq`) seeds
+// at q's width via `q - q`. With that, all carriers agree bit-for-bit.
 #[test]
 fn horner_mod_q_matches_reference() {
     // A realistic full-width hash-shaped input (not all-zero, MSB set).
