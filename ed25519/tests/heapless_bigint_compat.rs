@@ -1,31 +1,28 @@
-//! Cross-backend equivalence probes against `FixedUInt<u32, 8, _>` vs
-//! `HeaplessBigInt<u32, 8, _>`, from smallest primitive to full
-//! ed25519 entry point. Every backend-independent property should hold
-//! between the two carriers — the FIRST test in this file that fails
-//! localizes the bug to the layer named in the test.
+//! Cross-backend equivalence probes: `FixedUInt<u32, 8, _>` vs
+//! `HeaplessBigInt<u32, 8, _>` (narrow carrier) and vs
+//! `HeaplessBigInt<u32, 16, _>` (wide carrier — the shape the
+//! cortex_m / riscv demos deploy). Every backend-independent property
+//! must hold across all three; each test is layered smallest primitive
+//! to full ed25519 entry point, so a regression's FIRST failing test
+//! names the layer it broke.
 //!
-//! Ordering (outer → inner is the READING order; the actual
-//! localization is inner → outer):
+//! Ordering (inner → outer):
 //!
-//! 1. `byte_roundtrip_bytes_match` — `FromByteSlice` + `ToBytes` on T
-//!    alone. Fails ⇒ backend disagrees on canonical encoding; nothing
-//!    below can be right.
-//! 2. `field_reduce_of_small_value_matches` — `Field::reduce(&raw)`
-//!    then `Field::into_raw(&residue)` on a value < modulus. Fails ⇒
-//!    Montgomery form / R conversion disagrees.
-//! 3. `field_mul_by_one_is_identity` — CIOS multiplication vs the
-//!    field's `one()`. Fails ⇒ CIOS is broken for this shape.
-//! 4. `field_mul_of_two_small_values_matches` — CIOS on two
-//!    reduce'd small integers. Fails ⇒ general CIOS.
-//! 5. `x25519_base_output_matches` — output of the Curve25519 scalar
-//!    ladder with the base point. Fails ⇒ ladder / field composition.
-//! 6. `signing_key_public_matches` — end-to-end ed25519 sign-side
-//!    pubkey derivation.
+//! 1. `byte_roundtrip_bytes_match` — `FromByteSlice` + `ToBytes` on T.
+//! 2. `carrying_mul_*` / `wide_mul_*` — the widening-multiply primitive
+//!    modmath's Montgomery machinery calls through.
+//! 3. `field_reduce_of_small_value_matches` — `reduce` → `into_raw`.
+//! 4. `field_mul_by_one_is_identity` / `field_mul_of_two_small_values`
+//!    — CIOS multiplication.
+//! 5. `x25519_base_output_matches` — Curve25519 scalar ladder.
+//! 6. `signing_key_public_matches` — end-to-end sign-side pubkey.
+//! 7. `wide_carrier_*` — items 3-6 repeated on the 512-bit carrier.
 //!
-//! On the `experiment/heapless-runtime-len` branch as of writing,
-//! items 2 onward fail; item 1 passes. That places the divergence
-//! inside modmath's Ct field constructor / reducer against the
-//! runtime-length HeaplessBigInt.
+//! History: three distinct upstream bugs surfaced and were fixed
+//! through this reducer — a sub-width CarryingMul split (fixed-bigint
+//! alpha.16), a reduce/into_raw limb shift (modmath cios.5), and a
+//! carrier-wider-than-modulus Montgomery error (modmath cios.6). All
+//! layers now agree across the three carriers.
 
 #![cfg(all(
     feature = "fixed-bigint",
@@ -314,12 +311,12 @@ fn signing_key_public_matches() {
     );
 }
 
-// Localizers for the wide-carrier (u32×16) divergence: run the same
-// primitive probes over the 512-bit carrier. A `HeaplessBigInt` whose
-// carrier is strictly wider than the 256-bit modulus should still
-// produce identical field results to the narrow carriers (Montgomery
-// form is internal; `reduce`/`into_raw` must round-trip regardless of
-// how many leading zero limbs the carrier carries).
+// Wide-carrier (u32×16) regression guards: a `HeaplessBigInt` whose
+// carrier is strictly wider than the 256-bit modulus must produce
+// identical field results to the narrow carriers (Montgomery form is
+// internal; `reduce`/`into_raw` round-trips regardless of how many
+// leading zero limbs the carrier carries). These caught the
+// carrier-wider-than-modulus Montgomery bug fixed in modmath cios.6.
 
 #[test]
 fn wide_carrier_field_reduce_matches() {
