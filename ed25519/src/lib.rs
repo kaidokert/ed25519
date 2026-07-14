@@ -58,7 +58,7 @@ pub(crate) mod strict_sign;
 pub use signing_key::{SignError, SigningKey, sign, sign_with_fields};
 pub(crate) mod x25519;
 
-pub use curve25519_field::{Curve25519Field, Curve25519FieldCt};
+pub use curve25519_field::{Curve25519Field, Curve25519FieldCt, VerifyField};
 pub use modmath::{Field, FieldCt, FieldNct, Residue, ResidueCt, ResidueNct};
 
 use core::marker::PhantomData;

@@ -345,6 +345,171 @@ impl<T> core::ops::Deref for Curve25519FieldCt<T> {
     }
 }
 
+// =========================================================================
+// Personality-generic verify field
+// =========================================================================
+
+/// The field-operation surface the Ed25519 verify path consumes,
+/// abstracted over personality so [`crate::verify`] runs on either the
+/// non-constant-time field ([`Curve25519Field`], the default) or the
+/// constant-time field ([`Curve25519FieldCt`]).
+///
+/// Verify operates entirely on public data — signature, public key,
+/// message — so the constant-time instantiation is a *performance*
+/// choice, never a correctness one: it merely runs slower field
+/// arithmetic to the same result. (And it is not itself constant-time
+/// regardless — the NAF double-scalar multiply branches on the public
+/// scalar.) Its purpose is letting a single-carrier deployment reuse
+/// one `HeaplessBigInt<…, Ct>` monomorphization for both sign and
+/// verify instead of paying two.
+///
+/// The associated `Residue<'f>` is the field's residue type
+/// (`ResidueNct` or `ResidueCt`), lifetime-bound to the field borrow.
+pub trait VerifyField<T> {
+    /// The field's residue element, borrowed from the field for `'f`.
+    type Residue<'f>: Clone + PartialEq
+    where
+        Self: 'f;
+
+    fn reduce<'f>(&'f self, raw: &T) -> Self::Residue<'f>;
+    fn mul<'f>(&'f self, a: &Self::Residue<'f>, b: &Self::Residue<'f>) -> Self::Residue<'f>;
+    fn add<'f>(&'f self, a: &Self::Residue<'f>, b: &Self::Residue<'f>) -> Self::Residue<'f>;
+    fn sub<'f>(&'f self, a: &Self::Residue<'f>, b: &Self::Residue<'f>) -> Self::Residue<'f>;
+    fn inv<'f>(&'f self, a: &Self::Residue<'f>) -> Self::Residue<'f>;
+    fn exp<'f>(&'f self, base: &Self::Residue<'f>, exp: &T) -> Self::Residue<'f>;
+    fn one<'f>(&'f self) -> Self::Residue<'f>;
+    fn zero<'f>(&'f self) -> Self::Residue<'f>;
+    // `into_raw` is the field's residue→canonical accessor (borrows both
+    // the field and the residue); it doesn't consume `self`.
+    #[allow(clippy::wrong_self_convention)]
+    fn into_raw<'f>(&'f self, a: &Self::Residue<'f>) -> T;
+    fn modulus(&self) -> &T;
+}
+
+impl<T> VerifyField<T> for Curve25519Field<T>
+where
+    T: UnsignedModularInt
+        + Copy
+        + WideMul
+        + CiosMontMul
+        + modmath::MontStorage
+        + modmath::NonCt
+        + core::ops::ShrAssign<usize>
+        + const_num_traits::WrappingSub<Output = T>,
+    for<'a> &'a T:
+        const_num_traits::WrappingAdd<Output = T> + const_num_traits::WrappingSub<Output = T>,
+{
+    type Residue<'f>
+        = ResidueNct<'f, T>
+    where
+        Self: 'f;
+
+    #[inline]
+    fn reduce<'f>(&'f self, raw: &T) -> ResidueNct<'f, T> {
+        self.inner.reduce(raw)
+    }
+    #[inline]
+    fn mul<'f>(&'f self, a: &ResidueNct<'f, T>, b: &ResidueNct<'f, T>) -> ResidueNct<'f, T> {
+        self.inner.mul(a, b)
+    }
+    #[inline]
+    fn add<'f>(&'f self, a: &ResidueNct<'f, T>, b: &ResidueNct<'f, T>) -> ResidueNct<'f, T> {
+        Curve25519Field::add(self, a, b)
+    }
+    #[inline]
+    fn sub<'f>(&'f self, a: &ResidueNct<'f, T>, b: &ResidueNct<'f, T>) -> ResidueNct<'f, T> {
+        Curve25519Field::sub(self, a, b)
+    }
+    #[inline]
+    fn inv<'f>(&'f self, a: &ResidueNct<'f, T>) -> ResidueNct<'f, T> {
+        Curve25519Field::inv(self, a)
+    }
+    #[inline]
+    fn exp<'f>(&'f self, base: &ResidueNct<'f, T>, exp: &T) -> ResidueNct<'f, T> {
+        self.inner.exp(base, exp)
+    }
+    #[inline]
+    fn one<'f>(&'f self) -> ResidueNct<'f, T> {
+        self.inner.one()
+    }
+    #[inline]
+    fn zero<'f>(&'f self) -> ResidueNct<'f, T> {
+        self.inner.zero()
+    }
+    #[inline]
+    fn into_raw<'f>(&'f self, a: &ResidueNct<'f, T>) -> T {
+        self.inner.into_raw(a)
+    }
+    #[inline]
+    fn modulus(&self) -> &T {
+        Curve25519Field::modulus(self)
+    }
+}
+
+impl<T> VerifyField<T> for Curve25519FieldCt<T>
+where
+    T: UnsignedModularInt
+        + Copy
+        + PartialEq
+        + WideMul
+        + CiosMontMulCt
+        + Parity
+        + modmath::MontStorage
+        + const_num_traits::CtIsZero
+        + subtle::ConditionallySelectable
+        + subtle::ConstantTimeLess
+        + core::ops::Shr<usize, Output = T>
+        + core::ops::BitAnd<Output = T>,
+    for<'a> &'a T:
+        const_num_traits::WrappingAdd<Output = T> + const_num_traits::WrappingSub<Output = T>,
+{
+    type Residue<'f>
+        = ResidueCt<'f, T>
+    where
+        Self: 'f;
+
+    #[inline]
+    fn reduce<'f>(&'f self, raw: &T) -> ResidueCt<'f, T> {
+        self.inner.reduce(raw)
+    }
+    #[inline]
+    fn mul<'f>(&'f self, a: &ResidueCt<'f, T>, b: &ResidueCt<'f, T>) -> ResidueCt<'f, T> {
+        self.inner.mul(a, b)
+    }
+    #[inline]
+    fn add<'f>(&'f self, a: &ResidueCt<'f, T>, b: &ResidueCt<'f, T>) -> ResidueCt<'f, T> {
+        Curve25519FieldCt::add(self, a, b)
+    }
+    #[inline]
+    fn sub<'f>(&'f self, a: &ResidueCt<'f, T>, b: &ResidueCt<'f, T>) -> ResidueCt<'f, T> {
+        Curve25519FieldCt::sub(self, a, b)
+    }
+    #[inline]
+    fn inv<'f>(&'f self, a: &ResidueCt<'f, T>) -> ResidueCt<'f, T> {
+        Curve25519FieldCt::inv(self, a)
+    }
+    #[inline]
+    fn exp<'f>(&'f self, base: &ResidueCt<'f, T>, exp: &T) -> ResidueCt<'f, T> {
+        self.inner.exp(base, exp)
+    }
+    #[inline]
+    fn one<'f>(&'f self) -> ResidueCt<'f, T> {
+        self.inner.one()
+    }
+    #[inline]
+    fn zero<'f>(&'f self) -> ResidueCt<'f, T> {
+        self.inner.zero()
+    }
+    #[inline]
+    fn into_raw<'f>(&'f self, a: &ResidueCt<'f, T>) -> T {
+        self.inner.into_raw(a)
+    }
+    #[inline]
+    fn modulus(&self) -> &T {
+        Curve25519FieldCt::modulus(self)
+    }
+}
+
 #[cfg(all(test, feature = "fixed-bigint"))]
 mod tests {
     use super::*;

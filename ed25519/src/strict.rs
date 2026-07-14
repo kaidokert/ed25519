@@ -1,21 +1,17 @@
 use crate::UnsignedModularInt;
-use crate::curve25519_field::Curve25519Field;
+use crate::curve25519_field::{Curve25519Field, VerifyField};
 use crate::jsf::NafSign;
-use modmath::ResidueNct;
 
 // Tuples of field residues. Lifetime `'f` binds them to the producing
-// `Curve25519Field` instance — the type system prevents mixing residues
-// from a different field (e.g. a `Curve25519FieldCt` used by x25519).
-type EdPoint<'f, T> = (
-    ResidueNct<'f, T>,
-    ResidueNct<'f, T>,
-    ResidueNct<'f, T>,
-    ResidueNct<'f, T>,
-);
+// field instance — the type system prevents mixing residues from a
+// different field. Generic over the verify field `F` so the whole path
+// runs on either the Nct field (default) or the Ct field.
+type Res<'f, F, T> = <F as VerifyField<T>>::Residue<'f>;
+type EdPoint<'f, F, T> = (Res<'f, F, T>, Res<'f, F, T>, Res<'f, F, T>, Res<'f, F, T>);
 
 // Niels coordinates: (Y+X, Y-X, 2dT) — optimized for point additions.
 // Reduces point addition from 10M to 8M multiplications.
-type NielsPoint<'f, T> = (ResidueNct<'f, T>, ResidueNct<'f, T>, ResidueNct<'f, T>);
+type NielsPoint<'f, F, T> = (Res<'f, F, T>, Res<'f, F, T>, Res<'f, F, T>);
 
 use crate::{D_BYTES, G_T_BYTES, G_X_BYTES, G_Y_BYTES, MODP_SQRT_M1_BYTES, Q_BYTES};
 
@@ -106,19 +102,10 @@ where
 // there's no round-trip cost across chains of operations.
 
 #[inline(never)]
-fn recover_x<'f, T>(
-    y_raw: T,
-    sign: u8,
-    d_raw: T,
-    field: &'f Curve25519Field<T>,
-) -> Option<ResidueNct<'f, T>>
+fn recover_x<'f, F, T>(y_raw: T, sign: u8, d_raw: T, field: &'f F) -> Option<Res<'f, F, T>>
 where
-    T: UnsignedModularInt
-        + Copy
-        + modmath::WideMul
-        + modmath::CiosMontMul
-        + modmath::NonCt
-        + const_num_traits::WrappingSub<Output = T>,
+    F: VerifyField<T>,
+    T: UnsignedModularInt + Copy + const_num_traits::WrappingSub<Output = T>,
     for<'a> &'a T:
         const_num_traits::WrappingAdd<Output = T> + const_num_traits::WrappingSub<Output = T>,
 {
@@ -188,18 +175,14 @@ where
 }
 
 #[inline(never)]
-fn decompress_edward_point<'f, T>(
+fn decompress_edward_point<'f, F, T>(
     encoded: [u8; 32],
     d_raw: T,
-    field: &'f Curve25519Field<T>,
-) -> Option<EdPoint<'f, T>>
+    field: &'f F,
+) -> Option<EdPoint<'f, F, T>>
 where
-    T: UnsignedModularInt
-        + Copy
-        + modmath::WideMul
-        + modmath::CiosMontMul
-        + modmath::NonCt
-        + const_num_traits::WrappingSub<Output = T>,
+    F: VerifyField<T>,
+    T: UnsignedModularInt + Copy + const_num_traits::WrappingSub<Output = T>,
     for<'a> &'a T:
         const_num_traits::WrappingAdd<Output = T> + const_num_traits::WrappingSub<Output = T>,
 {
@@ -220,14 +203,10 @@ where
 }
 
 #[inline(never)]
-fn point_double<'f, T>(pp: &EdPoint<'f, T>, field: &'f Curve25519Field<T>) -> EdPoint<'f, T>
+fn point_double<'f, F, T>(pp: &EdPoint<'f, F, T>, field: &'f F) -> EdPoint<'f, F, T>
 where
-    T: UnsignedModularInt
-        + Copy
-        + modmath::WideMul
-        + modmath::CiosMontMul
-        + modmath::NonCt
-        + const_num_traits::WrappingSub<Output = T>,
+    F: VerifyField<T>,
+    T: UnsignedModularInt + Copy + const_num_traits::WrappingSub<Output = T>,
     for<'a> &'a T:
         const_num_traits::WrappingAdd<Output = T> + const_num_traits::WrappingSub<Output = T>,
 {
@@ -256,18 +235,10 @@ where
     )
 }
 
-fn to_niels<'f, T>(
-    pp: &EdPoint<'f, T>,
-    d_raw: T,
-    field: &'f Curve25519Field<T>,
-) -> NielsPoint<'f, T>
+fn to_niels<'f, F, T>(pp: &EdPoint<'f, F, T>, d_raw: T, field: &'f F) -> NielsPoint<'f, F, T>
 where
-    T: UnsignedModularInt
-        + Copy
-        + modmath::WideMul
-        + modmath::CiosMontMul
-        + modmath::NonCt
-        + const_num_traits::WrappingSub<Output = T>,
+    F: VerifyField<T>,
+    T: UnsignedModularInt + Copy + const_num_traits::WrappingSub<Output = T>,
     for<'a> &'a T:
         const_num_traits::WrappingAdd<Output = T> + const_num_traits::WrappingSub<Output = T>,
 {
@@ -280,18 +251,14 @@ where
 }
 
 #[inline(never)]
-fn point_add_niels<'f, T>(
-    pp: &EdPoint<'f, T>,
-    niels: &NielsPoint<'f, T>,
-    field: &'f Curve25519Field<T>,
-) -> EdPoint<'f, T>
+fn point_add_niels<'f, F, T>(
+    pp: &EdPoint<'f, F, T>,
+    niels: &NielsPoint<'f, F, T>,
+    field: &'f F,
+) -> EdPoint<'f, F, T>
 where
-    T: UnsignedModularInt
-        + Copy
-        + modmath::WideMul
-        + modmath::CiosMontMul
-        + modmath::NonCt
-        + const_num_traits::WrappingSub<Output = T>,
+    F: VerifyField<T>,
+    T: UnsignedModularInt + Copy + const_num_traits::WrappingSub<Output = T>,
     for<'a> &'a T:
         const_num_traits::WrappingAdd<Output = T> + const_num_traits::WrappingSub<Output = T>,
 {
@@ -316,18 +283,10 @@ where
 }
 
 #[inline(never)]
-fn point_equal<'f, T>(
-    pp: &EdPoint<'f, T>,
-    qq: &EdPoint<'f, T>,
-    field: &'f Curve25519Field<T>,
-) -> bool
+fn point_equal<'f, F, T>(pp: &EdPoint<'f, F, T>, qq: &EdPoint<'f, F, T>, field: &'f F) -> bool
 where
-    T: UnsignedModularInt
-        + Copy
-        + modmath::WideMul
-        + modmath::CiosMontMul
-        + modmath::NonCt
-        + const_num_traits::WrappingSub<Output = T>,
+    F: VerifyField<T>,
+    T: UnsignedModularInt + Copy + const_num_traits::WrappingSub<Output = T>,
     for<'a> &'a T:
         const_num_traits::WrappingAdd<Output = T> + const_num_traits::WrappingSub<Output = T>,
 {
@@ -341,21 +300,17 @@ where
 }
 
 #[inline(never)]
-fn naf_double_scalar_mul<'f, T>(
+fn naf_double_scalar_mul<'f, F, T>(
     s: T,
-    g: &EdPoint<'f, T>,
+    g: &EdPoint<'f, F, T>,
     h: T,
-    a: &EdPoint<'f, T>,
+    a: &EdPoint<'f, F, T>,
     d_raw: T,
-    field: &'f Curve25519Field<T>,
-) -> EdPoint<'f, T>
+    field: &'f F,
+) -> EdPoint<'f, F, T>
 where
-    T: UnsignedModularInt
-        + Copy
-        + modmath::WideMul
-        + modmath::CiosMontMul
-        + modmath::NonCt
-        + const_num_traits::WrappingSub<Output = T>,
+    F: VerifyField<T>,
+    T: UnsignedModularInt + Copy + const_num_traits::WrappingSub<Output = T>,
     for<'a> &'a T: core::ops::BitAnd<Output = T>
         + const_num_traits::WrappingAdd<Output = T>
         + const_num_traits::WrappingSub<Output = T>,
@@ -365,7 +320,7 @@ where
 
     // Identity in extended-twisted Edwards: (0, 1, 1, 0).
     let zero = field.zero();
-    let mut result: EdPoint<'f, T> = (field.zero(), field.one(), field.one(), field.zero());
+    let mut result: EdPoint<'f, F, T> = (field.zero(), field.one(), field.one(), field.zero());
 
     // Precompute Niels form of base points + their negations.
     let g_niels = to_niels(g, d_raw, field);
@@ -422,13 +377,20 @@ where
         Ok(f) => f,
         Err(_) => return false,
     };
-    verify_with_field::<T>(&field, public, msg, signature)
+    verify_with_field::<Curve25519Field<T>, T>(&field, public, msg, signature)
 }
 
-/// Verify with a caller-supplied [`Curve25519Field`], skipping the
-/// per-call precompute. Build the field once (e.g. at firmware boot, or
-/// at the top of a TLS handshake) and reuse across every verify against
-/// the same curve.
+/// Verify with a caller-supplied field, skipping the per-call
+/// precompute. Build the field once (e.g. at firmware boot, or at the
+/// top of a TLS handshake) and reuse across every verify against the
+/// same curve.
+///
+/// Generic over the field personality via [`VerifyField`]: pass a
+/// [`Curve25519Field`] for the default non-constant-time verify, or a
+/// [`Curve25519FieldCt`] to run verify on the constant-time carrier
+/// (a single-monomorphization deployment that already links the CT
+/// carrier for signing — verify only touches public data, so this is
+/// purely a code-size-vs-speed trade, never a correctness one).
 ///
 /// ```ignore
 /// use ed25519_heapless::{Curve25519Field, verify_with_field};
@@ -437,40 +399,22 @@ where
 ///     if !verify_with_field(&field, pk, msg, sig) { return false; }
 /// }
 /// ```
-pub fn verify_with_field<T>(
-    field: &Curve25519Field<T>,
-    public: [u8; 32],
-    msg: &[u8],
-    signature: [u8; 64],
-) -> bool
+pub fn verify_with_field<F, T>(field: &F, public: [u8; 32], msg: &[u8], signature: [u8; 64]) -> bool
 where
-    T: UnsignedModularInt
-        + Copy
-        + modmath::WideMul
-        + modmath::CiosMontMul
-        + modmath::NonCt
-        + const_num_traits::WrappingSub<Output = T>,
+    F: VerifyField<T>,
+    T: UnsignedModularInt + Copy + const_num_traits::WrappingSub<Output = T>,
     for<'a> &'a T: core::ops::BitAnd<Output = T>
         + const_num_traits::WrappingAdd<Output = T>
         + const_num_traits::WrappingSub<Output = T>,
 {
-    verify_inner::<T>(field, public, msg, signature)
+    verify_inner::<F, T>(field, public, msg, signature)
 }
 
 #[inline(never)]
-fn verify_inner<T>(
-    field: &Curve25519Field<T>,
-    public: [u8; 32],
-    msg: &[u8],
-    signature: [u8; 64],
-) -> bool
+fn verify_inner<F, T>(field: &F, public: [u8; 32], msg: &[u8], signature: [u8; 64]) -> bool
 where
-    T: UnsignedModularInt
-        + Copy
-        + modmath::WideMul
-        + modmath::CiosMontMul
-        + modmath::NonCt
-        + const_num_traits::WrappingSub<Output = T>,
+    F: VerifyField<T>,
+    T: UnsignedModularInt + Copy + const_num_traits::WrappingSub<Output = T>,
     for<'a> &'a T: core::ops::BitAnd<Output = T>
         + const_num_traits::WrappingAdd<Output = T>
         + const_num_traits::WrappingSub<Output = T>,
@@ -532,7 +476,7 @@ where
     };
 
     // Phase 4: base point G in field form.
-    let g: EdPoint<'_, T> = (
+    let g: EdPoint<'_, F, T> = (
         field.reduce(&crate::from_le_bytes::<T>(&G_X_BYTES)),
         field.reduce(&crate::from_le_bytes::<T>(&G_Y_BYTES)),
         field.one(),

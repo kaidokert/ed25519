@@ -698,3 +698,40 @@ fn verify_accepts_valid_signature() {
     inner::<HeaplessBigInt<u32, 8, Nct>>(&pk, msg, &sig, "HeaplessBigInt<u32,8,Nct>");
     inner::<HeaplessBigInt<u32, 16, Nct>>(&pk, msg, &sig, "HeaplessBigInt<u32,16,Nct>");
 }
+
+// The Ct-field verify path (`verify_with_field` on `Curve25519FieldCt`)
+// must accept exactly what the default Nct `verify` accepts and reject
+// what it rejects — verify is public-data-only, so the personality is a
+// speed choice, not a correctness one. This is the single-carrier
+// deployment: one `…, Ct` monomorphization signs AND verifies.
+#[test]
+fn verify_ct_field_matches_nct() {
+    use ed25519_heapless::{Curve25519FieldCt, verify_with_field};
+
+    type C = HeaplessBigInt<u32, 16, Ct>;
+
+    let seed = [7u8; 32];
+    let sk = SigningKey::<C>::from_seed(&seed).expect("from_seed");
+    let pk = sk.public_key();
+    let msg = b"single-carrier verify";
+    let good = sign(&sk, msg).expect("sign");
+    // A tampered signature the valid path must reject.
+    let mut bad = good;
+    bad[0] ^= 0x01;
+
+    let field = Curve25519FieldCt::<C>::curve25519().expect("ct field");
+
+    // Ct-field verify accepts the valid signature ...
+    assert!(
+        verify_with_field(&field, pk, msg, good),
+        "Ct-field verify rejected a valid signature"
+    );
+    // ... and rejects the tampered one.
+    assert!(
+        !verify_with_field(&field, pk, msg, bad),
+        "Ct-field verify accepted a tampered signature"
+    );
+    // Same verdict as the default Nct path on the matching carrier.
+    assert!(verify::<HeaplessBigInt<u32, 16, Nct>>(pk, msg, good));
+    assert!(!verify::<HeaplessBigInt<u32, 16, Nct>>(pk, msg, bad));
+}
