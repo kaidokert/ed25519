@@ -63,8 +63,8 @@ where
     // the intended width), so `2*acc` would wrap at the low limb and
     // the reduction would silently compute a truncated result. `q - q`
     // is a zero carrying q's full width, so the doubling has room to
-    // carry. (Fixed-width backends are unaffected: their `zero()` is
-    // already full width.)
+    // carry. (`WithPrecision::zero_with_precision_of(q)` reads better
+    // but requires `T: Copy`; this fn is `Clone`-generic on purpose.)
     let mut acc = <&T as const_num_traits::WrappingSub>::wrapping_sub(q, q);
     let one = T::one();
     // Process from most significant bit (byte 63, bit 7) to least (byte 0, bit 0)

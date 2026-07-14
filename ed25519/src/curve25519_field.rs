@@ -75,6 +75,7 @@ where
         + WideMul
         + CiosMontMul
         + modmath::MontStorage
+        + const_num_traits::WithPrecision
         + modmath::NonCt
         + const_num_traits::BitsPrecision,
 {
@@ -214,6 +215,7 @@ where
         + subtle::ConditionallySelectable
         + subtle::ConstantTimeLess
         + modmath::MontStorage
+        + const_num_traits::WithPrecision
         + const_num_traits::CtIsZero
         + const_num_traits::BitsPrecision,
     for<'a> &'a T:
@@ -393,6 +395,7 @@ where
         + WideMul
         + CiosMontMul
         + modmath::MontStorage
+        + const_num_traits::WithPrecision
         + modmath::NonCt
         + core::ops::ShrAssign<usize>
         + const_num_traits::WrappingSub<Output = T>,
@@ -455,6 +458,7 @@ where
         + CiosMontMulCt
         + Parity
         + modmath::MontStorage
+        + const_num_traits::WithPrecision
         + const_num_traits::CtIsZero
         + subtle::ConditionallySelectable
         + subtle::ConstantTimeLess

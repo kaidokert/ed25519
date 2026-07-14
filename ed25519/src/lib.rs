@@ -77,6 +77,7 @@ pub trait UnsignedModularInt:
     + const_num_traits::One
     + const_num_traits::Zero
     + const_num_traits::BitsPrecision
+    + const_num_traits::WithPrecision
     + const_num_traits::ops::overflowing::OverflowingAdd<Output = Self>
     + const_num_traits::WrappingAdd<Output = Self>
     + const_num_traits::WrappingSub<Output = Self>
@@ -98,6 +99,7 @@ impl<T> UnsignedModularInt for T where
         + const_num_traits::One
         + const_num_traits::Zero
         + const_num_traits::BitsPrecision
+        + const_num_traits::WithPrecision
         + const_num_traits::ops::overflowing::OverflowingAdd<Output = Self>
         + const_num_traits::WrappingAdd<Output = Self>
         + const_num_traits::WrappingSub<Output = Self>
