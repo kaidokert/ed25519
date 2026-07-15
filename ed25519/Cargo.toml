@@ -1,6 +1,6 @@
 [package]
 name = "ed25519_heapless"
-version = "0.5.0-alpha.7"
+version = "0.5.0-alpha.8"
 edition = "2024"
 rust-version = "1.86"
 description = "Ed25519 signature verification and X25519 key exchange, generic over bigint backends"
@@ -13,7 +13,7 @@ categories = ["cryptography", "no-std", "no-std::no-alloc"]
 [dependencies]
 log = { version = "0.4", optional = true }
 env_logger = { version = "0.11", optional = true }
-modmath = { version = "0.6.0-alpha.cios.10", features = ["zeroize"] }
+modmath = { version = "0.6.0-alpha.cios.19", features = ["zeroize"] }
 # Direct git dep for the runtime-length feature which isn't on crates.io yet.
 fixed-bigint = { git = "https://github.com/kaidokert/fixed-bigint-rs", tag = "v0.6.0-alpha.25", default-features = false, features = ["use-unsafe", "zeroize", "cios", "heapless-runtime-len"], optional = true }
 subtle = { version = "2.6", default-features = false }
