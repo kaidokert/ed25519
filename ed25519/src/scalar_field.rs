@@ -31,7 +31,7 @@ where
     // Runtime-length carriers report width per-value; probe a
     // fully-populated value (Q, all 32 bytes used) so both fixed-
     // width and runtime-length backends give the same answer.
-    if (const_num_traits::BitsPrecision::bits_precision(q) as usize) < 256 {
+    if (const_num_traits::BitsPrecision::bits_precision(&q) as usize) < 256 {
         return Err(CurveSetupError::BackendTooNarrow);
     }
     let q_odd = modmath::Odd::new(q).ok_or(CurveSetupError::InvalidModulus)?;

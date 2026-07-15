@@ -115,7 +115,7 @@ where
         // and check its precision. For fixed-carrier types this is
         // still `carrier_bits`; for HeaplessBigInt it's `len * word_bits`
         // after `from_le_slice` set len to CAP.
-        if (const_num_traits::BitsPrecision::bits_precision(p) as usize) < 256 {
+        if (const_num_traits::BitsPrecision::bits_precision(&p) as usize) < 256 {
             return Err(CurveSetupError::BackendTooNarrow);
         }
         let odd = modmath::Odd::new(p).ok_or(CurveSetupError::InvalidModulus)?;
@@ -248,7 +248,7 @@ where
         // and check its precision. For fixed-carrier types this is
         // still `carrier_bits`; for HeaplessBigInt it's `len * word_bits`
         // after `from_le_slice` set len to CAP.
-        if (const_num_traits::BitsPrecision::bits_precision(p) as usize) < 256 {
+        if (const_num_traits::BitsPrecision::bits_precision(&p) as usize) < 256 {
             return Err(CurveSetupError::BackendTooNarrow);
         }
         let odd = modmath::Odd::new(p).ok_or(CurveSetupError::InvalidModulus)?;

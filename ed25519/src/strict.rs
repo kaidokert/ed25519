@@ -61,11 +61,11 @@ where
     // Seed the accumulator at `q`'s width, not `T::zero()`. On a
     // runtime-width backend `zero()` is minimal-width (it can't guess
     // the intended width), so `2*acc` would wrap at the low limb and
-    // the reduction would silently compute a truncated result. `q - q`
-    // is a zero carrying q's full width, so the doubling has room to
-    // carry. (`WithPrecision::zero_with_precision_of(q)` reads better
-    // but requires `T: Copy`; this fn is `Clone`-generic on purpose.)
-    let mut acc = <&T as const_num_traits::WrappingSub>::wrapping_sub(q, q);
+    // the reduction would silently compute a truncated result.
+    // `zero_with_precision_of(q)` gives a zero at q's width so the
+    // doubling has room to carry. (Fixed-width backends are
+    // unaffected: it's their `zero()` at the carrier width.)
+    let mut acc = <T as const_num_traits::WithPrecision>::zero_with_precision_of(q);
     let one = T::one();
     // Process from most significant bit (byte 63, bit 7) to least (byte 0, bit 0)
     // Hash is little-endian: byte 63 is MSB
@@ -430,8 +430,9 @@ where
     // (any monomorphization that reaches the `D_BYTES` load has
     // `T::BYTE_WIDTH >= 32` by construction).
     assert!(
-        (const_num_traits::BitsPrecision::bits_precision(crate::from_le_bytes::<T>(&crate::P_BYTES))
-            as usize)
+        (const_num_traits::BitsPrecision::bits_precision(&crate::from_le_bytes::<T>(
+            &crate::P_BYTES
+        )) as usize)
             >= 256,
         "verify: backend T is too narrow for the Curve25519 prime (need >= 256 bits)"
     );

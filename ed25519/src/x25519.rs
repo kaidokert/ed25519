@@ -169,8 +169,9 @@ where
     // per-value). Panics on wrong backend selection; downstream
     // panic-free audit treats these as backend-config errors, not
     // secret-dependent panics.
-    let width = const_num_traits::BitsPrecision::bits_precision(crate::from_le_bytes::<T>(&P_BYTES))
-        as usize;
+    let width =
+        const_num_traits::BitsPrecision::bits_precision(&crate::from_le_bytes::<T>(&P_BYTES))
+            as usize;
     assert!(
         width >= 256,
         "x25519: backend T is too narrow for the Curve25519 prime (need >= 256 bits)"
@@ -276,8 +277,9 @@ where
     <T as const_num_traits::ToBytes>::Bytes: zeroize::Zeroize,
     R: rand_core::CryptoRng,
 {
-    let width = const_num_traits::BitsPrecision::bits_precision(crate::from_le_bytes::<T>(&P_BYTES))
-        as usize;
+    let width =
+        const_num_traits::BitsPrecision::bits_precision(&crate::from_le_bytes::<T>(&P_BYTES))
+            as usize;
     assert!(
         width >= 256,
         "x25519_blinded: backend T is too narrow for the Curve25519 prime (need >= 256 bits)"
