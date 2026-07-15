@@ -1,5 +1,7 @@
 use core::sync::atomic::{AtomicU32, Ordering};
 
+#[cfg(feature = "jtrace-f407")]
+use cortex_m::peripheral::DWT;
 use cortex_m::peripheral::{SYST, syst::SystClkSource};
 use cortex_m_rt::exception;
 
@@ -12,7 +14,15 @@ fn SysTick() {
 }
 
 pub struct CycleCounter {
-    start_cycles: u64,
+    start_systick: u64,
+    #[cfg(feature = "jtrace-f407")]
+    start_dwt: u32,
+}
+
+pub struct CycleMeasurement {
+    pub systick: u64,
+    #[cfg(feature = "jtrace-f407")]
+    pub dwt: u32,
 }
 
 impl CycleCounter {
@@ -48,12 +58,34 @@ impl CycleCounter {
             cortex_m::asm::nop();
         }
 
+        #[cfg(feature = "jtrace-f407")]
+        {
+            assert!(DWT::has_cycle_counter());
+            peripherals.DCB.enable_trace();
+            peripherals.DWT.set_cycle_count(0);
+            peripherals.DWT.enable_cycle_counter();
+            cortex_m::asm::dsb();
+        }
+
         Self {
-            start_cycles: Self::total_cycles(),
+            start_systick: Self::total_cycles(),
+            #[cfg(feature = "jtrace-f407")]
+            start_dwt: DWT::cycle_count(),
         }
     }
 
-    pub fn elapsed(&self) -> u64 {
-        Self::total_cycles() - self.start_cycles
+    pub fn elapsed(&self) -> CycleMeasurement {
+        // Read DWT first so the two end samples are adjacent. Both counters
+        // bracket the same caller workload, differing only by this small,
+        // fixed sampling overhead.
+        #[cfg(feature = "jtrace-f407")]
+        let dwt = DWT::cycle_count().wrapping_sub(self.start_dwt);
+        let systick = Self::total_cycles() - self.start_systick;
+
+        CycleMeasurement {
+            systick,
+            #[cfg(feature = "jtrace-f407")]
+            dwt,
+        }
     }
 }

@@ -1,7 +1,10 @@
 #![no_std]
 
 use core::hint::black_box;
+#[cfg(not(feature = "jtrace-f407"))]
 use cortex_m_semihosting::{debug, hprintln};
+#[cfg(feature = "jtrace-f407")]
+use rtt_target::{rprintln, rtt_init_print};
 
 pub mod cyclecount;
 pub mod stack;
@@ -52,30 +55,57 @@ pub fn target_arch_name() -> &'static str {
 }
 
 pub fn test_fixture(testable: fn() -> bool, algo: &str, backend: &str) {
+    #[cfg(feature = "jtrace-f407")]
+    rtt_init_print!();
+
     paint_stack();
     let counter = CycleCounter::new();
     let result = testable();
+    let measurement = counter.elapsed();
     // Cycle counts are printed in thousands so the METRIC line stays compact;
     // consumers (run_suite.py) treat the `cycles:` field as "k" units.
-    let elapsed = counter.elapsed() / 1000;
+    let elapsed = measurement.systick / 1000;
     let stack = check_stack_high_water_mark();
-    if result {
-        hprintln!("{} ACCEPT", algo);
-    } else {
-        hprintln!("{} REJECT", algo);
+
+    #[cfg(not(feature = "jtrace-f407"))]
+    {
+        if result {
+            hprintln!("{} ACCEPT", algo);
+        } else {
+            hprintln!("{} REJECT", algo);
+        }
+        hprintln!(
+            "METRIC stack:{} cycles:{} target:{} algo:{} backend:{}",
+            stack,
+            elapsed,
+            target_arch_name(),
+            algo,
+            backend
+        );
+        if result {
+            debug::exit(debug::EXIT_SUCCESS);
+        } else {
+            debug::exit(debug::EXIT_FAILURE);
+        }
     }
-    hprintln!(
-        "METRIC stack:{} cycles:{} target:{} algo:{} backend:{}",
-        stack,
-        elapsed,
-        target_arch_name(),
-        algo,
-        backend
-    );
-    if result {
-        debug::exit(debug::EXIT_SUCCESS);
-    } else {
-        debug::exit(debug::EXIT_FAILURE);
+
+    #[cfg(feature = "jtrace-f407")]
+    {
+        if result {
+            rprintln!("{} ACCEPT", algo);
+        } else {
+            rprintln!("{} REJECT", algo);
+        }
+        rprintln!(
+            "METRIC stack:{} cycles:{} target:{} algo:{} backend:{} dwt_cycles:{} systick_cycles:{}",
+            stack,
+            elapsed,
+            target_arch_name(),
+            algo,
+            backend,
+            measurement.dwt,
+            measurement.systick
+        );
     }
 }
 
@@ -93,4 +123,14 @@ pub fn fake_x25519(k: [u8; 32], u: [u8; 32]) -> [u8; 32] {
     EXPECTED_SHARED
 }
 
+#[cfg(not(feature = "jtrace-f407"))]
 use panic_semihosting as _;
+
+#[cfg(feature = "jtrace-f407")]
+#[panic_handler]
+fn panic(info: &core::panic::PanicInfo) -> ! {
+    rprintln!("PANIC: {}", info);
+    loop {
+        cortex_m::asm::nop();
+    }
+}
