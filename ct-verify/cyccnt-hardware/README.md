@@ -9,6 +9,11 @@ positive threshold is an absolute, fail-closed calibration from initial F407
 measurements (7–20 cycles of spread over 26–477 million-cycle operations), and
 all raw bounds are emitted for review.
 
+The carrier uses `embedded-measure::PairedSuite` for DWT sampling, exact-path
+warmups, paired ordering, policy evaluation, versioned reporting, and totals.
+It emits lossless `EM_*` schema 1 records plus the legacy `CT_*` records while
+host tooling migrates.
+
 Build or run one carrier at a time from this directory:
 
 ```sh

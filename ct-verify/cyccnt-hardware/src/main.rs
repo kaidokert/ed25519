@@ -3,18 +3,19 @@
 
 use const_num_traits::Ct;
 use core::hint::black_box;
-use cortex_m::peripheral::DWT;
 use cortex_m_rt::entry;
 use ed25519_heapless::{SigningKey, sign, x25519, x25519_base};
+use embedded_measure::cortex_m::DwtCycleCounter;
+use embedded_measure::report::Field;
+use embedded_measure::suite::{PairedSuite, PairedSuiteConfig, PairedSuiteFields};
 use fixed_bigint::FixedUInt;
-use rtt_target::{rprintln, rtt_init_print};
 
 const TRIALS: usize = 4;
+const BATCHES: usize = 1;
 // Calibrated on the STM32F407/J-Trace path: positive operations varied by
 // 7–20 cycles over 26–477 million-cycle calls, with overlapping A/B ranges.
 // Keep this absolute and deliberately small; every raw bound is reported.
 const MAX_POSITIVE_SPREAD: u32 = 32;
-const ORDER: [bool; TRIALS * 2] = [false, true, true, false, true, false, false, true];
 
 const SECRET_A: [u8; 32] = [0; 32];
 const SECRET_B: [u8; 32] = [
@@ -47,95 +48,6 @@ const CARRIER: &str = "u32x16";
 type Carrier = FixedUInt<u8, 32, Ct>;
 #[cfg(feature = "carrier-u8x32")]
 const CARRIER: &str = "u8x32";
-
-#[derive(Clone, Copy)]
-struct Samples {
-    a: [u32; TRIALS],
-    b: [u32; TRIALS],
-    outputs_ok: bool,
-}
-
-#[inline(always)]
-fn measure_once(mut operation: impl FnMut() -> bool) -> (u32, bool) {
-    cortex_m::interrupt::free(|_| {
-        cortex_m::asm::dsb();
-        cortex_m::asm::isb();
-        let start = DWT::cycle_count();
-        let ok = operation();
-        cortex_m::asm::dsb();
-        cortex_m::asm::isb();
-        let elapsed = DWT::cycle_count().wrapping_sub(start);
-        (elapsed, ok)
-    })
-}
-
-fn measure_pair(mut operation: impl FnMut(&[u8; 32]) -> bool) -> Samples {
-    // Equal warm-up for flash/ART state before the recorded ABBA sequence.
-    let _ = black_box(operation(black_box(&SECRET_A)));
-    let _ = black_box(operation(black_box(&SECRET_B)));
-    let _ = black_box(operation(black_box(&SECRET_B)));
-    let _ = black_box(operation(black_box(&SECRET_A)));
-
-    let mut samples = Samples {
-        a: [0; TRIALS],
-        b: [0; TRIALS],
-        outputs_ok: true,
-    };
-    let mut ai = 0;
-    let mut bi = 0;
-    for use_b in ORDER {
-        let secret = if use_b { &SECRET_B } else { &SECRET_A };
-        let (cycles, ok) = measure_once(|| operation(black_box(secret)));
-        samples.outputs_ok &= ok;
-        if use_b {
-            samples.b[bi] = cycles;
-            bi += 1;
-        } else {
-            samples.a[ai] = cycles;
-            ai += 1;
-        }
-    }
-    samples
-}
-
-fn bounds(values: &[u32; TRIALS]) -> (u32, u32) {
-    let mut min = u32::MAX;
-    let mut max = 0;
-    for &value in values {
-        min = min.min(value);
-        max = max.max(value);
-    }
-    (min, max)
-}
-
-fn report(name: &str, class: &str, samples: Samples, expect_equal: bool) -> bool {
-    let (a_min, a_max) = bounds(&samples.a);
-    let (b_min, b_max) = bounds(&samples.b);
-    let combined_min = a_min.min(b_min);
-    let combined_max = a_max.max(b_max);
-    let spread = combined_max - combined_min;
-    let ranges_overlap = a_min <= b_max && b_min <= a_max;
-    let timing_ok = if expect_equal {
-        ranges_overlap && spread <= MAX_POSITIVE_SPREAD
-    } else {
-        a_max < b_min || b_max < a_min
-    };
-    let passed = samples.outputs_ok && timing_ok;
-    rprintln!(
-        "CT_RESULT fixture:{} carrier:{} class:{} a_min:{} a_max:{} b_min:{} b_max:{} spread:{} output_ok:{} status:{}",
-        name,
-        CARRIER,
-        class,
-        a_min,
-        a_max,
-        b_min,
-        b_max,
-        spread,
-        samples.outputs_ok as u8,
-        if passed { "PASS" } else { "FAIL" }
-    );
-    passed
-}
 
 #[inline(never)]
 fn fixture_keygen(seed: &[u8; 32]) -> bool {
@@ -191,53 +103,65 @@ fn fixture_negative_early_exit(secret: &[u8; 32]) -> bool {
 
 #[entry]
 fn main() -> ! {
-    rtt_init_print!();
+    let mut reporter = embedded_measure::rtt::init_ct_compatible();
     let mut peripherals = cortex_m::Peripherals::take().unwrap();
-    assert!(DWT::has_cycle_counter());
-    peripherals.DCB.enable_trace();
-    peripherals.DWT.set_cycle_count(0);
-    peripherals.DWT.enable_cycle_counter();
-    cortex_m::asm::dsb();
-    cortex_m::asm::isb();
-
-    rprintln!(
-        "CT_BEGIN suite:ed25519-cyccnt carrier:{} trials:{} max_positive_spread:{}",
-        CARRIER,
-        TRIALS,
-        MAX_POSITIVE_SPREAD
-    );
-    let mut passed = 0u32;
-    let mut failed = 0u32;
-    for ok in [
-        report(
+    let mut counter =
+        DwtCycleCounter::enable(&mut peripherals.DCB, &mut peripherals.DWT, Some(16_000_000))
+            .unwrap();
+    let run_fields = [
+        Field::token("carrier", CARRIER),
+        Field::u64("trials", TRIALS as u64),
+        Field::u64("max_positive_spread", MAX_POSITIVE_SPREAD as u64),
+    ];
+    let fixture_fields = [Field::token("carrier", CARRIER)];
+    let summary_fields = [Field::token("carrier", CARRIER)];
+    let mut suite = PairedSuite::<_, _, TRIALS>::start(
+        &mut counter,
+        &mut reporter,
+        PairedSuiteConfig {
+            suite: "ed25519-cyccnt",
+            target: "thumbv7em-none-eabihf",
+            board: Some("stm32f407vg"),
+            unit: embedded_measure::Unit::CoreCycles,
+            frequency_hz: Some(16_000_000),
+            warmup_blocks: 1,
+            batches: BATCHES,
+            positive_max_spread: MAX_POSITIVE_SPREAD as u64,
+            positive_require_overlap: true,
+            fields: PairedSuiteFields {
+                run: &run_fields,
+                fixture: &fixture_fields,
+                summary: &summary_fields,
+            },
+        },
+    )
+    .unwrap();
+    suite
+        .positive(
             "signing_key_from_seed",
-            "positive",
-            measure_pair(fixture_keygen),
-            true,
-        ),
-        report("sign", "positive", measure_pair(fixture_sign), true),
-        report("x25519", "positive", measure_pair(fixture_x25519), true),
-        report(
-            "x25519_base",
-            "positive",
-            measure_pair(fixture_x25519_base),
-            true,
-        ),
-        report(
+            &SECRET_A,
+            &SECRET_B,
+            fixture_keygen,
+        )
+        .unwrap();
+    suite
+        .positive("sign", &SECRET_A, &SECRET_B, fixture_sign)
+        .unwrap();
+    suite
+        .positive("x25519", &SECRET_A, &SECRET_B, fixture_x25519)
+        .unwrap();
+    suite
+        .positive("x25519_base", &SECRET_A, &SECRET_B, fixture_x25519_base)
+        .unwrap();
+    suite
+        .negative(
             "negative_early_exit",
-            "negative",
-            measure_pair(fixture_negative_early_exit),
-            false,
-        ),
-    ] {
-        if ok { passed += 1 } else { failed += 1 }
-    }
-    rprintln!(
-        "CT_SUMMARY carrier:{} passed:{} failed:{}",
-        CARRIER,
-        passed,
-        failed
-    );
+            &SECRET_A,
+            &SECRET_B,
+            fixture_negative_early_exit,
+        )
+        .unwrap();
+    suite.finish().unwrap();
     loop {
         cortex_m::asm::nop();
     }
@@ -245,7 +169,7 @@ fn main() -> ! {
 
 #[panic_handler]
 fn panic(info: &core::panic::PanicInfo) -> ! {
-    rprintln!("PANIC: {}", info);
+    embedded_measure::rtt::print(format_args!("PANIC: {}\n", info));
     loop {
         cortex_m::asm::nop();
     }
