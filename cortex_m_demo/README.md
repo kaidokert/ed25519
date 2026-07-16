@@ -14,9 +14,10 @@ probe-rs run --chip STM32F407VGTx --protocol swd \
   target/thumbv7em-none-eabihf/release/examples/ed25519_u32
 ```
 
-The hardware `METRIC` line includes the stack high-water mark. The painter
-uses cortex-m-rt's `_stack_end` linker symbol as its lower bound, keeping RTT's
-static control block and channel buffer outside the painted stack region.
+The hardware `METRIC` line includes the stack high-water mark. The shared
+`embedded-measure` stack probe uses cortex-m-rt's `_stack_end` linker symbol as
+its lower bound, keeping RTT's static control block and channel buffer outside
+the painted stack region.
 
 Hardware metrics also include raw `dwt_cycles` from the Cortex-M DWT
 `CYCCNT` and raw `systick_cycles` for direct comparison. The existing

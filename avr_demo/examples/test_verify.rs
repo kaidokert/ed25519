@@ -19,7 +19,7 @@ fn main() -> ! {
     let tc1 = &dp.TC1;
     tc1.tccr1b.write(|w| w.cs1().prescale_1024());
 
-    unsafe { fill_stack_with_watermark() };
+    let stack_probe = fill_stack_with_watermark();
 
     let start: u16 = tc1.tcnt1.read().bits();
     let result = {
@@ -34,7 +34,7 @@ fn main() -> ! {
     };
     let end: u16 = tc1.tcnt1.read().bits();
 
-    let stack_used = unsafe { measure_stack_usage() };
+    let stack_used = measure_stack_usage(&stack_probe);
 
     // ticks * 1000 / 15625 = ms, but use integer math: ticks * 8 / 125
     let ticks = end.wrapping_sub(start);

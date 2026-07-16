@@ -37,7 +37,7 @@ pub const EXPECTED_SHARED: [u8; 32] = [
 ];
 
 use cyclecount::CycleCounter;
-use stack::{check_stack_high_water_mark, paint_stack};
+use stack::paint_stack;
 
 pub fn target_arch_name() -> &'static str {
     #[cfg(thumbv6m)]
@@ -58,14 +58,14 @@ pub fn test_fixture(testable: fn() -> bool, algo: &str, backend: &str) {
     #[cfg(feature = "jtrace-f407")]
     rtt_init_print!();
 
-    paint_stack();
+    let stack_probe = paint_stack::<256>();
     let counter = CycleCounter::new();
     let result = testable();
     let measurement = counter.elapsed();
     // Cycle counts are printed in thousands so the METRIC line stays compact;
     // consumers (run_suite.py) treat the `cycles:` field as "k" units.
     let elapsed = measurement.systick / 1000;
-    let stack = check_stack_high_water_mark();
+    let stack = stack_probe.measure().high_water_bytes;
 
     #[cfg(not(feature = "jtrace-f407"))]
     {
