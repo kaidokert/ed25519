@@ -1,11 +1,7 @@
 #![no_std]
 
 use core::{fmt::Write, hint::black_box};
-use embedded_measure::report::{Field, MeasurementRecord, Reporter, StackRecord, TextReporter};
-#[cfg(feature = "jtrace-f407")]
-use embedded_measure::rtt::RttWriter as OutputWriter;
-#[cfg(not(feature = "jtrace-f407"))]
-use embedded_measure::semihosting::SemihostingWriter as OutputWriter;
+use embedded_measure::report::{Field, MeasurementRecord, OutcomeRecord, Reporter, StackRecord};
 use embedded_measure::{Measurement, Unit};
 
 pub mod cyclecount;
@@ -62,7 +58,7 @@ pub fn test_fixture(testable: fn() -> bool, algo: &str, backend: &str) {
     let result = testable();
     let measurement = counter.elapsed();
     // Cycle counts are printed in thousands so the METRIC line stays compact;
-    // consumers (run_suite.py) treat the `cycles:` field as "k" units.
+    // The legacy `cycles:` field remains in "k" units for report compatibility.
     let elapsed = measurement.systick / 1000;
     let stack = stack_probe.measure();
     let fields = [
@@ -72,10 +68,9 @@ pub fn test_fixture(testable: fn() -> bool, algo: &str, backend: &str) {
     ];
 
     #[cfg(not(feature = "jtrace-f407"))]
-    let mut output: OutputWriter = embedded_measure::semihosting::init().unwrap().into_inner();
+    let mut reporter = embedded_measure::semihosting::init().unwrap();
     #[cfg(feature = "jtrace-f407")]
-    let mut output: OutputWriter = embedded_measure::rtt::init_blocking().into_inner();
-    let mut reporter = TextReporter::new(&mut output);
+    let mut reporter = embedded_measure::rtt::init_blocking();
     reporter
         .stack_measurement(&StackRecord {
             benchmark: "ed25519-footprint",
@@ -114,14 +109,14 @@ pub fn test_fixture(testable: fn() -> bool, algo: &str, backend: &str) {
         })
         .unwrap();
     writeln!(
-        output,
+        reporter,
         "{} {}",
         algo,
         if result { "ACCEPT" } else { "REJECT" }
     )
     .unwrap();
     write!(
-        output,
+        reporter,
         "METRIC stack:{} cycles:{} target:{} algo:{} backend:{}",
         stack.high_water_bytes,
         elapsed,
@@ -132,12 +127,19 @@ pub fn test_fixture(testable: fn() -> bool, algo: &str, backend: &str) {
     .unwrap();
     #[cfg(feature = "jtrace-f407")]
     write!(
-        output,
+        reporter,
         " dwt_cycles:{} systick_cycles:{}",
         measurement.dwt, measurement.systick
     )
     .unwrap();
-    writeln!(output).unwrap();
+    writeln!(reporter).unwrap();
+    reporter
+        .outcome(&OutcomeRecord {
+            benchmark: "ed25519-footprint",
+            passed: result,
+            fields: &fields,
+        })
+        .unwrap();
 
     #[cfg(not(feature = "jtrace-f407"))]
     if result {

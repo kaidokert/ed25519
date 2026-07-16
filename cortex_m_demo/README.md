@@ -1,6 +1,16 @@
 # Cortex-M footprint harness
 
-`run_suite.py` retains the QEMU M0/M3/M4 matrix and semihosting transport.
+The shared Rust runner owns the QEMU M0/M3/M4 matrix, semihosting capture,
+ELF accounting, deadlines, and reports:
+
+```sh
+cargo embedded-measure run ed25519-cortex-m0
+cargo embedded-measure run ed25519-cortex-m3
+cargo embedded-measure run ed25519-cortex-m4
+```
+
+Run these commands in this directory after installing `embedded-measure` with
+its `cli` feature. Configuration lives in `embedded-measure.toml`.
 
 The `ed25519_u32` workload can also run on the J-Trace reference board's
 STM32F407VG. It uses RTT and finishes in a `NOP` loop so an attached debugger
