@@ -5,6 +5,7 @@
 use avr_demo as _;
 use avr_demo::stack_measurement::*;
 use avr_demo::{MESSAGE, PUBLIC_KEY, SIGNATURE};
+use embedded_measure::report::{Field, StackRecord, write_stack_ufmt};
 #[cfg(not(feature = "baseline"))]
 use fixed_bigint::FixedUInt;
 
@@ -34,7 +35,16 @@ fn main() -> ! {
     };
     let end: u16 = tc1.tcnt1.read().bits();
 
-    let stack_used = measure_stack_usage(&stack_probe);
+    let stack = measure_stack(&stack_probe);
+    write_stack_ufmt(
+        &mut serial,
+        &StackRecord {
+            benchmark: "ed25519-footprint",
+            measurement: stack,
+            fields: &[Field::token("target", "atmega2560")],
+        },
+    )
+    .unwrap();
 
     // ticks * 1000 / 15625 = ms, but use integer math: ticks * 8 / 125
     let ticks = end.wrapping_sub(start);
@@ -46,7 +56,12 @@ fn main() -> ! {
         ufmt::uwriteln!(&mut serial, "REJECT").ok();
     }
     ufmt::uwriteln!(&mut serial, "Time: {} ms ({} ticks)", ms, ticks).ok();
-    ufmt::uwriteln!(&mut serial, "Max stack usage: {} bytes", stack_used).ok();
+    ufmt::uwriteln!(
+        &mut serial,
+        "Max stack usage: {} bytes",
+        stack.high_water_bytes
+    )
+    .ok();
 
     loop {
         unsafe { core::arch::asm!("sleep") }

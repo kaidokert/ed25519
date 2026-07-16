@@ -8,7 +8,7 @@ autobenches = false
 
 [features]
 baseline = []
-jtrace-f407 = ["dep:rtt-target", "cortex-m/critical-section-single-core"]
+jtrace-f407 = ["dep:rtt-target", "cortex-m/critical-section-single-core", "embedded-measure/rtt"]
 
 [dependencies]
 cortex-m = "0.7"

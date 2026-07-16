@@ -2,7 +2,8 @@
 
 use core::hint::black_box;
 #[cfg(not(feature = "jtrace-f407"))]
-use cortex_m_semihosting::{debug, hprintln};
+use cortex_m_semihosting::{debug, hio, hprintln};
+use embedded_measure::report::{Field, Reporter, StackRecord, TextReporter};
 #[cfg(feature = "jtrace-f407")]
 use rtt_target::{rprintln, rtt_init_print};
 
@@ -65,10 +66,22 @@ pub fn test_fixture(testable: fn() -> bool, algo: &str, backend: &str) {
     // Cycle counts are printed in thousands so the METRIC line stays compact;
     // consumers (run_suite.py) treat the `cycles:` field as "k" units.
     let elapsed = measurement.systick / 1000;
-    let stack = stack_probe.measure().high_water_bytes;
+    let stack = stack_probe.measure();
+    let fields = [
+        Field::token("target", target_arch_name()),
+        Field::token("algo", algo),
+        Field::token("backend", backend),
+    ];
 
     #[cfg(not(feature = "jtrace-f407"))]
     {
+        TextReporter::new(hio::hstdout().unwrap())
+            .stack_measurement(&StackRecord {
+                benchmark: "ed25519-footprint",
+                measurement: stack,
+                fields: &fields,
+            })
+            .unwrap();
         if result {
             hprintln!("{} ACCEPT", algo);
         } else {
@@ -76,7 +89,7 @@ pub fn test_fixture(testable: fn() -> bool, algo: &str, backend: &str) {
         }
         hprintln!(
             "METRIC stack:{} cycles:{} target:{} algo:{} backend:{}",
-            stack,
+            stack.high_water_bytes,
             elapsed,
             target_arch_name(),
             algo,
@@ -91,6 +104,13 @@ pub fn test_fixture(testable: fn() -> bool, algo: &str, backend: &str) {
 
     #[cfg(feature = "jtrace-f407")]
     {
+        TextReporter::new(embedded_measure::rtt::RttWriter)
+            .stack_measurement(&StackRecord {
+                benchmark: "ed25519-footprint",
+                measurement: stack,
+                fields: &fields,
+            })
+            .unwrap();
         if result {
             rprintln!("{} ACCEPT", algo);
         } else {
@@ -98,7 +118,7 @@ pub fn test_fixture(testable: fn() -> bool, algo: &str, backend: &str) {
         }
         rprintln!(
             "METRIC stack:{} cycles:{} target:{} algo:{} backend:{} dwt_cycles:{} systick_cycles:{}",
-            stack,
+            stack.high_water_bytes,
             elapsed,
             target_arch_name(),
             algo,

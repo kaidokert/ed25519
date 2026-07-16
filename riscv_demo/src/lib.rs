@@ -2,6 +2,7 @@
 
 use core::fmt::Write;
 use core::hint::black_box;
+use embedded_measure::report::{Field, Reporter, StackRecord, TextReporter};
 
 pub mod cyclecount;
 pub mod stack;
@@ -30,9 +31,19 @@ pub fn test_fixture(testable: fn() -> bool, backend: &str) -> ! {
     let counter = CycleCounter::new();
     let result = testable();
     let elapsed = counter.elapsed() / 1000;
-    let stack = stack_probe.measure().high_water_bytes;
+    let stack = stack_probe.measure();
 
     let mut w = UartWriter;
+    TextReporter::new(UartWriter)
+        .stack_measurement(&StackRecord {
+            benchmark: "ed25519-footprint",
+            measurement: stack,
+            fields: &[
+                Field::token("target", "riscv32"),
+                Field::token("backend", backend),
+            ],
+        })
+        .unwrap();
     if result {
         let _ = writeln!(w, "ed25519 ACCEPT");
     } else {
@@ -41,7 +52,7 @@ pub fn test_fixture(testable: fn() -> bool, backend: &str) -> ! {
     let _ = writeln!(
         w,
         "METRIC stack:{} cycles:{} target:riscv32 backend:{}",
-        stack, elapsed, backend
+        stack.high_water_bytes, elapsed, backend
     );
 
     // sifive_e has no exit mechanism — loop forever, wrapper kills QEMU

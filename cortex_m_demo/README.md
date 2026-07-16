@@ -18,6 +18,8 @@ The hardware `METRIC` line includes the stack high-water mark. The shared
 `embedded-measure` stack probe uses cortex-m-rt's `_stack_end` linker symbol as
 its lower bound, keeping RTT's static control block and channel buffer outside
 the painted stack region.
+Stack results are emitted as versioned `EM_STACK` records; the legacy
+`METRIC stack:` field remains during parser migration.
 
 Hardware metrics also include raw `dwt_cycles` from the Cortex-M DWT
 `CYCCNT` and raw `systick_cycles` for direct comparison. The existing

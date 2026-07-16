@@ -111,14 +111,31 @@ fn main() -> ! {
 
     let result = ed25519_heapless::verify::<FixedUInt<u8, 32>>(PUBLIC_KEY, MESSAGE, SIGNATURE);
 
-    let stack_used = measure_stack_usage(&stack_probe);
+    let stack = measure_stack(&stack_probe);
+    embedded_measure::report::write_stack_ufmt(
+        &mut serial,
+        &embedded_measure::report::StackRecord {
+            benchmark: "ed25519-stack-map",
+            measurement: stack,
+            fields: &[embedded_measure::report::Field::token(
+                "target",
+                "atmega2560",
+            )],
+        },
+    )
+    .unwrap();
 
     if result {
         ufmt::uwriteln!(&mut serial, "ACCEPT").ok();
     } else {
         ufmt::uwriteln!(&mut serial, "REJECT").ok();
     }
-    ufmt::uwriteln!(&mut serial, "Max stack usage: {} bytes", stack_used).ok();
+    ufmt::uwriteln!(
+        &mut serial,
+        "Max stack usage: {} bytes",
+        stack.high_water_bytes
+    )
+    .ok();
 
     print_stack_map(&mut serial);
 
