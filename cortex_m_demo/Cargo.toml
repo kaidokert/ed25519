@@ -8,15 +8,14 @@ autobenches = false
 
 [features]
 baseline = []
-jtrace-f407 = ["dep:rtt-target", "cortex-m/critical-section-single-core", "embedded-measure/rtt"]
+jtrace-f407 = ["cortex-m/critical-section-single-core", "embedded-measure/rtt"]
 
 [dependencies]
 cortex-m = "0.7"
 cortex-m-rt = "0.7"
-embedded-measure = { version = "0.1.0", features = ["stack", "cortex-m"] }
+embedded-measure = { version = "0.1.0", features = ["stack", "cortex-m", "semihosting"] }
 cortex-m-semihosting = "0.5"
 panic-semihosting = { version = "0.6", features = ["exit"] }
-rtt-target = { version = "0.6", optional = true }
 
 ed25519_heapless = { path = "../ed25519", default-features = false, features = [
     "fixed-bigint",

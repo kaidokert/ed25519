@@ -1,11 +1,12 @@
 #![no_std]
 
-use core::hint::black_box;
-#[cfg(not(feature = "jtrace-f407"))]
-use cortex_m_semihosting::{debug, hio, hprintln};
-use embedded_measure::report::{Field, Reporter, StackRecord, TextReporter};
+use core::{fmt::Write, hint::black_box};
+use embedded_measure::report::{Field, MeasurementRecord, Reporter, StackRecord, TextReporter};
 #[cfg(feature = "jtrace-f407")]
-use rtt_target::{rprintln, rtt_init_print};
+use embedded_measure::rtt::RttWriter as OutputWriter;
+#[cfg(not(feature = "jtrace-f407"))]
+use embedded_measure::semihosting::SemihostingWriter as OutputWriter;
+use embedded_measure::{Measurement, Unit};
 
 pub mod cyclecount;
 pub mod stack;
@@ -56,9 +57,6 @@ pub fn target_arch_name() -> &'static str {
 }
 
 pub fn test_fixture(testable: fn() -> bool, algo: &str, backend: &str) {
-    #[cfg(feature = "jtrace-f407")]
-    rtt_init_print!();
-
     let stack_probe = paint_stack::<256>();
     let counter = CycleCounter::new();
     let result = testable();
@@ -74,58 +72,78 @@ pub fn test_fixture(testable: fn() -> bool, algo: &str, backend: &str) {
     ];
 
     #[cfg(not(feature = "jtrace-f407"))]
-    {
-        TextReporter::new(hio::hstdout().unwrap())
-            .stack_measurement(&StackRecord {
-                benchmark: "ed25519-footprint",
-                measurement: stack,
-                fields: &fields,
-            })
-            .unwrap();
-        if result {
-            hprintln!("{} ACCEPT", algo);
-        } else {
-            hprintln!("{} REJECT", algo);
-        }
-        hprintln!(
-            "METRIC stack:{} cycles:{} target:{} algo:{} backend:{}",
-            stack.high_water_bytes,
-            elapsed,
-            target_arch_name(),
-            algo,
-            backend
-        );
-        if result {
-            debug::exit(debug::EXIT_SUCCESS);
-        } else {
-            debug::exit(debug::EXIT_FAILURE);
-        }
-    }
-
+    let mut output: OutputWriter = embedded_measure::semihosting::init().unwrap().into_inner();
     #[cfg(feature = "jtrace-f407")]
-    {
-        TextReporter::new(embedded_measure::rtt::RttWriter)
-            .stack_measurement(&StackRecord {
-                benchmark: "ed25519-footprint",
-                measurement: stack,
-                fields: &fields,
-            })
-            .unwrap();
-        if result {
-            rprintln!("{} ACCEPT", algo);
-        } else {
-            rprintln!("{} REJECT", algo);
-        }
-        rprintln!(
-            "METRIC stack:{} cycles:{} target:{} algo:{} backend:{} dwt_cycles:{} systick_cycles:{}",
-            stack.high_water_bytes,
-            elapsed,
-            target_arch_name(),
-            algo,
-            backend,
-            measurement.dwt,
-            measurement.systick
-        );
+    let mut output: OutputWriter = embedded_measure::rtt::init_blocking().into_inner();
+    let mut reporter = TextReporter::new(&mut output);
+    reporter
+        .stack_measurement(&StackRecord {
+            benchmark: "ed25519-footprint",
+            measurement: stack,
+            fields: &fields,
+        })
+        .unwrap();
+    let cycles = Measurement::new(measurement.systick, Unit::CoreCycles);
+    #[cfg(feature = "jtrace-f407")]
+    let cycles = cycles.with_frequency(16_000_000);
+    let systick_fields = [
+        Field::token("target", target_arch_name()),
+        Field::token("algo", algo),
+        Field::token("backend", backend),
+        Field::token("counter", "systick"),
+    ];
+    reporter
+        .measurement(&MeasurementRecord {
+            benchmark: "ed25519-footprint",
+            measurement: cycles,
+            fields: &systick_fields,
+        })
+        .unwrap();
+    #[cfg(feature = "jtrace-f407")]
+    reporter
+        .measurement(&MeasurementRecord {
+            benchmark: "ed25519-footprint",
+            measurement: Measurement::new(measurement.dwt as u64, Unit::CoreCycles)
+                .with_frequency(16_000_000),
+            fields: &[
+                Field::token("target", target_arch_name()),
+                Field::token("algo", algo),
+                Field::token("backend", backend),
+                Field::token("counter", "dwt"),
+            ],
+        })
+        .unwrap();
+    writeln!(
+        output,
+        "{} {}",
+        algo,
+        if result { "ACCEPT" } else { "REJECT" }
+    )
+    .unwrap();
+    write!(
+        output,
+        "METRIC stack:{} cycles:{} target:{} algo:{} backend:{}",
+        stack.high_water_bytes,
+        elapsed,
+        target_arch_name(),
+        algo,
+        backend
+    )
+    .unwrap();
+    #[cfg(feature = "jtrace-f407")]
+    write!(
+        output,
+        " dwt_cycles:{} systick_cycles:{}",
+        measurement.dwt, measurement.systick
+    )
+    .unwrap();
+    writeln!(output).unwrap();
+
+    #[cfg(not(feature = "jtrace-f407"))]
+    if result {
+        embedded_measure::semihosting::exit_success();
+    } else {
+        embedded_measure::semihosting::exit_failure();
     }
 }
 
@@ -149,7 +167,7 @@ use panic_semihosting as _;
 #[cfg(feature = "jtrace-f407")]
 #[panic_handler]
 fn panic(info: &core::panic::PanicInfo) -> ! {
-    rprintln!("PANIC: {}", info);
+    embedded_measure::rtt::print(format_args!("PANIC: {}\n", info));
     loop {
         cortex_m::asm::nop();
     }

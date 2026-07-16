@@ -1,8 +1,10 @@
 #![no_std]
 #![feature(asm_experimental_arch)]
+#![feature(abi_avr_interrupt)]
 
 use core::hint::black_box;
 
+pub mod cyclecount;
 pub mod stack_measurement;
 
 pub const PUBLIC_KEY: [u8; 32] = [

@@ -5,7 +5,10 @@
 use avr_demo as _;
 use avr_demo::stack_measurement::*;
 use avr_demo::{MESSAGE, PUBLIC_KEY, SIGNATURE};
-use embedded_measure::report::{Field, StackRecord, write_stack_ufmt};
+use embedded_measure::avr::timer_measurement;
+use embedded_measure::report::{
+    Field, MeasurementRecord, StackRecord, write_measurement_ufmt, write_stack_ufmt,
+};
 #[cfg(not(feature = "baseline"))]
 use fixed_bigint::FixedUInt;
 
@@ -15,14 +18,11 @@ fn main() -> ! {
     let pins = arduino_hal::pins!(dp);
     let mut serial = arduino_hal::default_serial!(dp, pins, 57600);
 
-    // Use TC1 (16-bit) in normal mode, prescaler 1024 → 15625 Hz at 16MHz
-    // Max measurable: 65536/15625 = 4.19 seconds. 1 tick = 64µs.
     let tc1 = &dp.TC1;
-    tc1.tccr1b.write(|w| w.cs1().prescale_1024());
 
     let stack_probe = fill_stack_with_watermark();
 
-    let start: u16 = tc1.tcnt1.read().bits();
+    let counter = avr_demo::cyclecount::CycleCounter::start(tc1);
     let result = {
         #[cfg(feature = "baseline")]
         {
@@ -33,7 +33,7 @@ fn main() -> ! {
             ed25519_heapless::verify::<FixedUInt<u8, 32>>(PUBLIC_KEY, MESSAGE, SIGNATURE)
         }
     };
-    let end: u16 = tc1.tcnt1.read().bits();
+    let ticks = counter.elapsed_ticks(tc1);
 
     let stack = measure_stack(&stack_probe);
     write_stack_ufmt(
@@ -45,10 +45,17 @@ fn main() -> ! {
         },
     )
     .unwrap();
+    write_measurement_ufmt(
+        &mut serial,
+        &MeasurementRecord {
+            benchmark: "ed25519-footprint",
+            measurement: timer_measurement(ticks, 15_625, false),
+            fields: &[Field::token("target", "atmega2560")],
+        },
+    )
+    .unwrap();
 
-    // ticks * 1000 / 15625 = ms, but use integer math: ticks * 8 / 125
-    let ticks = end.wrapping_sub(start);
-    let ms = (ticks as u32) * 8 / 125;
+    let ms = ticks * 8 / 125;
 
     if result {
         ufmt::uwriteln!(&mut serial, "ACCEPT").ok();

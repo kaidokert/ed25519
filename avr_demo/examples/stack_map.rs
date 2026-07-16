@@ -4,6 +4,8 @@
 
 use avr_demo as _;
 use avr_demo::stack_measurement::*;
+use embedded_measure::avr::timer_measurement;
+use embedded_measure::report::{MeasurementRecord, write_measurement_ufmt};
 use fixed_bigint::FixedUInt;
 
 const PUBLIC_KEY: [u8; 32] = [
@@ -109,7 +111,9 @@ fn main() -> ! {
 
     let stack_probe = fill_stack_with_watermark();
 
+    let counter = avr_demo::cyclecount::CycleCounter::start(&dp.TC1);
     let result = ed25519_heapless::verify::<FixedUInt<u8, 32>>(PUBLIC_KEY, MESSAGE, SIGNATURE);
+    let ticks = counter.elapsed_ticks(&dp.TC1);
 
     let stack = measure_stack(&stack_probe);
     embedded_measure::report::write_stack_ufmt(
@@ -117,6 +121,18 @@ fn main() -> ! {
         &embedded_measure::report::StackRecord {
             benchmark: "ed25519-stack-map",
             measurement: stack,
+            fields: &[embedded_measure::report::Field::token(
+                "target",
+                "atmega2560",
+            )],
+        },
+    )
+    .unwrap();
+    write_measurement_ufmt(
+        &mut serial,
+        &MeasurementRecord {
+            benchmark: "ed25519-stack-map",
+            measurement: timer_measurement(ticks, 15_625, false),
             fields: &[embedded_measure::report::Field::token(
                 "target",
                 "atmega2560",
