@@ -27,11 +27,16 @@ deadlines, RTT completion, protocol validation, and retained evidence under
 
 The migration campaign preserved the existing fail-closed policy and found:
 
-- `u32x8`: all five fixtures passed.
-- `u32x16`: four passed and `x25519_base` failed because its A/B ranges did
-  not overlap, despite only 15 cycles of combined spread.
-- `u8x32`: four passed and `sign` failed at 33 cycles of spread, one cycle
-  above the 32-cycle limit, while its A/B ranges still overlapped.
+- `u32x8`: all five fixtures passed; positive spreads were 6–15 cycles.
+- `u32x16`: all five fixtures passed; positive spreads were 7–18 cycles.
+- `u8x32`: four passed and `sign` failed because its A/B ranges were disjoint,
+  despite only 21 cycles of combined spread. The other positive fixtures had
+  overlapping ranges and 8–17 cycles of spread.
+
+An earlier run that allowed each interval to begin at an arbitrary global
+CYCCNT phase produced different marginal overlap outcomes. The shared Cortex-M
+adapter now anchors CYCCNT at zero immediately before every interrupt-free
+measured region, removing rollover phase as a source of classification noise.
 
 These are hardware gate findings rather than runner failures; the aggregate
 campaign exits unsuccessfully until they are investigated or fixed.
