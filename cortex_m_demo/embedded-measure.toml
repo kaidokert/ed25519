@@ -10,41 +10,86 @@ timeout-seconds = 120
 preset = "qemu-cortex-m4"
 timeout-seconds = 120
 
+[profiles.jtrace-f407]
+runner = "command"
+target = "thumbv7em-none-eabihf"
+build-features = ["jtrace-f407"]
+executable = "probe-rs"
+args = [
+  "run",
+  "--chip", "STM32F407VGTx",
+  "--protocol", "swd",
+  "--probe", "1366:1020:001224000224",
+  "--non-interactive",
+  "--disable-progressbars",
+  "--no-location",
+  "{artifact}",
+]
+completion-marker = "EM_OUTCOME"
+completion-action = "interrupt"
+timeout-seconds = 120
+artifact-extension = ""
+
+[[case-sets.ed25519-footprint]]
+name = "ed25519-u8-baseline"
+example = "ed25519_u8"
+features = ["baseline"]
+expected-benchmark = "ed25519-footprint"
+
+[[case-sets.ed25519-footprint]]
+name = "ed25519-u8-verify"
+example = "ed25519_u8"
+expected-benchmark = "ed25519-footprint"
+baseline = "ed25519-u8-baseline"
+
+[[case-sets.ed25519-footprint]]
+name = "ed25519-u32-baseline"
+example = "ed25519_u32"
+features = ["baseline"]
+expected-benchmark = "ed25519-footprint"
+
+[[case-sets.ed25519-footprint]]
+name = "ed25519-u32-verify"
+example = "ed25519_u32"
+expected-benchmark = "ed25519-footprint"
+baseline = "ed25519-u32-baseline"
+
+[[case-sets.ed25519-footprint]]
+name = "x25519-u8-baseline"
+example = "x25519_u8"
+features = ["baseline"]
+expected-benchmark = "ed25519-footprint"
+
+[[case-sets.ed25519-footprint]]
+name = "x25519-u8-verify"
+example = "x25519_u8"
+expected-benchmark = "ed25519-footprint"
+baseline = "x25519-u8-baseline"
+
+[[case-sets.ed25519-footprint]]
+name = "x25519-u32-baseline"
+example = "x25519_u32"
+features = ["baseline"]
+expected-benchmark = "ed25519-footprint"
+
+[[case-sets.ed25519-footprint]]
+name = "x25519-u32-verify"
+example = "x25519_u32"
+expected-benchmark = "ed25519-footprint"
+baseline = "x25519-u32-baseline"
+
 [campaigns.ed25519-cortex-m0]
 profile = "qemu-cortex-m0"
-cases = [
-  { name = "ed25519-u8-baseline", example = "ed25519_u8", features = ["baseline"], expected-benchmark = "ed25519-footprint" },
-  { name = "ed25519-u8-verify", example = "ed25519_u8", expected-benchmark = "ed25519-footprint", baseline = "ed25519-u8-baseline" },
-  { name = "ed25519-u32-baseline", example = "ed25519_u32", features = ["baseline"], expected-benchmark = "ed25519-footprint" },
-  { name = "ed25519-u32-verify", example = "ed25519_u32", expected-benchmark = "ed25519-footprint", baseline = "ed25519-u32-baseline" },
-  { name = "x25519-u8-baseline", example = "x25519_u8", features = ["baseline"], expected-benchmark = "ed25519-footprint" },
-  { name = "x25519-u8-verify", example = "x25519_u8", expected-benchmark = "ed25519-footprint", baseline = "x25519-u8-baseline" },
-  { name = "x25519-u32-baseline", example = "x25519_u32", features = ["baseline"], expected-benchmark = "ed25519-footprint" },
-  { name = "x25519-u32-verify", example = "x25519_u32", expected-benchmark = "ed25519-footprint", baseline = "x25519-u32-baseline" },
-]
+case-set = "ed25519-footprint"
 
 [campaigns.ed25519-cortex-m3]
 profile = "qemu-cortex-m3"
-cases = [
-  { name = "ed25519-u8-baseline", example = "ed25519_u8", features = ["baseline"], expected-benchmark = "ed25519-footprint" },
-  { name = "ed25519-u8-verify", example = "ed25519_u8", expected-benchmark = "ed25519-footprint", baseline = "ed25519-u8-baseline" },
-  { name = "ed25519-u32-baseline", example = "ed25519_u32", features = ["baseline"], expected-benchmark = "ed25519-footprint" },
-  { name = "ed25519-u32-verify", example = "ed25519_u32", expected-benchmark = "ed25519-footprint", baseline = "ed25519-u32-baseline" },
-  { name = "x25519-u8-baseline", example = "x25519_u8", features = ["baseline"], expected-benchmark = "ed25519-footprint" },
-  { name = "x25519-u8-verify", example = "x25519_u8", expected-benchmark = "ed25519-footprint", baseline = "x25519-u8-baseline" },
-  { name = "x25519-u32-baseline", example = "x25519_u32", features = ["baseline"], expected-benchmark = "ed25519-footprint" },
-  { name = "x25519-u32-verify", example = "x25519_u32", expected-benchmark = "ed25519-footprint", baseline = "x25519-u32-baseline" },
-]
+case-set = "ed25519-footprint"
 
 [campaigns.ed25519-cortex-m4]
 profile = "qemu-cortex-m4"
-cases = [
-  { name = "ed25519-u8-baseline", example = "ed25519_u8", features = ["baseline"], expected-benchmark = "ed25519-footprint" },
-  { name = "ed25519-u8-verify", example = "ed25519_u8", expected-benchmark = "ed25519-footprint", baseline = "ed25519-u8-baseline" },
-  { name = "ed25519-u32-baseline", example = "ed25519_u32", features = ["baseline"], expected-benchmark = "ed25519-footprint" },
-  { name = "ed25519-u32-verify", example = "ed25519_u32", expected-benchmark = "ed25519-footprint", baseline = "ed25519-u32-baseline" },
-  { name = "x25519-u8-baseline", example = "x25519_u8", features = ["baseline"], expected-benchmark = "ed25519-footprint" },
-  { name = "x25519-u8-verify", example = "x25519_u8", expected-benchmark = "ed25519-footprint", baseline = "x25519-u8-baseline" },
-  { name = "x25519-u32-baseline", example = "x25519_u32", features = ["baseline"], expected-benchmark = "ed25519-footprint" },
-  { name = "x25519-u32-verify", example = "x25519_u32", expected-benchmark = "ed25519-footprint", baseline = "x25519-u32-baseline" },
-]
+case-set = "ed25519-footprint"
+
+[campaigns.ed25519-jtrace-f407]
+profile = "jtrace-f407"
+case-set = "ed25519-footprint"
