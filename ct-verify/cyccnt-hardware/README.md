@@ -14,13 +14,27 @@ warmups, paired ordering, policy evaluation, versioned reporting, and totals.
 It emits lossless `EM_*` schema 1 records plus the legacy `CT_*` records while
 host tooling migrates.
 
-Build or run one carrier at a time from this directory:
+Run the complete declarative hardware gate from this directory:
 
 ```sh
-cargo run --release --target thumbv7em-none-eabihf --features carrier-u32x8
-cargo run --release --target thumbv7em-none-eabihf --features carrier-u32x16
-cargo run --release --target thumbv7em-none-eabihf --features carrier-u8x32
+cargo embedded-measure run ed25519-ct-jtrace-f407
 ```
+
+Repeatable `--case u32x8`, `--case u32x16`, and `--case u8x32` options select
+individual carriers. The runner owns build features, probe selection,
+deadlines, RTT completion, protocol validation, and retained evidence under
+`target/embedded-measure/ed25519-ct-jtrace-f407/`.
+
+The migration campaign preserved the existing fail-closed policy and found:
+
+- `u32x8`: all five fixtures passed.
+- `u32x16`: four passed and `x25519_base` failed because its A/B ranges did
+  not overlap, despite only 15 cycles of combined spread.
+- `u8x32`: four passed and `sign` failed at 33 cycles of spread, one cycle
+  above the 32-cycle limit, while its A/B ranges still overlapped.
+
+These are hardware gate findings rather than runner failures; the aggregate
+campaign exits unsuccessfully until they are investigated or fixed.
 
 This is a timing-regression layer, not a replacement for ctgrind or the
 per-target ladder branch audit. Same-cycle divergent instruction paths remain
