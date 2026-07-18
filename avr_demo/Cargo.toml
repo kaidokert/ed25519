@@ -43,4 +43,3 @@ opt-level = "z"
 # it. Mirror the git pin here. Drop once modmath ships to crates.io.
 [patch.crates-io]
 modmath = { git = "https://github.com/kaidokert/modmath-rs.git", tag = "v0.6.0-alpha.cios.36" }
-modmath-cios = { git = "https://github.com/kaidokert/modmath-rs.git", tag = "v0.6.0-alpha.cios.36" }

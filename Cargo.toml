@@ -9,4 +9,3 @@ exclude = [ "avr_demo", "cortex_m_demo", "riscv_demo", "ct-verify" ]
 # tag. Drop this block once modmath ships to crates.io.
 [patch.crates-io]
 modmath = { git = "https://github.com/kaidokert/modmath-rs.git", tag = "v0.6.0-alpha.cios.36" }
-modmath-cios = { git = "https://github.com/kaidokert/modmath-rs.git", tag = "v0.6.0-alpha.cios.36" }
