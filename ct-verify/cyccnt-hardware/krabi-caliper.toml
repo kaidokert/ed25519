@@ -46,3 +46,4 @@ timeout-seconds = 1800
 [campaigns.ed25519-ct-jtrace-f407]
 profile = "jtrace-f407"
 case-set = "ed25519-cyccnt"
+constant-time = { welch-threshold = 4.5, minimum-samples-per-class = 4, protected-classes = ["positive"], control-classes = ["negative"], gate = false }
