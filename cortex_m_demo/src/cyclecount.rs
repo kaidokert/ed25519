@@ -1,4 +1,5 @@
 use core::sync::atomic::{AtomicU32, Ordering};
+use embedded_measure::{Counter, Measurement, Unit};
 
 #[cfg(feature = "jtrace-f407")]
 use cortex_m::peripheral::DWT;
@@ -87,5 +88,17 @@ impl CycleCounter {
             #[cfg(feature = "jtrace-f407")]
             dwt,
         }
+    }
+}
+
+impl Counter for CycleCounter {
+    type Instant = u64;
+
+    fn now(&mut self) -> Self::Instant {
+        Self::total_cycles()
+    }
+
+    fn elapsed(&mut self, start: Self::Instant) -> Measurement {
+        Measurement::new(Self::total_cycles().wrapping_sub(start), Unit::CoreCycles)
     }
 }

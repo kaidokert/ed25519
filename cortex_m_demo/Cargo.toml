@@ -8,6 +8,7 @@ autobenches = false
 
 [features]
 baseline = []
+external-measurement = []
 jtrace-f407 = ["cortex-m/critical-section-single-core", "embedded-measure/rtt"]
 
 [dependencies]

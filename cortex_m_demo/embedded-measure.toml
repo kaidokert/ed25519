@@ -10,6 +10,28 @@ timeout-seconds = 120
 preset = "qemu-cortex-m4"
 timeout-seconds = 120
 
+[profiles.qemu-cortex-m3-external]
+runner = "command"
+target = "thumbv7m-none-eabi"
+board = "qemu-lm3s6965evb"
+mcu = "lm3s6965"
+transport = "semihosting"
+build-features = ["external-measurement"]
+executable = "../../embedded-measure/target/debug/cargo-embedded-measure"
+args = [
+  "timestamp-command",
+  "qemu-system-arm",
+  "--",
+  "-cpu", "cortex-m3",
+  "-machine", "lm3s6965evb",
+  "-nographic",
+  "-semihosting-config", "enable=on,target=native",
+  "-kernel", "{artifact}",
+]
+require-external-measurements = true
+timeout-seconds = 30
+artifact-extension = ""
+
 [profiles.jtrace-f407]
 runner = "command"
 target = "thumbv7em-none-eabihf"
@@ -94,6 +116,18 @@ case-set = "ed25519-footprint"
 [campaigns.ed25519-cortex-m4]
 profile = "qemu-cortex-m4"
 case-set = "ed25519-footprint"
+
+[campaigns.portable-measurement-self]
+profile = "qemu-cortex-m3"
+cases = [
+  { name = "portable-self", example = "portable_measurement", expected-benchmark = "portable-workload" },
+]
+
+[campaigns.portable-measurement-external]
+profile = "qemu-cortex-m3-external"
+cases = [
+  { name = "portable-external", example = "portable_measurement", expected-benchmark = "portable-workload" },
+]
 
 [campaigns.ed25519-jtrace-f407]
 profile = "jtrace-f407"
