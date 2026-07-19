@@ -359,12 +359,7 @@ where
 /// [`verify_with_field`] instead, amortizing the precompute.
 pub fn verify<T>(public: [u8; 32], msg: &[u8], signature: [u8; 64]) -> bool
 where
-    T: UnsignedModularInt
-        + Copy
-        + modmath::WideMul
-        + modmath::CiosMontMul
-        + modmath::NonCt
-        + const_num_traits::WrappingSub<Output = T>,
+    T: UnsignedModularInt + Copy + modmath::WideMul + modmath::CiosMontMul + modmath::NonCt,
     for<'a> &'a T: core::ops::BitAnd<Output = T>
         + const_num_traits::WrappingAdd<Output = T>
         + const_num_traits::WrappingSub<Output = T>,
@@ -415,10 +410,6 @@ where
         + const_num_traits::WrappingAdd<Output = T>
         + const_num_traits::WrappingSub<Output = T>,
 {
-    // Guard: reject a narrow `T` (a caller-built `Curve25519Field::new` could
-    // bypass the factory's check) before any curve-constant load.
-    crate::assert_backend_width(field.modulus());
-
     let d = crate::from_le_bytes::<T>(&D_BYTES);
 
     // Phase 1: decompress the public key A, then negate (we'll check

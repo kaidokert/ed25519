@@ -32,8 +32,8 @@ fn wycheproof_x25519_blinded_matches_unblinded() {
                 Err(_) => continue,
             };
 
-            let unblinded = x25519::<T>(&priv_bytes, &pub_bytes);
-            let blinded = x25519_blinded::<T, _>(&mut rng, &priv_bytes, &pub_bytes);
+            let unblinded = x25519::<T>(&priv_bytes, &pub_bytes).unwrap();
+            let blinded = x25519_blinded::<T, _>(&mut rng, &priv_bytes, &pub_bytes).unwrap();
 
             ran += 1;
             if blinded != unblinded {

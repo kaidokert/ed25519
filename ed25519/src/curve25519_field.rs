@@ -33,13 +33,10 @@ use crate::{P_BYTES, UnsignedModularInt};
 /// factories can refuse to construct a field. Both arms are unreachable
 /// for any well-formed backend: `BackendTooNarrow` is a backend-selection
 /// bug, and `InvalidModulus` would require `modmath::Field::new` to
-/// reject `p = 2^255 − 19`. The factories return `Result` for the paths
-/// that need runtime handling — notably [`crate::sign_with_fields`] via
-/// [`crate::SigningKey::from_seed`], which propagates the error into
-/// [`crate::SignError::FieldSetup`]. Entry points that can afford it
-/// (`strict::verify`, `sign_with_fields`, and every x25519 fn) assert the
-/// width at runtime (`bits_precision(p) >= 256`), so a too-narrow `T` panics
-/// before any curve-constant load rather than surfacing as a `Result`.
+/// reject `p = 2^255 − 19`. It propagates into [`crate::SignError::FieldSetup`]
+/// (via [`crate::sign`] / [`crate::SigningKey::from_seed`]) and is the error
+/// the x25519 entry points return. [`crate::verify`] builds the field through
+/// the factory and fails closed to `false` on `Err`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CurveSetupError {
     BackendTooNarrow,
@@ -99,10 +96,9 @@ where
     /// backend `T` is too narrow to hold the 256-bit prime, or in the
     /// theoretical-but-unreachable case where `Odd::new` rejects
     /// `p = 2^255 − 19`. The fallible signature exists because callers
-    /// like [`crate::SigningKey::from_seed`] propagate the error into
-    /// [`crate::SignError`]. [`crate::strict::verify`] asserts the width at
-    /// runtime before use, so its `Result` handling is unreachable in practice
-    /// but kept for uniformity with the other factory-consuming paths.
+    /// like [`crate::SigningKey::from_seed`] and the x25519 entry points
+    /// propagate this into their own `Result`; [`crate::verify`] fails closed
+    /// to `false`.
     pub fn curve25519() -> Result<Self, CurveSetupError>
     where
         T: UnsignedModularInt,
@@ -393,43 +389,33 @@ where
     where
         Self: 'f;
 
-    #[inline]
     fn reduce<'f>(&'f self, raw: &T) -> ResidueNct<'f, T> {
         self.inner.reduce(raw)
     }
-    #[inline]
     fn mul<'f>(&'f self, a: &ResidueNct<'f, T>, b: &ResidueNct<'f, T>) -> ResidueNct<'f, T> {
         self.inner.mul(a, b)
     }
-    #[inline]
     fn add<'f>(&'f self, a: &ResidueNct<'f, T>, b: &ResidueNct<'f, T>) -> ResidueNct<'f, T> {
         Curve25519Field::add(self, a, b)
     }
-    #[inline]
     fn sub<'f>(&'f self, a: &ResidueNct<'f, T>, b: &ResidueNct<'f, T>) -> ResidueNct<'f, T> {
         Curve25519Field::sub(self, a, b)
     }
-    #[inline]
     fn inv<'f>(&'f self, a: &ResidueNct<'f, T>) -> ResidueNct<'f, T> {
         Curve25519Field::inv(self, a)
     }
-    #[inline]
     fn exp<'f>(&'f self, base: &ResidueNct<'f, T>, exp: &T) -> ResidueNct<'f, T> {
         self.inner.exp(base, exp)
     }
-    #[inline]
     fn one<'f>(&'f self) -> ResidueNct<'f, T> {
         self.inner.one()
     }
-    #[inline]
     fn zero<'f>(&'f self) -> ResidueNct<'f, T> {
         self.inner.zero()
     }
-    #[inline]
     fn into_raw<'f>(&'f self, a: &ResidueNct<'f, T>) -> T {
         self.inner.into_raw(a)
     }
-    #[inline]
     fn modulus(&self) -> &T {
         Curve25519Field::modulus(self)
     }
@@ -453,43 +439,33 @@ where
     where
         Self: 'f;
 
-    #[inline]
     fn reduce<'f>(&'f self, raw: &T) -> ResidueCt<'f, T> {
         self.inner.reduce(raw)
     }
-    #[inline]
     fn mul<'f>(&'f self, a: &ResidueCt<'f, T>, b: &ResidueCt<'f, T>) -> ResidueCt<'f, T> {
         self.inner.mul(a, b)
     }
-    #[inline]
     fn add<'f>(&'f self, a: &ResidueCt<'f, T>, b: &ResidueCt<'f, T>) -> ResidueCt<'f, T> {
         Curve25519FieldCt::add(self, a, b)
     }
-    #[inline]
     fn sub<'f>(&'f self, a: &ResidueCt<'f, T>, b: &ResidueCt<'f, T>) -> ResidueCt<'f, T> {
         Curve25519FieldCt::sub(self, a, b)
     }
-    #[inline]
     fn inv<'f>(&'f self, a: &ResidueCt<'f, T>) -> ResidueCt<'f, T> {
         Curve25519FieldCt::inv(self, a)
     }
-    #[inline]
     fn exp<'f>(&'f self, base: &ResidueCt<'f, T>, exp: &T) -> ResidueCt<'f, T> {
         self.inner.exp(base, exp)
     }
-    #[inline]
     fn one<'f>(&'f self) -> ResidueCt<'f, T> {
         self.inner.one()
     }
-    #[inline]
     fn zero<'f>(&'f self) -> ResidueCt<'f, T> {
         self.inner.zero()
     }
-    #[inline]
     fn into_raw<'f>(&'f self, a: &ResidueCt<'f, T>) -> T {
         self.inner.into_raw(a)
     }
-    #[inline]
     fn modulus(&self) -> &T {
         Curve25519FieldCt::modulus(self)
     }

@@ -120,10 +120,6 @@ where
         + const_num_traits::ToBytes<Bytes = <T as const_num_traits::ToBytes>::Bytes>,
     <T as const_num_traits::ToBytes>::Bytes: zeroize::Zeroize,
 {
-    // Guard: reject a narrow `T` (a caller-built `Curve25519FieldCt::new`
-    // could bypass the factory's check) before the `Q_BYTES` load.
-    crate::assert_backend_width(p_field.modulus());
-
     let q = crate::from_le_bytes::<T>(&Q_BYTES);
 
     // r = SHA-512(prefix || M) mod q. Secret-derived (prefix is part

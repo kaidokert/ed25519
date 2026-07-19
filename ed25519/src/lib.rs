@@ -58,7 +58,7 @@ pub(crate) mod strict_sign;
 pub use signing_key::{SignError, SigningKey, sign, sign_with_fields};
 pub(crate) mod x25519;
 
-pub use curve25519_field::{Curve25519Field, Curve25519FieldCt, VerifyField};
+pub use curve25519_field::{Curve25519Field, Curve25519FieldCt, CurveSetupError, VerifyField};
 pub use modmath::{Field, FieldCt, FieldNct, Residue, ResidueCt, ResidueNct};
 
 use core::marker::PhantomData;
@@ -119,8 +119,8 @@ impl<T> UnsignedModularInt for T where
 /// Wraps `FromByteSlice::from_le_slice`. All call sites pass 32-byte
 /// crypto constants or 32-byte runtime payloads into backends where
 /// `BYTE_WIDTH >= 32` (enforced by the `Curve25519Field::curve25519()`
-/// factories and by the runtime width guards in the verify / sign / x25519
-/// entry points), so the `Err` branch is structurally unreachable.
+/// factories, which reject a narrow backend before any constant load), so
+/// the `Err` branch is structurally unreachable.
 /// The fail-closed `T::zero()` fallback avoids linking a panic path
 /// from this helper — if the impossible ever happens, the backend
 /// selection was invalid upstream and downstream field arithmetic
@@ -155,19 +155,6 @@ where
     <T as const_num_traits::ToBytes>::Bytes: zeroize::Zeroize,
 {
     zeroize::Zeroizing::new(<&T as const_num_traits::ToBytes>::to_le_bytes(x))
-}
-
-/// Panic if backend carrier `T` is too narrow to hold the Curve25519 prime.
-/// Reads the width from a modulus value the caller already holds (no
-/// re-decode). A wrong-backend panic is a config error, not secret-dependent
-/// — the panic-free audit classifies it as such.
-#[inline]
-pub(crate) fn assert_backend_width<T: const_num_traits::BitsPrecision>(modulus: &T) {
-    let width = const_num_traits::BitsPrecision::bits_precision(modulus) as usize;
-    assert!(
-        width >= 256,
-        "backend T is too narrow for the Curve25519 prime (got {width} bits, need >= 256)"
-    );
 }
 
 /// Aggregate bound bundle for the constant-time sign path: CT field

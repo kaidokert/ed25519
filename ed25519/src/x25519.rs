@@ -13,7 +13,7 @@
 //! branchless. The remaining gap to formal CT certification is in
 //! `fixed-bigint`'s per-limb primitives — see CLAUDE.md for the audit.
 
-use crate::curve25519_field::Curve25519FieldCt;
+use crate::curve25519_field::{Curve25519FieldCt, CurveSetupError};
 use crate::{P_BYTES, UnsignedModularInt};
 use modmath::ResidueCt;
 use subtle::Choice;
@@ -41,24 +41,6 @@ pub const BASE_U_BYTES: [u8; 32] =
 pub const BLINDING_MODULUS_BYTES: [u8; 64] = crate::hx_le(
     "0ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffb64c66bee483cf65c231138c2de80a413a110920000d1b1d90bf4b83b29b3cec8",
 );
-
-/// Carriers whose serialized footprint exceeds this are rejected at runtime.
-/// 64 bytes covers all registered `FixedUInt` impls (u32×16, u64×8, u64×4,
-/// u8×32) and bounds the scratch buffers below.
-const MAX_T_BYTES: usize = 64;
-
-/// Panic if `T`'s serialized footprint exceeds `MAX_T_BYTES`. Checks the
-/// associated byte-buffer size, not the modulus value's bit width: a
-/// runtime-length carrier reports only its per-value operating width, so a
-/// value-width check would pass an over-capacity backend (e.g. a 128-byte
-/// carrier holding the 256-bit prime) whose footprint overruns the bound.
-fn assert_backend_capacity<T: const_num_traits::ToBytes>() {
-    let cap = core::mem::size_of::<<T as const_num_traits::ToBytes>::Bytes>();
-    assert!(
-        cap <= MAX_T_BYTES,
-        "backend T serializes to {cap} bytes, over the {MAX_T_BYTES}-byte scratch bound"
-    );
-}
 
 /// `k + r·(8·ℓ·ℓ')` fits in 68 bytes for a 32-bit blinder `r`
 /// (worst case 540 bits).
@@ -119,7 +101,7 @@ fn compute_blinded_scalar(
 /// `k` is borrowed (not consumed) so the caller can wrap their long-lived
 /// secret in a `Zeroizing<[u8; 32]>` and have it cleared on drop without
 /// forcing an extra copy across the API boundary.
-pub fn x25519_base<T>(k: &[u8; 32]) -> [u8; 32]
+pub fn x25519_base<T>(k: &[u8; 32]) -> Result<[u8; 32], CurveSetupError>
 where
     T: UnsignedModularInt
         + Copy
@@ -153,14 +135,12 @@ where
 /// The scalar is clamped and the high bit of `u_in[31]` is masked here, so
 /// callers do not need to pre-process either input (RFC 7748 §5).
 ///
-/// # Panics
+/// # Errors
 ///
-/// Panics if `T` is narrower than 256 bits (cannot hold a Curve25519 field
-/// element) or wider than 512 bits (exceeds the internal scratch buffers).
-/// Both conditions indicate a backend-selection bug and would otherwise
-/// produce a meaningless result.
+/// Returns [`CurveSetupError::BackendTooNarrow`] if `T` cannot hold a 256-bit
+/// Curve25519 field element — a backend-selection bug.
 #[inline(never)]
-pub fn x25519<T>(k: &[u8; 32], u_in: &[u8; 32]) -> [u8; 32]
+pub fn x25519<T>(k: &[u8; 32], u_in: &[u8; 32]) -> Result<[u8; 32], CurveSetupError>
 where
     T: UnsignedModularInt
         + Copy
@@ -176,22 +156,10 @@ where
         + const_num_traits::ToBytes<Bytes = <T as const_num_traits::ToBytes>::Bytes>,
     <T as const_num_traits::ToBytes>::Bytes: zeroize::Zeroize,
 {
-    // Reject a too-narrow carrier (< 256-bit prime) and one whose serialized
-    // footprint overruns the fixed scratch bound. Both panics are config
-    // errors, not secret-dependent (per the panic-free audit).
-    crate::assert_backend_width(&crate::from_le_bytes::<T>(&P_BYTES));
-    assert_backend_capacity::<T>();
-
-    // The entry-point width asserts guard the width case; the Odd
-    // proof inside the factory is statically true for the Curve25519
-    // prime — both Err arms are unreachable here. Fail-closed to
-    // an all-zero shared secret rather than pulling in a panic
-    // string (RFC 7748 §5 tells callers to reject all-zero output
-    // as a suspected attack, so the fallback signals cleanly).
-    let field = match Curve25519FieldCt::curve25519() {
-        Ok(f) => f,
-        Err(_) => return [0u8; 32],
-    };
+    // The factory rejects a backend too narrow to hold the 256-bit prime;
+    // propagate that as the sole error. The `InvalidModulus` arm is
+    // statically unreachable (the Curve25519 prime is odd).
+    let field = Curve25519FieldCt::curve25519()?;
 
     // RFC 7748 §5: clamp scalar, mask high bit of u-coordinate.
     let k = zeroize::Zeroizing::new(clamp(*k));
@@ -237,7 +205,7 @@ where
     let bytes_slice: &[u8] = bytes.as_ref();
     let mut out = [0u8; 32];
     out.copy_from_slice(&bytes_slice[..32]);
-    out
+    Ok(out)
 }
 
 /// X25519 shared secret with full per-invocation blinding:
@@ -261,7 +229,11 @@ where
 /// re-randomization adds one extra multiplication, negligible vs the
 /// ladder body.
 #[inline(never)]
-pub fn x25519_blinded<T, R>(rng: &mut R, k: &[u8; 32], u_in: &[u8; 32]) -> [u8; 32]
+pub fn x25519_blinded<T, R>(
+    rng: &mut R,
+    k: &[u8; 32],
+    u_in: &[u8; 32],
+) -> Result<[u8; 32], CurveSetupError>
 where
     T: UnsignedModularInt
         + Copy
@@ -278,22 +250,10 @@ where
     <T as const_num_traits::ToBytes>::Bytes: zeroize::Zeroize,
     R: rand_core::CryptoRng,
 {
-    // Reject a too-narrow carrier and one whose serialized footprint overruns
-    // the fixed scratch bound (both are config-error panics, not
-    // secret-dependent).
-    crate::assert_backend_width(&crate::from_le_bytes::<T>(&P_BYTES));
-    assert_backend_capacity::<T>();
-
-    // The entry-point width asserts guard the width case; the Odd
-    // proof inside the factory is statically true for the Curve25519
-    // prime — both Err arms are unreachable here. Fail-closed to
-    // an all-zero shared secret rather than pulling in a panic
-    // string (RFC 7748 §5 tells callers to reject all-zero output
-    // as a suspected attack, so the fallback signals cleanly).
-    let field = match Curve25519FieldCt::curve25519() {
-        Ok(f) => f,
-        Err(_) => return [0u8; 32],
-    };
+    // The factory rejects a backend too narrow to hold the 256-bit prime;
+    // propagate that as the sole error (the `InvalidModulus` arm is
+    // statically unreachable).
+    let field = Curve25519FieldCt::curve25519()?;
 
     let k_clamped = zeroize::Zeroizing::new(clamp(*k));
     let r = rng.next_u32();
@@ -341,13 +301,13 @@ where
     let bytes_slice: &[u8] = bytes.as_ref();
     let mut out = [0u8; 32];
     out.copy_from_slice(&bytes_slice[..32]);
-    out
+    Ok(out)
 }
 
 /// Compute `k * G` (where `G` is the X25519 base point) with scalar
 /// blinding. See [`x25519_blinded`] for the threat model and RNG
 /// requirement.
-pub fn x25519_base_blinded<T, R>(rng: &mut R, k: &[u8; 32]) -> [u8; 32]
+pub fn x25519_base_blinded<T, R>(rng: &mut R, k: &[u8; 32]) -> Result<[u8; 32], CurveSetupError>
 where
     T: UnsignedModularInt
         + Copy

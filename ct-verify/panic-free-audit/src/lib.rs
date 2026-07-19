@@ -117,7 +117,7 @@ pub extern "C" fn panic_audit__x25519(
     }
     let k = unsafe { *k };
     let u_in = unsafe { *u_in };
-    let r = x25519::<TCt>(black_box(&k), black_box(&u_in));
+    let r = x25519::<TCt>(black_box(&k), black_box(&u_in)).unwrap_or([0u8; 32]);
     unsafe { *out = black_box(r) }
 }
 
@@ -128,7 +128,7 @@ pub extern "C" fn panic_audit__x25519_base(k: *const [u8; 32], out: *mut [u8; 32
         return;
     }
     let k = unsafe { *k };
-    let r = x25519_base::<TCt>(black_box(&k));
+    let r = x25519_base::<TCt>(black_box(&k)).unwrap_or([0u8; 32]);
     unsafe { *out = black_box(r) }
 }
 
