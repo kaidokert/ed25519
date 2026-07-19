@@ -117,8 +117,13 @@ component is installed.
 
 ```
 # Panic-free audit + neg-control self-test
-./panic-free-audit/check.sh thumbv7em-none-eabi
-./panic-free-audit/check.sh riscv32imc-unknown-none-elf
+cargo krabi-caliper panic-audit --package panic-free-audit \
+  --target thumbv7em-none-eabi --features panic-handler \
+  --negative-features neg-controls \
+  --owned-symbol 'panic_audit__|ed25519_heapless::' \
+  --expect-negative panic_audit__neg__bounds_check \
+  --expect-negative panic_audit__neg__unwrap \
+  --expect-negative panic_audit__neg__expect
 
 # Per-ISA ladder-branch calibration (reuses the same archive)
 cargo build --release -p ladder-branches

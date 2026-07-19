@@ -3,7 +3,7 @@
 //! Each `#[no_mangle] pub extern "C"` symbol exercises one entry point
 //! the way a deployed consumer would — no `unwrap`, no `expect`, all
 //! `Result` outcomes observed as booleans. After cross-building with
-//! the workspace release profile, `check.sh` asserts the resulting
+//! the workspace release profile, krabi-caliper asserts the resulting
 //! archive contains no `core::panicking` machinery: for CT code a
 //! reachable panic is both a DoS edge and a timing oracle (the panic
 //! formatting path's cost depends on the values being formatted).

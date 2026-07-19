@@ -2,7 +2,7 @@
 //!
 //! These `#[no_mangle] pub extern "C"` symbols each contain a panic
 //! path the walker regex must catch (`panic_bounds_check`,
-//! `unwrap_failed`, `expect_failed`). `check.sh` builds this crate a
+//! `unwrap_failed`, `expect_failed`). The shared panic-audit command builds this crate a
 //! second time with `--features neg-controls` and asserts every
 //! `panic_audit__neg__*` section fires in the output — if any doesn't,
 //! the walker's regex or caller-attribution is broken.
