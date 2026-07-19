@@ -42,10 +42,23 @@ pub const BLINDING_MODULUS_BYTES: [u8; 64] = crate::hx_le(
     "0ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffb64c66bee483cf65c231138c2de80a413a110920000d1b1d90bf4b83b29b3cec8",
 );
 
-/// Backends wider than this are rejected at runtime. 64 bytes covers all
-/// currently registered `FixedUInt` impls (u32×16, u64×8, u64×4, u8×32) and
-/// bounds the scratch buffers below.
+/// Carriers whose serialized footprint exceeds this are rejected at runtime.
+/// 64 bytes covers all registered `FixedUInt` impls (u32×16, u64×8, u64×4,
+/// u8×32) and bounds the scratch buffers below.
 const MAX_T_BYTES: usize = 64;
+
+/// Panic if `T`'s serialized footprint exceeds `MAX_T_BYTES`. Checks the
+/// associated byte-buffer size, not the modulus value's bit width: a
+/// runtime-length carrier reports only its per-value operating width, so a
+/// value-width check would pass an over-capacity backend (e.g. a 128-byte
+/// carrier holding the 256-bit prime) whose footprint overruns the bound.
+fn assert_backend_capacity<T: const_num_traits::ToBytes>() {
+    let cap = core::mem::size_of::<<T as const_num_traits::ToBytes>::Bytes>();
+    assert!(
+        cap <= MAX_T_BYTES,
+        "backend T serializes to {cap} bytes, over the {MAX_T_BYTES}-byte scratch bound"
+    );
+}
 
 /// `k + r·(8·ℓ·ℓ')` fits in 68 bytes for a 32-bit blinder `r`
 /// (worst case 540 bits).
@@ -163,21 +176,11 @@ where
         + const_num_traits::ToBytes<Bytes = <T as const_num_traits::ToBytes>::Bytes>,
     <T as const_num_traits::ToBytes>::Bytes: zeroize::Zeroize,
 {
-    // Backend width check. Runtime, not const{}: `bits_precision` needs a `T`
-    // value (runtime-length carriers only know their width per-value). A
-    // wrong-backend panic here is a config error, not a secret-dependent one
-    // (the panic-free audit classifies it as such).
-    let width =
-        const_num_traits::BitsPrecision::bits_precision(&crate::from_le_bytes::<T>(&P_BYTES))
-            as usize;
-    assert!(
-        width >= 256,
-        "x25519: backend T is too narrow for the Curve25519 prime (need >= 256 bits)"
-    );
-    assert!(
-        width <= MAX_T_BYTES * 8,
-        "x25519: backend T is wider than the fixed-size scratch buffer (MAX_T_BYTES * 8)"
-    );
+    // Reject a too-narrow carrier (< 256-bit prime) and one whose serialized
+    // footprint overruns the fixed scratch bound. Both panics are config
+    // errors, not secret-dependent (per the panic-free audit).
+    crate::assert_backend_width(&crate::from_le_bytes::<T>(&P_BYTES));
+    assert_backend_capacity::<T>();
 
     // The entry-point width asserts guard the width case; the Odd
     // proof inside the factory is statically true for the Curve25519
@@ -275,17 +278,11 @@ where
     <T as const_num_traits::ToBytes>::Bytes: zeroize::Zeroize,
     R: rand_core::CryptoRng,
 {
-    let width =
-        const_num_traits::BitsPrecision::bits_precision(&crate::from_le_bytes::<T>(&P_BYTES))
-            as usize;
-    assert!(
-        width >= 256,
-        "x25519_blinded: backend T is too narrow for the Curve25519 prime (need >= 256 bits)"
-    );
-    assert!(
-        width <= MAX_T_BYTES * 8,
-        "x25519_blinded: backend T is wider than the fixed-size scratch buffer (MAX_T_BYTES * 8)"
-    );
+    // Reject a too-narrow carrier and one whose serialized footprint overruns
+    // the fixed scratch bound (both are config-error panics, not
+    // secret-dependent).
+    crate::assert_backend_width(&crate::from_le_bytes::<T>(&P_BYTES));
+    assert_backend_capacity::<T>();
 
     // The entry-point width asserts guard the width case; the Odd
     // proof inside the factory is statically true for the Curve25519

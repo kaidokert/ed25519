@@ -120,18 +120,9 @@ where
         + const_num_traits::ToBytes<Bytes = <T as const_num_traits::ToBytes>::Bytes>,
     <T as const_num_traits::ToBytes>::Bytes: zeroize::Zeroize,
 {
-    // Backend width guard. `sign_with_fields` is public and accepts pre-built
-    // fields, so a caller could bypass the width check in
-    // `Curve25519FieldCt::curve25519()` by constructing a narrow field via
-    // `Curve25519FieldCt::new`. The runtime assert catches that (panics) and
-    // keeps the `Q_BYTES` load below infallible in practice.
-    assert!(
-        (const_num_traits::BitsPrecision::bits_precision(&crate::from_le_bytes::<T>(
-            &crate::P_BYTES
-        )) as usize)
-            >= 256,
-        "sign_with_fields: backend T is too narrow for the Curve25519 prime (need >= 256 bits)"
-    );
+    // Guard: reject a narrow `T` (a caller-built `Curve25519FieldCt::new`
+    // could bypass the factory's check) before the `Q_BYTES` load.
+    crate::assert_backend_width(p_field.modulus());
 
     let q = crate::from_le_bytes::<T>(&Q_BYTES);
 

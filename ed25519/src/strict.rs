@@ -306,7 +306,7 @@ fn naf_double_scalar_mul<'f, F, T>(
 ) -> EdPoint<'f, F, T>
 where
     F: VerifyField<T>,
-    T: UnsignedModularInt + Copy + const_num_traits::WrappingSub<Output = T>,
+    T: UnsignedModularInt + Copy,
     for<'a> &'a T: core::ops::BitAnd<Output = T>
         + const_num_traits::WrappingAdd<Output = T>
         + const_num_traits::WrappingSub<Output = T>,
@@ -398,7 +398,7 @@ where
 pub fn verify_with_field<F, T>(field: &F, public: [u8; 32], msg: &[u8], signature: [u8; 64]) -> bool
 where
     F: VerifyField<T>,
-    T: UnsignedModularInt + Copy + const_num_traits::WrappingSub<Output = T>,
+    T: UnsignedModularInt + Copy,
     for<'a> &'a T: core::ops::BitAnd<Output = T>
         + const_num_traits::WrappingAdd<Output = T>
         + const_num_traits::WrappingSub<Output = T>,
@@ -410,24 +410,14 @@ where
 fn verify_inner<F, T>(field: &F, public: [u8; 32], msg: &[u8], signature: [u8; 64]) -> bool
 where
     F: VerifyField<T>,
-    T: UnsignedModularInt + Copy + const_num_traits::WrappingSub<Output = T>,
+    T: UnsignedModularInt + Copy,
     for<'a> &'a T: core::ops::BitAnd<Output = T>
         + const_num_traits::WrappingAdd<Output = T>
         + const_num_traits::WrappingSub<Output = T>,
 {
-    // Guard: T must be >= 256 bits for the Ed25519 constants. Both
-    // `verify_with_field` and the `Verifier` blanket bottom out here and
-    // could be handed a narrow `T` via a caller-built `Curve25519Field::new`.
-    // Runtime assert (the const-eval form needs a const width accessor that
-    // `T` doesn't expose); fires before any curve-constant load, so those
-    // loads are infallible in practice.
-    assert!(
-        (const_num_traits::BitsPrecision::bits_precision(&crate::from_le_bytes::<T>(
-            &crate::P_BYTES
-        )) as usize)
-            >= 256,
-        "verify: backend T is too narrow for the Curve25519 prime (need >= 256 bits)"
-    );
+    // Guard: reject a narrow `T` (a caller-built `Curve25519Field::new` could
+    // bypass the factory's check) before any curve-constant load.
+    crate::assert_backend_width(field.modulus());
 
     let d = crate::from_le_bytes::<T>(&D_BYTES);
 

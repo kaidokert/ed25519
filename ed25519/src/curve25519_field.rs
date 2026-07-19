@@ -100,9 +100,8 @@ where
     /// theoretical-but-unreachable case where `Odd::new` rejects
     /// `p = 2^255 − 19`. The fallible signature exists because callers
     /// like [`crate::SigningKey::from_seed`] propagate the error into
-    /// [`crate::SignError`]. [`crate::strict::verify`] rejects narrow
-    /// `T` at monomorphization via a `const {}` guard on its inner
-    /// path, so the `Result` handling there is provably unreachable
+    /// [`crate::SignError`]. [`crate::strict::verify`] asserts the width at
+    /// runtime before use, so its `Result` handling is unreachable in practice
     /// but kept for uniformity with the other factory-consuming paths.
     pub fn curve25519() -> Result<Self, CurveSetupError>
     where
@@ -385,15 +384,7 @@ pub trait VerifyField<T> {
 
 impl<T> VerifyField<T> for Curve25519Field<T>
 where
-    T: UnsignedModularInt
-        + Copy
-        + WideMul
-        + CiosMontMul
-        + modmath::MontStorage
-        + const_num_traits::WithPrecision
-        + modmath::NonCt
-        + core::ops::ShrAssign<usize>
-        + const_num_traits::WrappingSub<Output = T>,
+    T: UnsignedModularInt + Copy + WideMul + CiosMontMul + modmath::NonCt,
     for<'a> &'a T:
         const_num_traits::WrappingAdd<Output = T> + const_num_traits::WrappingSub<Output = T>,
 {
@@ -451,14 +442,9 @@ where
         + PartialEq
         + WideMul
         + CiosMontMulCt
-        + Parity
-        + modmath::MontStorage
-        + const_num_traits::WithPrecision
         + const_num_traits::CtIsZero
         + subtle::ConditionallySelectable
-        + subtle::ConstantTimeLess
-        + core::ops::Shr<usize, Output = T>
-        + core::ops::BitAnd<Output = T>,
+        + subtle::ConstantTimeLess,
     for<'a> &'a T:
         const_num_traits::WrappingAdd<Output = T> + const_num_traits::WrappingSub<Output = T>,
 {
