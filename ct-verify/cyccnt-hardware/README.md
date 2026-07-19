@@ -9,7 +9,7 @@ positive threshold is an absolute, fail-closed calibration from initial F407
 measurements (7–20 cycles of spread over 26–477 million-cycle operations), and
 all raw bounds are emitted for review.
 
-The carrier uses `embedded-measure::PairedSuite` for DWT sampling, exact-path
+The carrier uses `krabi-caliper::PairedSuite` for DWT sampling, exact-path
 warmups, paired ordering, policy evaluation, versioned reporting, and totals.
 It emits lossless `EM_*` schema 1 records plus the legacy `CT_*` records while
 host tooling migrates.
@@ -17,13 +17,13 @@ host tooling migrates.
 Run the complete declarative hardware gate from this directory:
 
 ```sh
-cargo embedded-measure run ed25519-ct-jtrace-f407
+cargo krabi-caliper run ed25519-ct-jtrace-f407
 ```
 
 Repeatable `--case u32x8`, `--case u32x16`, and `--case u8x32` options select
 individual carriers. The runner owns build features, probe selection,
 deadlines, RTT completion, protocol validation, and retained evidence under
-`target/embedded-measure/ed25519-ct-jtrace-f407/`.
+`target/krabi-caliper/ed25519-ct-jtrace-f407/`.
 
 The migration campaign preserved the existing fail-closed policy and found:
 

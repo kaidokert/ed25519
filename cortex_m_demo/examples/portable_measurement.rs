@@ -7,9 +7,9 @@ use cortex_m_demo as _;
 #[cfg(not(feature = "external-measurement"))]
 use cortex_m_demo::cyclecount::CycleCounter;
 use cortex_m_rt::entry;
-use embedded_measure::Benchmark;
+use krabi_caliper::Benchmark;
 #[cfg(not(feature = "external-measurement"))]
-use embedded_measure::CounterPlatform;
+use krabi_caliper::CounterPlatform;
 
 #[inline(never)]
 fn portable_workload() -> bool {
@@ -23,7 +23,7 @@ fn portable_workload() -> bool {
 #[entry]
 fn main() -> ! {
     let benchmark = Benchmark::<3>::new("portable-workload").warmups(1);
-    let mut reporter = embedded_measure::semihosting::init().unwrap();
+    let mut reporter = krabi_caliper::semihosting::init().unwrap();
 
     #[cfg(feature = "external-measurement")]
     let passed = benchmark
@@ -41,8 +41,8 @@ fn main() -> ! {
     };
 
     if passed {
-        embedded_measure::semihosting::exit_success();
+        krabi_caliper::semihosting::exit_success();
     } else {
-        embedded_measure::semihosting::exit_failure();
+        krabi_caliper::semihosting::exit_failure();
     }
 }

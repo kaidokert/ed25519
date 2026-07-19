@@ -17,7 +17,7 @@ board = "qemu-lm3s6965evb"
 mcu = "lm3s6965"
 transport = "semihosting"
 build-features = ["external-measurement"]
-executable = "../../embedded-measure/target/debug/cargo-embedded-measure"
+executable = "../../krabi-caliper/target/debug/cargo-krabi-caliper"
 args = [
   "timestamp-command",
   "qemu-system-arm",

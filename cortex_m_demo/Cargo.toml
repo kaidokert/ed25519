@@ -9,12 +9,12 @@ autobenches = false
 [features]
 baseline = []
 external-measurement = []
-jtrace-f407 = ["cortex-m/critical-section-single-core", "embedded-measure/rtt"]
+jtrace-f407 = ["cortex-m/critical-section-single-core", "krabi-caliper/rtt"]
 
 [dependencies]
 cortex-m = "0.7"
 cortex-m-rt = "0.7"
-embedded-measure = { version = "0.1.0", features = ["stack", "cortex-m", "semihosting"] }
+krabi-caliper = { version = "0.1.0", features = ["stack", "cortex-m", "semihosting"] }
 cortex-m-semihosting = "0.5"
 panic-semihosting = { version = "0.6", features = ["exit"] }
 
@@ -27,7 +27,7 @@ fixed-bigint = { version = "0.5", default-features = false, features = ["use-uns
 const-num-traits = { version = "0.2", default-features = false }
 
 [patch.crates-io]
-embedded-measure = { path = "../../embedded-measure" }
+krabi-caliper = { path = "../../krabi-caliper" }
 
 [profile.release]
 codegen-units = 1

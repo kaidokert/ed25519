@@ -1,8 +1,8 @@
 #![no_std]
 
 use core::{fmt::Write, hint::black_box};
-use embedded_measure::report::{Field, MeasurementRecord, OutcomeRecord, Reporter, StackRecord};
-use embedded_measure::{Measurement, Unit};
+use krabi_caliper::report::{Field, MeasurementRecord, OutcomeRecord, Reporter, StackRecord};
+use krabi_caliper::{Measurement, Unit};
 
 pub mod cyclecount;
 pub mod stack;
@@ -68,9 +68,9 @@ pub fn test_fixture(testable: fn() -> bool, algo: &str, backend: &str) {
     ];
 
     #[cfg(not(feature = "jtrace-f407"))]
-    let mut reporter = embedded_measure::semihosting::init().unwrap();
+    let mut reporter = krabi_caliper::semihosting::init().unwrap();
     #[cfg(feature = "jtrace-f407")]
-    let mut reporter = embedded_measure::rtt::init_blocking();
+    let mut reporter = krabi_caliper::rtt::init_blocking();
     reporter
         .stack_measurement(&StackRecord {
             benchmark: "ed25519-footprint",
@@ -143,9 +143,9 @@ pub fn test_fixture(testable: fn() -> bool, algo: &str, backend: &str) {
 
     #[cfg(not(feature = "jtrace-f407"))]
     if result {
-        embedded_measure::semihosting::exit_success();
+        krabi_caliper::semihosting::exit_success();
     } else {
-        embedded_measure::semihosting::exit_failure();
+        krabi_caliper::semihosting::exit_failure();
     }
 }
 
@@ -169,7 +169,7 @@ use panic_semihosting as _;
 #[cfg(feature = "jtrace-f407")]
 #[panic_handler]
 fn panic(info: &core::panic::PanicInfo) -> ! {
-    embedded_measure::rtt::print(format_args!("PANIC: {}\n", info));
+    krabi_caliper::rtt::print(format_args!("PANIC: {}\n", info));
     loop {
         cortex_m::asm::nop();
     }

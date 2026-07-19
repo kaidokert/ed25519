@@ -5,9 +5,9 @@ use const_num_traits::Ct;
 use core::hint::black_box;
 use cortex_m_rt::entry;
 use ed25519_heapless::{SigningKey, sign, x25519, x25519_base};
-use embedded_measure::cortex_m::DwtCycleCounter;
-use embedded_measure::report::Field;
-use embedded_measure::suite::{PairedSuite, PairedSuiteConfig, PairedSuiteFields};
+use krabi_caliper::cortex_m::DwtCycleCounter;
+use krabi_caliper::report::Field;
+use krabi_caliper::suite::{PairedSuite, PairedSuiteConfig, PairedSuiteFields};
 use fixed_bigint::FixedUInt;
 
 const TRIALS: usize = 4;
@@ -103,7 +103,7 @@ fn fixture_negative_early_exit(secret: &[u8; 32]) -> bool {
 
 #[entry]
 fn main() -> ! {
-    let mut reporter = embedded_measure::rtt::init_ct_compatible();
+    let mut reporter = krabi_caliper::rtt::init_ct_compatible();
     let mut peripherals = cortex_m::Peripherals::take().unwrap();
     let mut counter =
         DwtCycleCounter::enable(&mut peripherals.DCB, &mut peripherals.DWT, Some(16_000_000))
@@ -122,7 +122,7 @@ fn main() -> ! {
             suite: "ed25519-cyccnt",
             target: "thumbv7em-none-eabihf",
             board: Some("stm32f407vg"),
-            unit: embedded_measure::Unit::CoreCycles,
+            unit: krabi_caliper::Unit::CoreCycles,
             frequency_hz: Some(16_000_000),
             warmup_blocks: 1,
             batches: BATCHES,
@@ -169,7 +169,7 @@ fn main() -> ! {
 
 #[panic_handler]
 fn panic(info: &core::panic::PanicInfo) -> ! {
-    embedded_measure::rtt::print(format_args!("PANIC: {}\n", info));
+    krabi_caliper::rtt::print(format_args!("PANIC: {}\n", info));
     loop {
         cortex_m::asm::nop();
     }

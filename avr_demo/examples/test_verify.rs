@@ -5,8 +5,8 @@
 use avr_demo as _;
 use avr_demo::stack_measurement::*;
 use avr_demo::{MESSAGE, PUBLIC_KEY, SIGNATURE};
-use embedded_measure::avr::timer_measurement;
-use embedded_measure::report::{
+use krabi_caliper::avr::timer_measurement;
+use krabi_caliper::report::{
     Field, MeasurementRecord, StackRecord, write_measurement_ufmt, write_stack_ufmt,
 };
 #[cfg(not(feature = "baseline"))]

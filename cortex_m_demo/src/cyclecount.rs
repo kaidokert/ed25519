@@ -1,5 +1,5 @@
 use core::sync::atomic::{AtomicU32, Ordering};
-use embedded_measure::{Counter, Measurement, Unit};
+use krabi_caliper::{Counter, Measurement, Unit};
 
 #[cfg(feature = "jtrace-f407")]
 use cortex_m::peripheral::DWT;

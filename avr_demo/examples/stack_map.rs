@@ -4,8 +4,8 @@
 
 use avr_demo as _;
 use avr_demo::stack_measurement::*;
-use embedded_measure::avr::timer_measurement;
-use embedded_measure::report::{MeasurementRecord, write_measurement_ufmt};
+use krabi_caliper::avr::timer_measurement;
+use krabi_caliper::report::{MeasurementRecord, write_measurement_ufmt};
 use fixed_bigint::FixedUInt;
 
 const PUBLIC_KEY: [u8; 32] = [
@@ -116,12 +116,12 @@ fn main() -> ! {
     let ticks = counter.elapsed_ticks(&dp.TC1);
 
     let stack = measure_stack(&stack_probe);
-    embedded_measure::report::write_stack_ufmt(
+    krabi_caliper::report::write_stack_ufmt(
         &mut serial,
-        &embedded_measure::report::StackRecord {
+        &krabi_caliper::report::StackRecord {
             benchmark: "ed25519-stack-map",
             measurement: stack,
-            fields: &[embedded_measure::report::Field::token(
+            fields: &[krabi_caliper::report::Field::token(
                 "target",
                 "atmega2560",
             )],
@@ -133,7 +133,7 @@ fn main() -> ! {
         &MeasurementRecord {
             benchmark: "ed25519-stack-map",
             measurement: timer_measurement(ticks, 15_625, false),
-            fields: &[embedded_measure::report::Field::token(
+            fields: &[krabi_caliper::report::Field::token(
                 "target",
                 "atmega2560",
             )],

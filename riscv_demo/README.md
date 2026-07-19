@@ -3,7 +3,7 @@
 Run the complete SiFive-E QEMU matrix with:
 
 ```sh
-cargo embedded-measure run ed25519-riscv32
+cargo krabi-caliper run ed25519-riscv32
 ```
 
 The firmware emits the shared `EM_*` protocol over UART. Because this machine
