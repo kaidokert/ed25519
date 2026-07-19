@@ -3,9 +3,3 @@ resolver = "2"
 
 members = [ "ed25519" ]
 exclude = [ "avr_demo", "cortex_m_demo", "riscv_demo", "ct-verify" ]
-
-# const-num-traits (0.2.1) and fixed-bigint (0.6.0) have graduated to
-# crates.io; only modmath itself remains unpublished, pinned by immutable
-# tag. Drop this block once modmath ships to crates.io.
-[patch.crates-io]
-modmath = { git = "https://github.com/kaidokert/modmath-rs.git", tag = "v0.6.0-alpha.cios.36" }
