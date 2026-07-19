@@ -1,10 +1,11 @@
 #![no_std]
 
 use core::{fmt::Write, hint::black_box};
+use krabi_caliper::cortex_m::CycleCounters as CycleCounter;
 use krabi_caliper::report::Field;
 use krabi_caliper::{Measurement, Unit};
 
-pub mod cyclecount;
+krabi_caliper::cortex_m_systick_overflow_handler!();
 
 // Ed25519 test vector ("Hello world!\n" / kaidokert key)
 pub const PUBLIC_KEY: [u8; 32] = [
@@ -32,8 +33,6 @@ pub const EXPECTED_SHARED: [u8; 32] = [
     0x4a, 0x5d, 0x9d, 0x5b, 0xa4, 0xce, 0x2d, 0xe1, 0x72, 0x8e, 0x3b, 0xf4, 0x80, 0x35, 0x0f, 0x25,
     0xe0, 0x7e, 0x21, 0xc9, 0x47, 0xd1, 0x9e, 0x33, 0x76, 0xf0, 0x9b, 0x3c, 0x1e, 0x16, 0x17, 0x42,
 ];
-
-use cyclecount::CycleCounter;
 
 pub fn test_fixture(testable: fn() -> bool, algo: &str, backend: &str) {
     // SAFETY: cortex-m-rt owns the single stack described by its linker symbols.

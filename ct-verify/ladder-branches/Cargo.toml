@@ -9,3 +9,6 @@ description = "Narrow-scope calibrated branch-count check for ed25519_heapless's
 [[bin]]
 name = "ladder-branches"
 path = "src/main.rs"
+
+[dependencies]
+krabi-caliper = { version = "0.1", features = ["host"] }

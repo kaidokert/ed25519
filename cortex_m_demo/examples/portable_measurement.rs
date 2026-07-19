@@ -4,12 +4,12 @@
 use core::hint::black_box;
 
 use cortex_m_demo as _;
-#[cfg(not(feature = "external-measurement"))]
-use cortex_m_demo::cyclecount::CycleCounter;
 use cortex_m_rt::entry;
 use krabi_caliper::Benchmark;
 #[cfg(not(feature = "external-measurement"))]
 use krabi_caliper::CounterPlatform;
+#[cfg(not(feature = "external-measurement"))]
+use krabi_caliper::cortex_m::CycleCounters as CycleCounter;
 
 #[inline(never)]
 fn portable_workload() -> bool {

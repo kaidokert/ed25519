@@ -6,6 +6,7 @@ use avr_demo as _;
 use fixed_bigint::FixedUInt;
 use krabi_caliper::avr::timer_measurement;
 use krabi_caliper::report::{Field, UfmtReporter};
+use krabi_caliper::stack::{DescendingStack, StackConfig, StackProbe};
 
 const PUBLIC_KEY: [u8; 32] = [
     0x33, 0xbc, 0x91, 0xa3, 0xca, 0xb8, 0x87, 0xc8, 0xbf, 0x3c, 0x63, 0x61, 0x46, 0xd2, 0xe3, 0x8d,
@@ -19,17 +20,11 @@ const SIGNATURE: [u8; 64] = [
 ];
 const MESSAGE: &[u8] = b"Hello world!\n";
 
-const RAMEND_ADDR: u16 = 0x21FF;
-
-unsafe extern "C" {
-    static mut _end: u8;
-}
-
 /// Print a visual map of stack usage in 64-byte chunks
 /// Shows '#' for used (watermark overwritten) and '.' for unused (watermark intact)
-fn print_stack_map(serial: &mut impl ufmt::uWrite) {
-    let stack_start = unsafe { &raw mut _end as *const u8 };
-    let stack_end = RAMEND_ADDR as *const u8;
+fn print_stack_map(serial: &mut impl ufmt::uWrite, stack: &impl DescendingStack) {
+    let stack_start = stack.bottom().as_ptr().cast_const();
+    let stack_end = stack.top().as_ptr().cast_const();
     let total = unsafe { stack_end.offset_from(stack_start) as u16 };
 
     ufmt::uwriteln!(serial, "Stack map ({} bytes, 32B/char):", total).ok();
@@ -76,7 +71,6 @@ fn print_stack_map(serial: &mut impl ufmt::uWrite) {
     ufmt::uwriteln!(serial, "").ok();
     ufmt::uwriteln!(serial, "Per-256B region (used/256):").ok();
     let mut region_addr = stack_start;
-    let mut region_idx: u16 = 0;
     while (region_addr as u16) < (stack_end as u16) {
         let region_end = ((region_addr as u16).saturating_add(256)).min(stack_end as u16);
         let mut used: u16 = 0;
@@ -97,7 +91,6 @@ fn print_stack_map(serial: &mut impl ufmt::uWrite) {
         )
         .ok();
         region_addr = region_end as *const u8;
-        region_idx += 1;
     }
     ufmt::uwriteln!(serial, "  Total free RAM: {}", total).ok();
 }
@@ -109,12 +102,13 @@ fn main() -> ! {
     let serial = arduino_hal::default_serial!(dp, pins, 57600);
 
     // SAFETY: ATmega2560 SRAM above `_end` is reserved for this single stack.
+    let stack_region = unsafe { krabi_caliper::avr::atmega2560_stack() };
     let stack_probe =
-        unsafe { krabi_caliper::stack::paint_avr_runtime::<64>(0x2200, 0xce) }.unwrap();
+        StackProbe::paint(&stack_region, StackConfig::new(64).sentinel(0xce)).unwrap();
 
-    let counter = avr_demo::cyclecount::CycleCounter::start(&dp.TC1);
+    let counter = krabi_caliper::avr::Atmega2560Timer1Counter::start(&dp.TC1);
     let result = ed25519_heapless::verify::<FixedUInt<u8, 32>>(PUBLIC_KEY, MESSAGE, SIGNATURE);
-    let ticks = counter.elapsed_ticks(&dp.TC1);
+    let ticks = counter.elapsed_ticks();
 
     let stack = stack_probe.measure();
     let fields = [Field::token("target", "atmega2560")];
@@ -142,7 +136,7 @@ fn main() -> ! {
     )
     .ok();
 
-    print_stack_map(&mut serial);
+    print_stack_map(&mut serial, &stack_region);
 
     loop {
         unsafe { core::arch::asm!("sleep") }

@@ -27,11 +27,12 @@
 //! equality) that Valgrind MUST flag. If it doesn't, the taint
 //! plumbing is broken.
 
-use crate::macros::{ctgrind_fixture, taint_val, untaint_val};
 use const_num_traits::Ct;
 use core::hint::black_box;
 use ed25519_heapless::{SigningKey, sign, x25519, x25519_base};
 use fixed_bigint::FixedUInt;
+use krabi_caliper::ctgrind_fixture;
+use krabi_caliper::host::ctgrind::{taint_val, untaint_val};
 
 type T32x8 = FixedUInt<u32, 8, Ct>;
 type T32x16 = FixedUInt<u32, 16, Ct>;

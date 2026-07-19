@@ -21,7 +21,7 @@ fn main() -> ! {
     let stack_probe =
         unsafe { krabi_caliper::stack::paint_avr_runtime::<64>(0x2200, 0xce) }.unwrap();
 
-    let counter = avr_demo::cyclecount::CycleCounter::start(tc1);
+    let counter = krabi_caliper::avr::Atmega2560Timer1Counter::start(tc1);
     let result = {
         #[cfg(feature = "baseline")]
         {
@@ -32,7 +32,7 @@ fn main() -> ! {
             ed25519_heapless::verify::<FixedUInt<u8, 32>>(PUBLIC_KEY, MESSAGE, SIGNATURE)
         }
     };
-    let ticks = counter.elapsed_ticks(tc1);
+    let ticks = counter.elapsed_ticks();
 
     let stack = stack_probe.measure();
     let fields = [Field::token("target", "atmega2560")];

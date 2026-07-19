@@ -22,8 +22,23 @@
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 
-mod mnemonics;
-use mnemonics::{IsaSpec, lookup};
+use krabi_caliper::host::isa::{ConditionalBranchSpec, conditional_branch_spec};
+
+struct IsaSpec {
+    branch_policy: &'static ConditionalBranchSpec,
+    expected_montgomery_ladder: u32,
+    expected_scalar_mult_ct: u32,
+}
+
+fn lookup(triple: &str) -> Option<IsaSpec> {
+    let branch_policy = conditional_branch_spec(triple)?;
+    let expected_scalar_mult_ct = if triple.starts_with("riscv32") { 2 } else { 1 };
+    Some(IsaSpec {
+        branch_policy,
+        expected_montgomery_ladder: 1,
+        expected_scalar_mult_ct,
+    })
+}
 
 struct Args {
     target: String,
@@ -221,8 +236,8 @@ fn count_conditional_branches(body: &[&str], isa: &IsaSpec) -> u32 {
             Some(m) => m,
             None => continue,
         };
-        let normalized = (isa.normalize)(mnemonic);
-        if isa.cond_branches.contains(&normalized) {
+        let normalized = (isa.branch_policy.normalize)(mnemonic);
+        if isa.branch_policy.mnemonics.contains(&normalized) {
             count += 1;
         }
     }
@@ -295,7 +310,7 @@ fn main() -> ExitCode {
         Some(i) => i,
         None => {
             eprintln!(
-                "error: unknown target {}. Add per-ISA calibration to mnemonics.rs.",
+                "error: unknown target {}. Add shared ISA policy and local ladder calibration.",
                 args.target
             );
             return ExitCode::from(2);
@@ -329,8 +344,8 @@ fn main() -> ExitCode {
 
     println!("[ladder-branches] {}", args.target);
     let mut any_failed = false;
-    for check in ladder_checks_for(isa) {
-        match check_ladder(&disasm, &check, isa) {
+    for check in ladder_checks_for(&isa) {
+        match check_ladder(&disasm, &check, &isa) {
             Verdict::Ok(n) => {
                 println!(
                     "  OK: {} — {} conditional branch(es) matches calibration",
@@ -392,7 +407,7 @@ Disassembly of section .text.something_else:
        0: e7fe         	b	0x0
 ";
 
-    fn thumb_isa() -> &'static IsaSpec {
+    fn thumb_isa() -> IsaSpec {
         lookup("thumbv7em-none-eabi").unwrap()
     }
 
@@ -414,7 +429,7 @@ Disassembly of section .text.something_else:
         let (_, body) = find_ladder(SAMPLE_DISASM, "scalar_mult_ct").unwrap();
         // Two branches in the section: `beq` (conditional) and `b`
         // (unconditional). Only `beq` should count.
-        assert_eq!(count_conditional_branches(&body, isa), 1);
+        assert_eq!(count_conditional_branches(&body, &isa), 1);
     }
 
     #[test]
@@ -422,7 +437,7 @@ Disassembly of section .text.something_else:
         let isa = thumb_isa();
         let (_, body) = find_ladder(SAMPLE_DISASM, "montgomery_ladder").unwrap();
         // `beq.w` normalizes to `beq` → 1.
-        assert_eq!(count_conditional_branches(&body, isa), 1);
+        assert_eq!(count_conditional_branches(&body, &isa), 1);
     }
 
     #[test]
@@ -433,7 +448,7 @@ Disassembly of section .text.something_else:
             match_substring: "nonexistent_ladder_xyz",
             expected: 1,
         };
-        match check_ladder(SAMPLE_DISASM, &check, isa) {
+        match check_ladder(SAMPLE_DISASM, &check, &isa) {
             Verdict::NotFound => {}
             _ => panic!("expected NotFound"),
         }
@@ -447,7 +462,7 @@ Disassembly of section .text.something_else:
             match_substring: "scalar_mult_ct",
             expected: 99,
         };
-        match check_ladder(SAMPLE_DISASM, &check, isa) {
+        match check_ladder(SAMPLE_DISASM, &check, &isa) {
             Verdict::Mismatch { found, section, .. } => {
                 assert_eq!(found, 1);
                 assert!(section[0].contains("scalar_mult_ct"));

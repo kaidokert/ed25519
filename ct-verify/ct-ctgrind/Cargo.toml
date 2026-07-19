@@ -19,15 +19,4 @@ ed25519_heapless = { path = "../../ed25519", default-features = false, features 
 fixed-bigint = { version = "0.6.0", default-features = false, features = ["use-unsafe", "zeroize", "cios"] }
 const-num-traits = { version = "0.2.1", default-features = false, features = ["ct"] }
 
-# Distributed-slice collection for the fixture registry.
-inventory = "0.3"
-
-# Identifier concatenation in macros (for `run_<fixture_name>`).
-paste = "1.0"
-
-# Valgrind client requests; Linux-only — see `src/valgrind.rs`. On
-# other hosts the driver still builds (as a stub) so workspace-wide
-# `cargo check`/`clippy` doesn't fail, but only Linux can exercise
-# the taint gate.
-[target.'cfg(target_os = "linux")'.dependencies]
-crabgrind = "0.1"
+krabi-caliper = { version = "0.1", features = ["ctgrind"] }
