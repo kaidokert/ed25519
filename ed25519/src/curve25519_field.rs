@@ -75,15 +75,11 @@ where
         + modmath::NonCt
         + const_num_traits::BitsPrecision,
 {
-    pub fn new(modulus: T) -> Option<Self> {
-        FieldNct::new(modulus).map(|inner| Curve25519Field { inner, modulus })
-    }
-
     /// Infallible constructor from a proven-odd modulus. The
     /// [`modmath::Odd`] typestate discharges the parity / non-zero
     /// check at the trust boundary instead of inside the field
     /// constructor — see modmath's `Field::new_odd`.
-    pub fn new_odd(modulus: modmath::Odd<T>) -> Self {
+    pub(crate) fn new_odd(modulus: modmath::Odd<T>) -> Self {
         let raw = modulus.get();
         let inner = FieldNct::new_odd(modulus);
         Curve25519Field {
@@ -213,13 +209,9 @@ where
     for<'a> &'a T:
         const_num_traits::WrappingAdd<Output = T> + const_num_traits::WrappingSub<Output = T>,
 {
-    pub fn new(modulus: T) -> Option<Self> {
-        FieldCt::new(modulus).map(|inner| Curve25519FieldCt { inner, modulus })
-    }
-
     /// Infallible constructor from a proven-odd modulus — see
     /// [`Curve25519Field::new_odd`].
-    pub fn new_odd(modulus: modmath::Odd<T>) -> Self {
+    pub(crate) fn new_odd(modulus: modmath::Odd<T>) -> Self {
         let raw = modulus.get();
         let inner = FieldCt::new_odd(modulus);
         Curve25519FieldCt {
@@ -481,13 +473,11 @@ mod tests {
     type T256Ct = FixedUInt<u8, 32, Ct>;
 
     fn curve_field() -> Curve25519Field<T256> {
-        let p = crate::from_le_bytes::<T256>(&P_BYTES);
-        Curve25519Field::new(p).unwrap()
+        Curve25519Field::<T256>::curve25519().unwrap()
     }
 
     fn curve_field_ct() -> Curve25519FieldCt<T256Ct> {
-        let p = crate::from_le_bytes::<T256Ct>(&P_BYTES);
-        Curve25519FieldCt::new(p).unwrap()
+        Curve25519FieldCt::<T256Ct>::curve25519().unwrap()
     }
 
     #[test]

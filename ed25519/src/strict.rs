@@ -101,7 +101,7 @@ where
 fn recover_x<'f, F, T>(y_raw: T, sign: u8, d_raw: T, field: &'f F) -> Option<Res<'f, F, T>>
 where
     F: VerifyField<T>,
-    T: UnsignedModularInt + Copy + const_num_traits::WrappingSub<Output = T>,
+    T: UnsignedModularInt + Copy,
     for<'a> &'a T:
         const_num_traits::WrappingAdd<Output = T> + const_num_traits::WrappingSub<Output = T>,
 {
@@ -178,7 +178,7 @@ fn decompress_edward_point<'f, F, T>(
 ) -> Option<EdPoint<'f, F, T>>
 where
     F: VerifyField<T>,
-    T: UnsignedModularInt + Copy + const_num_traits::WrappingSub<Output = T>,
+    T: UnsignedModularInt + Copy,
     for<'a> &'a T:
         const_num_traits::WrappingAdd<Output = T> + const_num_traits::WrappingSub<Output = T>,
 {
@@ -202,7 +202,7 @@ where
 fn point_double<'f, F, T>(pp: &EdPoint<'f, F, T>, field: &'f F) -> EdPoint<'f, F, T>
 where
     F: VerifyField<T>,
-    T: UnsignedModularInt + Copy + const_num_traits::WrappingSub<Output = T>,
+    T: UnsignedModularInt + Copy,
     for<'a> &'a T:
         const_num_traits::WrappingAdd<Output = T> + const_num_traits::WrappingSub<Output = T>,
 {
@@ -234,7 +234,7 @@ where
 fn to_niels<'f, F, T>(pp: &EdPoint<'f, F, T>, d_raw: T, field: &'f F) -> NielsPoint<'f, F, T>
 where
     F: VerifyField<T>,
-    T: UnsignedModularInt + Copy + const_num_traits::WrappingSub<Output = T>,
+    T: UnsignedModularInt + Copy,
     for<'a> &'a T:
         const_num_traits::WrappingAdd<Output = T> + const_num_traits::WrappingSub<Output = T>,
 {
@@ -254,7 +254,7 @@ fn point_add_niels<'f, F, T>(
 ) -> EdPoint<'f, F, T>
 where
     F: VerifyField<T>,
-    T: UnsignedModularInt + Copy + const_num_traits::WrappingSub<Output = T>,
+    T: UnsignedModularInt + Copy,
     for<'a> &'a T:
         const_num_traits::WrappingAdd<Output = T> + const_num_traits::WrappingSub<Output = T>,
 {
@@ -282,7 +282,7 @@ where
 fn point_equal<'f, F, T>(pp: &EdPoint<'f, F, T>, qq: &EdPoint<'f, F, T>, field: &'f F) -> bool
 where
     F: VerifyField<T>,
-    T: UnsignedModularInt + Copy + const_num_traits::WrappingSub<Output = T>,
+    T: UnsignedModularInt + Copy,
     for<'a> &'a T:
         const_num_traits::WrappingAdd<Output = T> + const_num_traits::WrappingSub<Output = T>,
 {
