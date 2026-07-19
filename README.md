@@ -7,11 +7,13 @@
 [![Cortex-M](https://github.com/kaidokert/ed25519/actions/workflows/cortex_m.yml/badge.svg)](https://github.com/kaidokert/ed25519/actions/workflows/cortex_m.yml)
 [![RISC-V](https://github.com/kaidokert/ed25519/actions/workflows/riscv.yml/badge.svg)](https://github.com/kaidokert/ed25519/actions/workflows/riscv.yml)
 
-This is a fork of the `ed25519` crate, ported to microcontrollers. Signature verification is implemented through generic traits, currently using [fixed-bigint](https://crates.io/crates/fixed-bigint) as the backend. It's tested on 8-bit AVR, Cortex-M and RISC-V.
+This is a fork of the `ed25519` crate, ported to microcontrollers. It is generic over the bignum backend: bring your own by implementing the trait bundle, or use [fixed-bigint](https://crates.io/crates/fixed-bigint) (the reference backend, with both fixed-width and runtime-length carriers). Tested on 8-bit AVR, Cortex-M and RISC-V.
 
-The implementation balances code size, stack usage and execution speed rather than optimizing purely for speed. It only does signature verification right now (e.g., bootloaders), as private key handling requires constant-time operations, a trustworthy random source and secure storage for the private key.
+The implementation balances code size, stack usage and execution speed rather than optimizing purely for speed. Alongside signature verification (e.g., bootloaders), it provides Ed25519 signing and X25519 key exchange — with optional scalar/coordinate blinding — on constant-time field arithmetic. Callers remain responsible for a trustworthy random source and secure private-key storage.
 
-#### Resource usage (as of version 0.0.3)
+#### Resource usage — signature verification (measured at v0.0.3)
+
+These figures are for the verify path only and predate the sign / X25519 work; they are indicative rather than current.
 
 | Target | Backend | .text (KiB) | Stack (bytes) |
 | ------ | ------- | ----------: | ------------: |
