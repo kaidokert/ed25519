@@ -3,11 +3,9 @@
 use core::fmt::Write;
 use core::hint::black_box;
 use krabi_caliper::Counter;
-use krabi_caliper::report::{Field, MeasurementRecord, OutcomeRecord, Reporter, StackRecord};
-use krabi_caliper::risc_v::{McycleCounter, MinstretCounter};
-
-pub mod stack;
-pub mod uart;
+use krabi_caliper::report::Field;
+use krabi_caliper::risc_v::{McycleCounter, MinstretCounter, MmioTxFifo32, write_mmio32};
+use krabi_caliper::uart::{UartReporter, reporter};
 
 pub const PUBLIC_KEY: [u8; 32] = [
     0x33, 0xbc, 0x91, 0xa3, 0xca, 0xb8, 0x87, 0xc8, 0xbf, 0x3c, 0x63, 0x61, 0x46, 0xd2, 0xe3, 0x8d,
@@ -21,13 +19,23 @@ pub const SIGNATURE: [u8; 64] = [
 ];
 pub const MESSAGE: &[u8] = b"Hello world!\n";
 
-use stack::paint_stack;
-use uart::{uart_init, uart_reporter};
+type SifiveReporter = UartReporter<MmioTxFifo32<0x1001_3000>>;
+
+fn uart_init() {
+    // SAFETY: sifive_e UART0 is exclusively owned by this single-core fixture.
+    unsafe { write_mmio32(0x1001_3008, 1) }
+}
+
+fn uart_reporter() -> SifiveReporter {
+    // SAFETY: sifive_e UART0 is exclusively owned by this single-core fixture.
+    reporter(unsafe { MmioTxFifo32::new() })
+}
 
 pub fn test_fixture(testable: fn() -> bool, backend: &str) -> ! {
     uart_init();
 
-    let stack_probe = paint_stack::<256>();
+    // SAFETY: riscv-rt owns the single stack described by its linker symbols.
+    let stack_probe = unsafe { krabi_caliper::stack::paint_riscv_runtime::<256>() }.unwrap();
     let mut counter = McycleCounter::new(None);
     let mut instructions = MinstretCounter::new(None);
     let start = counter.now();
@@ -39,38 +47,10 @@ pub fn test_fixture(testable: fn() -> bool, backend: &str) -> ! {
     let stack = stack_probe.measure();
 
     let mut reporter = uart_reporter();
-    reporter
-        .stack_measurement(&StackRecord {
-            benchmark: "ed25519-footprint",
-            measurement: stack,
-            fields: &[
-                Field::token("target", "riscv32"),
-                Field::token("backend", backend),
-            ],
-        })
-        .unwrap();
-    reporter
-        .measurement(&MeasurementRecord {
-            benchmark: "ed25519-footprint",
-            measurement: instruction_measurement,
-            fields: &[
-                Field::token("target", "riscv32"),
-                Field::token("backend", backend),
-                Field::token("counter", "minstret"),
-            ],
-        })
-        .unwrap();
-    reporter
-        .measurement(&MeasurementRecord {
-            benchmark: "ed25519-footprint",
-            measurement,
-            fields: &[
-                Field::token("target", "riscv32"),
-                Field::token("backend", backend),
-                Field::token("counter", "mcycle"),
-            ],
-        })
-        .unwrap();
+    let fields = [
+        Field::token("target", "riscv32"),
+        Field::token("backend", backend),
+    ];
     if result {
         let _ = writeln!(reporter, "ed25519 ACCEPT");
     } else {
@@ -81,20 +61,22 @@ pub fn test_fixture(testable: fn() -> bool, backend: &str) -> ! {
         "METRIC stack:{} cycles:{} target:riscv32 backend:{}",
         stack.high_water_bytes, elapsed, backend
     );
-    reporter
-        .outcome(&OutcomeRecord {
-            benchmark: "ed25519-footprint",
-            passed: result,
-            fields: &[
-                Field::token("target", "riscv32"),
-                Field::token("backend", backend),
-            ],
-        })
-        .unwrap();
+    krabi_caliper::report_completed!(
+        &mut reporter,
+        benchmark: "ed25519-footprint",
+        passed: result,
+        fields: &fields,
+        stack: stack,
+        measurements: [
+            ("minstret", instruction_measurement),
+            ("mcycle", measurement),
+        ]
+    )
+    .unwrap();
 
     // sifive_e has no exit mechanism — loop forever, wrapper kills QEMU
     loop {
-        unsafe { core::arch::asm!("wfi") }
+        core::hint::spin_loop()
     }
 }
 
@@ -111,6 +93,6 @@ fn panic(info: &core::panic::PanicInfo) -> ! {
     let mut reporter = uart_reporter();
     let _ = writeln!(reporter, "PANIC: {}", info);
     loop {
-        unsafe { core::arch::asm!("wfi") }
+        core::hint::spin_loop()
     }
 }

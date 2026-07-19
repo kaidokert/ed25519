@@ -3,24 +3,23 @@
 #![feature(asm_experimental_arch)]
 
 use avr_demo as _;
-use avr_demo::stack_measurement::*;
 use avr_demo::{MESSAGE, PUBLIC_KEY, SIGNATURE};
-use krabi_caliper::avr::timer_measurement;
-use krabi_caliper::report::{
-    Field, MeasurementRecord, StackRecord, write_measurement_ufmt, write_stack_ufmt,
-};
 #[cfg(not(feature = "baseline"))]
 use fixed_bigint::FixedUInt;
+use krabi_caliper::avr::timer_measurement;
+use krabi_caliper::report::{Field, UfmtReporter};
 
 #[arduino_hal::entry]
 fn main() -> ! {
     let dp = arduino_hal::Peripherals::take().unwrap();
     let pins = arduino_hal::pins!(dp);
-    let mut serial = arduino_hal::default_serial!(dp, pins, 57600);
+    let serial = arduino_hal::default_serial!(dp, pins, 57600);
 
     let tc1 = &dp.TC1;
 
-    let stack_probe = fill_stack_with_watermark();
+    // SAFETY: ATmega2560 SRAM above `_end` is reserved for this single stack.
+    let stack_probe =
+        unsafe { krabi_caliper::stack::paint_avr_runtime::<64>(0x2200, 0xce) }.unwrap();
 
     let counter = avr_demo::cyclecount::CycleCounter::start(tc1);
     let result = {
@@ -35,25 +34,19 @@ fn main() -> ! {
     };
     let ticks = counter.elapsed_ticks(tc1);
 
-    let stack = measure_stack(&stack_probe);
-    write_stack_ufmt(
-        &mut serial,
-        &StackRecord {
-            benchmark: "ed25519-footprint",
-            measurement: stack,
-            fields: &[Field::token("target", "atmega2560")],
-        },
+    let stack = stack_probe.measure();
+    let fields = [Field::token("target", "atmega2560")];
+    let mut reporter = UfmtReporter::new(serial);
+    krabi_caliper::report_completed!(
+        &mut reporter,
+        benchmark: "ed25519-footprint",
+        passed: result,
+        fields: &fields,
+        stack: stack,
+        measurements: [("timer1", timer_measurement(ticks, 15_625, false))]
     )
     .unwrap();
-    write_measurement_ufmt(
-        &mut serial,
-        &MeasurementRecord {
-            benchmark: "ed25519-footprint",
-            measurement: timer_measurement(ticks, 15_625, false),
-            fields: &[Field::token("target", "atmega2560")],
-        },
-    )
-    .unwrap();
+    let mut serial = reporter.into_inner();
 
     let ms = ticks * 8 / 125;
 

@@ -1,104 +1,10 @@
-use core::sync::atomic::{AtomicU32, Ordering};
-use krabi_caliper::{Counter, Measurement, Unit};
-
-#[cfg(feature = "jtrace-f407")]
-use cortex_m::peripheral::DWT;
-use cortex_m::peripheral::{SYST, syst::SystClkSource};
 use cortex_m_rt::exception;
-
-static SYSTICK_WRAPS: AtomicU32 = AtomicU32::new(0);
+use krabi_caliper::cortex_m::systick_overflow;
+pub use krabi_caliper::cortex_m::{
+    CycleCounters as CycleCounter, CycleMeasurements as CycleMeasurement,
+};
 
 #[exception]
 fn SysTick() {
-    let current = SYSTICK_WRAPS.load(Ordering::Relaxed);
-    SYSTICK_WRAPS.store(current + 1, Ordering::Relaxed);
-}
-
-pub struct CycleCounter {
-    start_systick: u64,
-    #[cfg(feature = "jtrace-f407")]
-    start_dwt: u32,
-}
-
-pub struct CycleMeasurement {
-    pub systick: u64,
-    #[cfg(feature = "jtrace-f407")]
-    pub dwt: u32,
-}
-
-impl CycleCounter {
-    const RELOAD_VALUE: u32 = 0x00ffffff;
-
-    /// Read total cycles since SysTick was started, with consistency check.
-    /// Retries if a wrap interrupt fires between reading counter and wraps.
-    fn total_cycles() -> u64 {
-        let period = Self::RELOAD_VALUE as u64 + 1;
-        loop {
-            let wraps1 = SYSTICK_WRAPS.load(Ordering::SeqCst);
-            let val = SYST::get_current();
-            let wraps2 = SYSTICK_WRAPS.load(Ordering::SeqCst);
-            if wraps1 == wraps2 {
-                // SysTick counts DOWN from reload, so elapsed = reload - val
-                return wraps1 as u64 * period + (Self::RELOAD_VALUE as u64 - val as u64);
-            }
-        }
-    }
-
-    pub fn new() -> Self {
-        let mut peripherals = cortex_m::Peripherals::take().unwrap();
-        let syst = &mut peripherals.SYST;
-        syst.set_clock_source(SystClkSource::Core);
-        syst.set_reload(Self::RELOAD_VALUE);
-        syst.clear_current();
-        syst.enable_interrupt();
-        syst.enable_counter();
-
-        // Wait for the counter to load from the reload register.
-        cortex_m::asm::dsb();
-        while SYST::get_current() == 0 {
-            cortex_m::asm::nop();
-        }
-
-        #[cfg(feature = "jtrace-f407")]
-        {
-            assert!(DWT::has_cycle_counter());
-            peripherals.DCB.enable_trace();
-            peripherals.DWT.set_cycle_count(0);
-            peripherals.DWT.enable_cycle_counter();
-            cortex_m::asm::dsb();
-        }
-
-        Self {
-            start_systick: Self::total_cycles(),
-            #[cfg(feature = "jtrace-f407")]
-            start_dwt: DWT::cycle_count(),
-        }
-    }
-
-    pub fn elapsed(&self) -> CycleMeasurement {
-        // Read DWT first so the two end samples are adjacent. Both counters
-        // bracket the same caller workload, differing only by this small,
-        // fixed sampling overhead.
-        #[cfg(feature = "jtrace-f407")]
-        let dwt = DWT::cycle_count().wrapping_sub(self.start_dwt);
-        let systick = Self::total_cycles() - self.start_systick;
-
-        CycleMeasurement {
-            systick,
-            #[cfg(feature = "jtrace-f407")]
-            dwt,
-        }
-    }
-}
-
-impl Counter for CycleCounter {
-    type Instant = u64;
-
-    fn now(&mut self) -> Self::Instant {
-        Self::total_cycles()
-    }
-
-    fn elapsed(&mut self, start: Self::Instant) -> Measurement {
-        Measurement::new(Self::total_cycles().wrapping_sub(start), Unit::CoreCycles)
-    }
+    systick_overflow();
 }

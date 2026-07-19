@@ -3,10 +3,9 @@
 #![feature(asm_experimental_arch)]
 
 use avr_demo as _;
-use avr_demo::stack_measurement::*;
-use krabi_caliper::avr::timer_measurement;
-use krabi_caliper::report::{MeasurementRecord, write_measurement_ufmt};
 use fixed_bigint::FixedUInt;
+use krabi_caliper::avr::timer_measurement;
+use krabi_caliper::report::{Field, UfmtReporter};
 
 const PUBLIC_KEY: [u8; 32] = [
     0x33, 0xbc, 0x91, 0xa3, 0xca, 0xb8, 0x87, 0xc8, 0xbf, 0x3c, 0x63, 0x61, 0x46, 0xd2, 0xe3, 0x8d,
@@ -107,39 +106,29 @@ fn print_stack_map(serial: &mut impl ufmt::uWrite) {
 fn main() -> ! {
     let dp = arduino_hal::Peripherals::take().unwrap();
     let pins = arduino_hal::pins!(dp);
-    let mut serial = arduino_hal::default_serial!(dp, pins, 57600);
+    let serial = arduino_hal::default_serial!(dp, pins, 57600);
 
-    let stack_probe = fill_stack_with_watermark();
+    // SAFETY: ATmega2560 SRAM above `_end` is reserved for this single stack.
+    let stack_probe =
+        unsafe { krabi_caliper::stack::paint_avr_runtime::<64>(0x2200, 0xce) }.unwrap();
 
     let counter = avr_demo::cyclecount::CycleCounter::start(&dp.TC1);
     let result = ed25519_heapless::verify::<FixedUInt<u8, 32>>(PUBLIC_KEY, MESSAGE, SIGNATURE);
     let ticks = counter.elapsed_ticks(&dp.TC1);
 
-    let stack = measure_stack(&stack_probe);
-    krabi_caliper::report::write_stack_ufmt(
-        &mut serial,
-        &krabi_caliper::report::StackRecord {
-            benchmark: "ed25519-stack-map",
-            measurement: stack,
-            fields: &[krabi_caliper::report::Field::token(
-                "target",
-                "atmega2560",
-            )],
-        },
+    let stack = stack_probe.measure();
+    let fields = [Field::token("target", "atmega2560")];
+    let mut reporter = UfmtReporter::new(serial);
+    krabi_caliper::report_completed!(
+        &mut reporter,
+        benchmark: "ed25519-stack-map",
+        passed: result,
+        fields: &fields,
+        stack: stack,
+        measurements: [("timer1", timer_measurement(ticks, 15_625, false))]
     )
     .unwrap();
-    write_measurement_ufmt(
-        &mut serial,
-        &MeasurementRecord {
-            benchmark: "ed25519-stack-map",
-            measurement: timer_measurement(ticks, 15_625, false),
-            fields: &[krabi_caliper::report::Field::token(
-                "target",
-                "atmega2560",
-            )],
-        },
-    )
-    .unwrap();
+    let mut serial = reporter.into_inner();
 
     if result {
         ufmt::uwriteln!(&mut serial, "ACCEPT").ok();

@@ -33,7 +33,7 @@ fn main() -> ! {
 
     #[cfg(not(feature = "external-measurement"))]
     let passed = {
-        let mut platform = CounterPlatform::new(CycleCounter::new());
+        let mut platform = CounterPlatform::new(CycleCounter::start(false, None).unwrap());
         benchmark
             .run(&mut platform, &mut reporter, portable_workload)
             .unwrap()
