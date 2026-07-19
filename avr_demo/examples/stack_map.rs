@@ -6,7 +6,7 @@ use avr_demo as _;
 use fixed_bigint::FixedUInt;
 use krabi_caliper::avr::timer_measurement;
 use krabi_caliper::report::{Field, UfmtReporter};
-use krabi_caliper::stack::{DescendingStack, StackConfig, StackProbe};
+use krabi_caliper::stack::{DescendingStack, StackChunkState, StackConfig, StackMap, StackProbe};
 
 const PUBLIC_KEY: [u8; 32] = [
     0x33, 0xbc, 0x91, 0xa3, 0xca, 0xb8, 0x87, 0xc8, 0xbf, 0x3c, 0x63, 0x61, 0x46, 0xd2, 0xe3, 0x8d,
@@ -23,44 +23,21 @@ const MESSAGE: &[u8] = b"Hello world!\n";
 /// Print a visual map of stack usage in 64-byte chunks
 /// Shows '#' for used (watermark overwritten) and '.' for unused (watermark intact)
 fn print_stack_map(serial: &mut impl ufmt::uWrite, stack: &impl DescendingStack) {
-    let stack_start = stack.bottom().as_ptr().cast_const();
-    let stack_end = stack.top().as_ptr().cast_const();
-    let total = unsafe { stack_end.offset_from(stack_start) as u16 };
+    let map = StackMap::new(stack, 0xce).unwrap();
+    let stack_start = stack.bottom().as_ptr() as usize;
+    let total = map.len();
 
     ufmt::uwriteln!(serial, "Stack map ({} bytes, 32B/char):", total).ok();
     ufmt::uwrite!(serial, "LO|").ok();
 
-    let chunk_size: u16 = 32;
-    let mut addr = stack_start;
-    let mut chunk_idx: u16 = 0;
-
-    while (addr as u16) < (stack_end as u16) {
-        // Count watermark bytes in this chunk
-        let chunk_end_addr = (addr as u16)
-            .saturating_add(chunk_size)
-            .min(stack_end as u16);
-        let mut watermark_count: u16 = 0;
-        let mut scan = addr;
-        while (scan as u16) < chunk_end_addr {
-            if unsafe { core::ptr::read_volatile(scan) } == 0xCE {
-                watermark_count += 1;
-            }
-            scan = unsafe { scan.add(1) };
-        }
-
-        // '#' = mostly used, '.' = mostly unused, ':' = partial
-        let actual_chunk_size = chunk_end_addr - (addr as u16);
-        if watermark_count == actual_chunk_size {
-            ufmt::uwrite!(serial, ".").ok();
-        } else if watermark_count == 0 {
-            ufmt::uwrite!(serial, "#").ok();
-        } else {
-            ufmt::uwrite!(serial, ":").ok();
-        }
-
-        addr = chunk_end_addr as *const u8;
-        chunk_idx += 1;
-        if chunk_idx % 80 == 0 {
+    for (chunk_idx, chunk) in map.chunks(32).enumerate() {
+        let marker = match chunk.state {
+            StackChunkState::Unused => ".",
+            StackChunkState::Partial => ":",
+            StackChunkState::Used => "#",
+        };
+        ufmt::uwrite!(serial, "{}", marker).ok();
+        if (chunk_idx + 1) % 80 == 0 {
             ufmt::uwriteln!(serial, "").ok();
             ufmt::uwrite!(serial, "   ").ok();
         }
@@ -70,27 +47,15 @@ fn print_stack_map(serial: &mut impl ufmt::uWrite, stack: &impl DescendingStack)
     // Also print per-256B region summary with byte counts
     ufmt::uwriteln!(serial, "").ok();
     ufmt::uwriteln!(serial, "Per-256B region (used/256):").ok();
-    let mut region_addr = stack_start;
-    while (region_addr as u16) < (stack_end as u16) {
-        let region_end = ((region_addr as u16).saturating_add(256)).min(stack_end as u16);
-        let mut used: u16 = 0;
-        let mut scan = region_addr;
-        while (scan as u16) < region_end {
-            if unsafe { core::ptr::read_volatile(scan) } != 0xCE {
-                used += 1;
-            }
-            scan = unsafe { scan.add(1) };
-        }
-        let region_size = region_end - region_addr as u16;
+    for region in map.chunks(256) {
         ufmt::uwriteln!(
             serial,
             "  {:04X}: {}/{}",
-            region_addr as u16,
-            used,
-            region_size
+            (stack_start + region.offset) as u16,
+            region.used_bytes,
+            region.len
         )
         .ok();
-        region_addr = region_end as *const u8;
     }
     ufmt::uwriteln!(serial, "  Total free RAM: {}", total).ok();
 }

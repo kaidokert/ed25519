@@ -132,8 +132,7 @@ cargo build --release -p ladder-branches
 
 # ctgrind runtime taint (Linux only; install `valgrind` first)
 cargo build --release -p ct-ctgrind
-valgrind --tool=memcheck --error-limit=no --error-exitcode=0 -q \
-    target/release/ct-ctgrind
+cargo krabi-caliper ctgrind target/release/ct-ctgrind
 
 # Physical STM32F407 CYCCNT gate (run each carrier separately)
 cargo run --release --target thumbv7em-none-eabihf \
