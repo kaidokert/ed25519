@@ -26,15 +26,9 @@ The report artifacts retain the complete `probe-rs run` command and output.
 After `EM_OUTCOME`, the runner interrupts `probe-rs` gracefully so it can
 release the J-Trace USB transport before the next case.
 
-The hardware `METRIC` line includes the stack high-water mark. The shared
-`krabi-caliper` stack probe uses cortex-m-rt's `_stack_end` linker symbol as
-its lower bound, keeping RTT's static control block and channel buffer outside
-the painted stack region.
-Stack results are emitted as versioned `EM_STACK` records; the legacy
-`METRIC stack:` field remains during parser migration.
-
-Hardware metrics also include raw `dwt_cycles` from the Cortex-M DWT
-`CYCCNT` and raw `systick_cycles` for direct comparison. The existing
-`cycles` field remains the SysTick count divided by 1,000 for compatibility
-with the QEMU suite, where `CYCCNT` is unavailable. The 32-bit DWT result is
-valid for measured intervals shorter than 2^32 core cycles.
+The shared `krabi-caliper` lifecycle adapter emits a versioned `EM_STACK`
+record and canonical `EM_MEASUREMENT` records named `systick` and `dwt`.
+The stack probe uses cortex-m-rt's `_stack_end` linker symbol as its lower
+bound, keeping RTT's static control block and channel buffer outside the
+painted stack region. The 32-bit DWT result is valid for measured intervals
+shorter than 2^32 core cycles.
