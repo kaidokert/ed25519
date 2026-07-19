@@ -33,18 +33,31 @@ use crate::{P_BYTES, UnsignedModularInt};
 /// factories can refuse to construct a field. Both arms are unreachable
 /// for any well-formed backend: `BackendTooNarrow` is a backend-selection
 /// bug, and `InvalidModulus` would require `modmath::Field::new` to
-/// reject `p = 2^255 − 19`. The factories return `Result` for the paths
-/// that need runtime handling — notably [`crate::sign_with_fields`] via
-/// [`crate::SigningKey::from_seed`], which propagates the error into
-/// [`crate::SignError::FieldSetup`]. Entry points that can afford it
-/// (`strict::verify`, `sign_with_fields`, and every x25519 fn) now use
-/// a `const { assert!(type_bit_width::<T>() >= 256, ...) }` guard, so
-/// a too-narrow `T` is a compile error at monomorphization and the
-/// `Result` handling on those paths is provably dead code.
+/// reject `p = 2^255 − 19`. It propagates into [`crate::SignError::FieldSetup`]
+/// (via [`crate::sign`] / [`crate::SigningKey::from_seed`]) and is the error
+/// the x25519 entry points return. [`crate::verify`] builds the field through
+/// the factory and fails closed to `false` on `Err`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CurveSetupError {
     BackendTooNarrow,
     InvalidModulus,
+}
+
+/// Decode a 32-byte modulus into `T`, reject a backend too narrow to hold it
+/// (probed on the fully-decoded value, so runtime-length carriers report the
+/// right width, not their minimal-width `zero`), and lift it into the
+/// [`modmath::Odd`] typestate. The single width gate shared by every field /
+/// scalar factory — keep it that way so the 256-bit threshold lives in one
+/// place.
+pub(crate) fn checked_odd_modulus<T>(bytes: &[u8; 32]) -> Result<modmath::Odd<T>, CurveSetupError>
+where
+    T: UnsignedModularInt + Copy,
+{
+    let m = crate::from_le_bytes::<T>(bytes);
+    if (const_num_traits::BitsPrecision::bits_precision(&m) as usize) < 256 {
+        return Err(CurveSetupError::BackendTooNarrow);
+    }
+    modmath::Odd::new(m).ok_or(CurveSetupError::InvalidModulus)
 }
 
 // =========================================================================
@@ -75,17 +88,15 @@ where
         + WideMul
         + CiosMontMul
         + modmath::MontStorage
-        + modmath::NonCt,
+        + const_num_traits::WithPrecision
+        + modmath::NonCt
+        + const_num_traits::BitsPrecision,
 {
-    pub fn new(modulus: T) -> Option<Self> {
-        FieldNct::new(modulus).map(|inner| Curve25519Field { inner, modulus })
-    }
-
     /// Infallible constructor from a proven-odd modulus. The
     /// [`modmath::Odd`] typestate discharges the parity / non-zero
     /// check at the trust boundary instead of inside the field
     /// constructor — see modmath's `Field::new_odd`.
-    pub fn new_odd(modulus: modmath::Odd<T>) -> Self {
+    pub(crate) fn new_odd(modulus: modmath::Odd<T>) -> Self {
         let raw = modulus.get();
         let inner = FieldNct::new_odd(modulus);
         Curve25519Field {
@@ -98,21 +109,14 @@ where
     /// backend `T` is too narrow to hold the 256-bit prime, or in the
     /// theoretical-but-unreachable case where `Odd::new` rejects
     /// `p = 2^255 − 19`. The fallible signature exists because callers
-    /// like [`crate::SigningKey::from_seed`] propagate the error into
-    /// [`crate::SignError`]. [`crate::strict::verify`] rejects narrow
-    /// `T` at monomorphization via a `const {}` guard on its inner
-    /// path, so the `Result` handling there is provably unreachable
-    /// but kept for uniformity with the other factory-consuming paths.
+    /// like [`crate::SigningKey::from_seed`] and the x25519 entry points
+    /// propagate this into their own `Result`; [`crate::verify`] fails closed
+    /// to `false`.
     pub fn curve25519() -> Result<Self, CurveSetupError>
     where
         T: UnsignedModularInt,
     {
-        if modmath::type_bit_width::<T>() < 256 {
-            return Err(CurveSetupError::BackendTooNarrow);
-        }
-        let p = crate::from_le_bytes::<T>(&P_BYTES);
-        let odd = modmath::Odd::new(p).ok_or(CurveSetupError::InvalidModulus)?;
-        Ok(Self::new_odd(odd))
+        Ok(Self::new_odd(checked_odd_modulus(&P_BYTES)?))
     }
 
     /// Cached modulus accessor. Returns a borrow rather than a copy (unlike
@@ -208,17 +212,15 @@ where
         + subtle::ConditionallySelectable
         + subtle::ConstantTimeLess
         + modmath::MontStorage
-        + const_num_traits::CtIsZero,
+        + const_num_traits::WithPrecision
+        + const_num_traits::CtIsZero
+        + const_num_traits::BitsPrecision,
     for<'a> &'a T:
         const_num_traits::WrappingAdd<Output = T> + const_num_traits::WrappingSub<Output = T>,
 {
-    pub fn new(modulus: T) -> Option<Self> {
-        FieldCt::new(modulus).map(|inner| Curve25519FieldCt { inner, modulus })
-    }
-
     /// Infallible constructor from a proven-odd modulus — see
     /// [`Curve25519Field::new_odd`].
-    pub fn new_odd(modulus: modmath::Odd<T>) -> Self {
+    pub(crate) fn new_odd(modulus: modmath::Odd<T>) -> Self {
         let raw = modulus.get();
         let inner = FieldCt::new_odd(modulus);
         Curve25519FieldCt {
@@ -233,12 +235,7 @@ where
     where
         T: UnsignedModularInt,
     {
-        if modmath::type_bit_width::<T>() < 256 {
-            return Err(CurveSetupError::BackendTooNarrow);
-        }
-        let p = crate::from_le_bytes::<T>(&P_BYTES);
-        let odd = modmath::Odd::new(p).ok_or(CurveSetupError::InvalidModulus)?;
-        Ok(Self::new_odd(odd))
+        Ok(Self::new_odd(checked_odd_modulus(&P_BYTES)?))
     }
 
     /// Cached modulus accessor — see [`Curve25519Field::modulus`].
@@ -333,6 +330,118 @@ impl<T> core::ops::Deref for Curve25519FieldCt<T> {
     }
 }
 
+// =========================================================================
+// Personality-generic verify field
+// =========================================================================
+
+/// The field-operation surface the Ed25519 verify path consumes,
+/// abstracted over personality so [`crate::verify`] runs on either the
+/// non-constant-time field ([`Curve25519Field`], the default) or the
+/// constant-time field ([`Curve25519FieldCt`]).
+///
+/// Verify operates entirely on public data — signature, public key,
+/// message — so the constant-time instantiation is a *performance*
+/// choice, never a correctness one: it merely runs slower field
+/// arithmetic to the same result. (And it is not itself constant-time
+/// regardless — the NAF double-scalar multiply branches on the public
+/// scalar.) Its purpose is letting a single-carrier deployment reuse
+/// one `HeaplessBigInt<…, Ct>` monomorphization for both sign and
+/// verify instead of paying two.
+///
+/// The associated `Residue<'f>` is the field's residue type
+/// (`ResidueNct` or `ResidueCt`), lifetime-bound to the field borrow.
+pub trait VerifyField<T> {
+    /// The field's residue element, borrowed from the field for `'f`.
+    type Residue<'f>: Clone + PartialEq
+    where
+        Self: 'f;
+
+    fn reduce<'f>(&'f self, raw: &T) -> Self::Residue<'f>;
+    fn mul<'f>(&'f self, a: &Self::Residue<'f>, b: &Self::Residue<'f>) -> Self::Residue<'f>;
+    fn add<'f>(&'f self, a: &Self::Residue<'f>, b: &Self::Residue<'f>) -> Self::Residue<'f>;
+    fn sub<'f>(&'f self, a: &Self::Residue<'f>, b: &Self::Residue<'f>) -> Self::Residue<'f>;
+    fn inv<'f>(&'f self, a: &Self::Residue<'f>) -> Self::Residue<'f>;
+    fn exp<'f>(&'f self, base: &Self::Residue<'f>, exp: &T) -> Self::Residue<'f>;
+    fn one<'f>(&'f self) -> Self::Residue<'f>;
+    fn zero<'f>(&'f self) -> Self::Residue<'f>;
+    // `into_raw` is the field's residue→canonical accessor (borrows both
+    // the field and the residue); it doesn't consume `self`.
+    #[allow(clippy::wrong_self_convention)]
+    fn into_raw<'f>(&'f self, a: &Self::Residue<'f>) -> T;
+    fn modulus(&self) -> &T;
+}
+
+/// Generate the `VerifyField` forwarding impl for a curve field wrapper. Both
+/// personalities forward identically — deref ops (`reduce`/`mul`/`exp`/`one`/
+/// `zero`/`into_raw`) to the wrapped `modmath` field, the lazy `add`/`sub` and
+/// Fermat `inv` to the inherent curve methods — differing only in residue type
+/// and carrier bounds. Adding a `VerifyField` method updates both impls here.
+macro_rules! impl_verify_field {
+    ($field:ident, $residue:ident, $($bound:tt)+) => {
+        impl<T> VerifyField<T> for $field<T>
+        where
+            T: $($bound)+,
+            for<'a> &'a T: const_num_traits::WrappingAdd<Output = T>
+                + const_num_traits::WrappingSub<Output = T>,
+        {
+            type Residue<'f>
+                = $residue<'f, T>
+            where
+                Self: 'f;
+
+            fn reduce<'f>(&'f self, raw: &T) -> $residue<'f, T> {
+                self.inner.reduce(raw)
+            }
+            fn mul<'f>(&'f self, a: &$residue<'f, T>, b: &$residue<'f, T>) -> $residue<'f, T> {
+                self.inner.mul(a, b)
+            }
+            fn add<'f>(&'f self, a: &$residue<'f, T>, b: &$residue<'f, T>) -> $residue<'f, T> {
+                $field::add(self, a, b)
+            }
+            fn sub<'f>(&'f self, a: &$residue<'f, T>, b: &$residue<'f, T>) -> $residue<'f, T> {
+                $field::sub(self, a, b)
+            }
+            fn inv<'f>(&'f self, a: &$residue<'f, T>) -> $residue<'f, T> {
+                $field::inv(self, a)
+            }
+            fn exp<'f>(&'f self, base: &$residue<'f, T>, exp: &T) -> $residue<'f, T> {
+                self.inner.exp(base, exp)
+            }
+            fn one<'f>(&'f self) -> $residue<'f, T> {
+                self.inner.one()
+            }
+            fn zero<'f>(&'f self) -> $residue<'f, T> {
+                self.inner.zero()
+            }
+            fn into_raw<'f>(&'f self, a: &$residue<'f, T>) -> T {
+                self.inner.into_raw(a)
+            }
+            fn modulus(&self) -> &T {
+                $field::modulus(self)
+            }
+        }
+    };
+}
+
+impl_verify_field!(
+    Curve25519Field,
+    ResidueNct,
+    UnsignedModularInt + Copy + WideMul + CiosMontMul + modmath::NonCt
+);
+
+impl_verify_field!(
+    Curve25519FieldCt,
+    ResidueCt,
+    UnsignedModularInt
+        + Copy
+        + PartialEq
+        + WideMul
+        + CiosMontMulCt
+        + const_num_traits::CtIsZero
+        + subtle::ConditionallySelectable
+        + subtle::ConstantTimeLess
+);
+
 #[cfg(all(test, feature = "fixed-bigint"))]
 mod tests {
     use super::*;
@@ -343,13 +452,11 @@ mod tests {
     type T256Ct = FixedUInt<u8, 32, Ct>;
 
     fn curve_field() -> Curve25519Field<T256> {
-        let p = crate::from_le_bytes::<T256>(&P_BYTES);
-        Curve25519Field::new(p).unwrap()
+        Curve25519Field::<T256>::curve25519().unwrap()
     }
 
     fn curve_field_ct() -> Curve25519FieldCt<T256Ct> {
-        let p = crate::from_le_bytes::<T256Ct>(&P_BYTES);
-        Curve25519FieldCt::new(p).unwrap()
+        Curve25519FieldCt::<T256Ct>::curve25519().unwrap()
     }
 
     #[test]
@@ -411,21 +518,14 @@ mod tests {
         assert_eq!(f.into_raw(&prod), T256::from(12u8));
     }
 
-    /// Regression test for the CT add/sub "unconditional underflow"
-    /// concern raised by reviewers (Codex P1, Gemini medium) on
-    /// `Curve25519FieldCt::add` / `sub`: the CT body computes both
-    /// candidate results unconditionally (including `sum - modulus`
-    /// when `sum < modulus` and `a - b` when `a < b`) and then
-    /// `conditional_select`s. The reviewers worried this would
-    /// panic in debug builds.
-    ///
-    /// Under the `Ct` personality, `FixedUInt::Sub` discards the
-    /// overflow flag via `maybe_panic_if::<Ct>` (which dispatches on
-    /// `P::TAG` and explicitly drops `overflow` for Ct). The wrap is
-    /// by typestate design — that's the constant-time contract.
-    /// This test drives both add and sub through the underflow path
-    /// and asserts neither panics, with both producing the field-
-    /// correct result.
+    /// The `Ct` add/sub bodies compute both candidate results
+    /// unconditionally (`sum - modulus` even when `sum < modulus`, `a - b`
+    /// even when `a < b`) and `conditional_select` between them. Under the
+    /// `Ct` personality `FixedUInt::Sub` drops the overflow flag via
+    /// `maybe_panic_if::<Ct>` (dispatches on `P::TAG`), so the wrap is the
+    /// constant-time contract by typestate, not a bug. This drives both ops
+    /// through the underflow path and asserts neither panics, both giving the
+    /// field-correct result.
     #[test]
     fn ct_add_sub_never_panic_on_underflow_path() {
         let fct = curve_field_ct();

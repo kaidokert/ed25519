@@ -58,7 +58,7 @@ pub(crate) mod strict_sign;
 pub use signing_key::{SignError, SigningKey, sign, sign_with_fields};
 pub(crate) mod x25519;
 
-pub use curve25519_field::{Curve25519Field, Curve25519FieldCt};
+pub use curve25519_field::{Curve25519Field, Curve25519FieldCt, CurveSetupError, VerifyField};
 pub use modmath::{Field, FieldCt, FieldNct, Residue, ResidueCt, ResidueNct};
 
 use core::marker::PhantomData;
@@ -76,6 +76,8 @@ pub trait UnsignedModularInt:
     + core::cmp::PartialOrd
     + const_num_traits::One
     + const_num_traits::Zero
+    + const_num_traits::BitsPrecision
+    + const_num_traits::WithPrecision
     + const_num_traits::ops::overflowing::OverflowingAdd<Output = Self>
     + const_num_traits::WrappingAdd<Output = Self>
     + const_num_traits::WrappingSub<Output = Self>
@@ -96,6 +98,8 @@ impl<T> UnsignedModularInt for T where
         + core::cmp::PartialOrd
         + const_num_traits::One
         + const_num_traits::Zero
+        + const_num_traits::BitsPrecision
+        + const_num_traits::WithPrecision
         + const_num_traits::ops::overflowing::OverflowingAdd<Output = Self>
         + const_num_traits::WrappingAdd<Output = Self>
         + const_num_traits::WrappingSub<Output = Self>
@@ -115,8 +119,8 @@ impl<T> UnsignedModularInt for T where
 /// Wraps `FromByteSlice::from_le_slice`. All call sites pass 32-byte
 /// crypto constants or 32-byte runtime payloads into backends where
 /// `BYTE_WIDTH >= 32` (enforced by the `Curve25519Field::curve25519()`
-/// factories and by `const {}` width guards in the sign / x25519
-/// entry points), so the `Err` branch is structurally unreachable.
+/// factories, which reject a narrow backend before any constant load), so
+/// the `Err` branch is structurally unreachable.
 /// The fail-closed `T::zero()` fallback avoids linking a panic path
 /// from this helper — if the impossible ever happens, the backend
 /// selection was invalid upstream and downstream field arithmetic

@@ -28,10 +28,10 @@ fn blinded_matches_unblinded_x25519() {
     for trial in 0..N_TRIALS {
         let k = deterministic_bytes(trial as u64, 0xa5);
         let peer_secret = deterministic_bytes(trial as u64, 0x5a);
-        let u = x25519_base::<T>(&peer_secret);
+        let u = x25519_base::<T>(&peer_secret).unwrap();
 
-        let unblinded = x25519::<T>(&k, &u);
-        let blinded = x25519_blinded::<T, _>(&mut rng, &k, &u);
+        let unblinded = x25519::<T>(&k, &u).unwrap();
+        let blinded = x25519_blinded::<T, _>(&mut rng, &k, &u).unwrap();
 
         assert_eq!(blinded, unblinded, "trial {trial} diverged");
     }
@@ -44,8 +44,8 @@ fn blinded_matches_unblinded_x25519_base() {
     for trial in 0..N_TRIALS {
         let k = deterministic_bytes(trial as u64, 0xc3);
 
-        let unblinded = x25519_base::<T>(&k);
-        let blinded = x25519_base_blinded::<T, _>(&mut rng, &k);
+        let unblinded = x25519_base::<T>(&k).unwrap();
+        let blinded = x25519_base_blinded::<T, _>(&mut rng, &k).unwrap();
 
         assert_eq!(blinded, unblinded, "trial {trial} diverged");
     }
@@ -74,8 +74,8 @@ fn blinded_with_zero_blinder_matches_unblinded() {
     let k = deterministic_bytes(0x42, 0xff);
     let u = deterministic_bytes(0x42, 0x01);
 
-    let unblinded = x25519::<T>(&k, &u);
-    let blinded = x25519_blinded::<T, _>(&mut ZeroRng, &k, &u);
+    let unblinded = x25519::<T>(&k, &u).unwrap();
+    let blinded = x25519_blinded::<T, _>(&mut ZeroRng, &k, &u).unwrap();
 
     assert_eq!(blinded, unblinded);
 }
@@ -102,10 +102,10 @@ fn blinded_with_max_blinder_matches_unblinded() {
 
     let k = deterministic_bytes(0xaa, 0x55);
     let peer_secret = deterministic_bytes(0xaa, 0xa5);
-    let u = x25519_base::<T>(&peer_secret);
+    let u = x25519_base::<T>(&peer_secret).unwrap();
 
-    let unblinded = x25519::<T>(&k, &u);
-    let blinded = x25519_blinded::<T, _>(&mut MaxRng, &k, &u);
+    let unblinded = x25519::<T>(&k, &u).unwrap();
+    let blinded = x25519_blinded::<T, _>(&mut MaxRng, &k, &u).unwrap();
 
     assert_eq!(blinded, unblinded);
 }
@@ -139,10 +139,10 @@ fn blinded_with_lambda_equal_to_p_matches_unblinded() {
 
     let k = deterministic_bytes(0x99, 0x33);
     let peer_secret = deterministic_bytes(0x99, 0x66);
-    let u = x25519_base::<T>(&peer_secret);
+    let u = x25519_base::<T>(&peer_secret).unwrap();
 
-    let unblinded = x25519::<T>(&k, &u);
-    let blinded = x25519_blinded::<T, _>(&mut PRng { scalar_done: false }, &k, &u);
+    let unblinded = x25519::<T>(&k, &u).unwrap();
+    let blinded = x25519_blinded::<T, _>(&mut PRng { scalar_done: false }, &k, &u).unwrap();
 
     assert_eq!(blinded, unblinded);
 }
@@ -154,11 +154,11 @@ fn blinded_produces_varying_intermediate_with_different_rng() {
 
     let k = deterministic_bytes(99, 0x77);
     let peer_secret = deterministic_bytes(99, 0x88);
-    let u = x25519_base::<T>(&peer_secret);
+    let u = x25519_base::<T>(&peer_secret).unwrap();
 
-    let unblinded = x25519::<T>(&k, &u);
-    let from_a = x25519_blinded::<T, _>(&mut rng_a, &k, &u);
-    let from_b = x25519_blinded::<T, _>(&mut rng_b, &k, &u);
+    let unblinded = x25519::<T>(&k, &u).unwrap();
+    let from_a = x25519_blinded::<T, _>(&mut rng_a, &k, &u).unwrap();
+    let from_b = x25519_blinded::<T, _>(&mut rng_b, &k, &u).unwrap();
 
     assert_eq!(from_a, unblinded);
     assert_eq!(from_b, unblinded);

@@ -82,7 +82,7 @@ macro_rules! positive_fixtures_for_carrier {
             // u_in is the counterparty coordinate — public per RFC 7748.
             let u_in = black_box([0u8; 32]);
             taint_val(&k);
-            let out = x25519::<$carrier>(&k, &u_in);
+            let out = x25519::<$carrier>(&k, &u_in).unwrap_or([0u8; 32]);
             untaint_val(&out);
             let _ = black_box(out);
         });
@@ -90,7 +90,7 @@ macro_rules! positive_fixtures_for_carrier {
         ctgrind_fixture!($x25519_base_fx, {
             let k = black_box([0u8; 32]);
             taint_val(&k);
-            let out = x25519_base::<$carrier>(&k);
+            let out = x25519_base::<$carrier>(&k).unwrap_or([0u8; 32]);
             untaint_val(&out);
             let _ = black_box(out);
         });
