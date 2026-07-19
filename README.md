@@ -11,21 +11,27 @@ This is a fork of the `ed25519` crate, ported to microcontrollers. It is generic
 
 The implementation balances code size, stack usage and execution speed rather than optimizing purely for speed. Alongside signature verification (e.g., bootloaders), it provides Ed25519 signing and X25519 key exchange — with optional scalar/coordinate blinding — on constant-time field arithmetic. Callers remain responsible for a trustworthy random source and secure private-key storage.
 
-#### Resource usage — signature verification (measured at v0.0.3)
+#### Resource usage (v0.5.0)
 
-These figures are for the verify path only and predate the sign / X25519 work; they are indicative rather than current.
+**Ed25519 signature verification**
 
 | Target | Backend | .text (KiB) | Stack (bytes) |
 | ------ | ------- | ----------: | ------------: |
-| AVR ATmega2560 | u8×32 | 16.5 | 2669 |
-| Cortex-M0 | u8×32 | 10.3 | 2656 |
-| Cortex-M3 | u8×32 | 10.4 | 2564 |
-| Cortex-M0 | u32×16 | 10.3 | 5092 |
-| Cortex-M3 | u32×16 | 10.3 | 4996 |
-| RV32IMAC | u8×32 | 12.9 | 2522 |
-| RV32IMAC | u32×16 | 12.4 | 4932 |
+| AVR ATmega2560 | u8×32 | 16.9 | 2856 |
+| Cortex-M0 | u8×32 | 10.9 | 2892 |
+| Cortex-M3 | u8×32 | 10.4 | 2820 |
+| Cortex-M0 | u32×16 | 11.1 | 5724 |
+| Cortex-M3 | u32×16 | 10.5 | 5612 |
+| RV32IMAC | u8×32 | 14.2 | 2656 |
+| RV32IMAC | u32×16 | 13.9 | 5516 |
 
+**X25519 key exchange** (Cortex-M)
 
+| Target | Backend | .text (KiB) | Stack (bytes) |
+| ------ | ------- | ----------: | ------------: |
+| Cortex-M0 | u8×32 | 5.0 | 1636 |
+| Cortex-M3 | u8×32 | 4.9 | 1556 |
+| Cortex-M0 | u32×16 | 5.4 | 3324 |
+| Cortex-M3 | u32×16 | 5.1 | 3260 |
 
-The .text values represent the incremental flash used by signature verification itself, measured as verify-minus-baseline in the demo harnesses.
-The stack values represent the corresponding incremental stack usage attributable to signature verification, not the total stack footprint of the whole binary.
+Figures are the incremental cost of the operation itself, measured as operation-minus-baseline in the demo harnesses (from the merge-commit CI run) — the flash and stack attributable to the crypto, not the whole binary's footprint.
