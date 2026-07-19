@@ -43,6 +43,23 @@ pub enum CurveSetupError {
     InvalidModulus,
 }
 
+/// Decode a 32-byte modulus into `T`, reject a backend too narrow to hold it
+/// (probed on the fully-decoded value, so runtime-length carriers report the
+/// right width, not their minimal-width `zero`), and lift it into the
+/// [`modmath::Odd`] typestate. The single width gate shared by every field /
+/// scalar factory — keep it that way so the 256-bit threshold lives in one
+/// place.
+pub(crate) fn checked_odd_modulus<T>(bytes: &[u8; 32]) -> Result<modmath::Odd<T>, CurveSetupError>
+where
+    T: UnsignedModularInt + Copy,
+{
+    let m = crate::from_le_bytes::<T>(bytes);
+    if (const_num_traits::BitsPrecision::bits_precision(&m) as usize) < 256 {
+        return Err(CurveSetupError::BackendTooNarrow);
+    }
+    modmath::Odd::new(m).ok_or(CurveSetupError::InvalidModulus)
+}
+
 // =========================================================================
 // NCT — for ed25519 verify (public data, fast path)
 // =========================================================================
@@ -99,15 +116,7 @@ where
     where
         T: UnsignedModularInt,
     {
-        let p = crate::from_le_bytes::<T>(&P_BYTES);
-        // Runtime-length carriers report width per value, so probe a
-        // fully-populated `p` (all 32 bytes decoded) rather than the carrier's
-        // static width.
-        if (const_num_traits::BitsPrecision::bits_precision(&p) as usize) < 256 {
-            return Err(CurveSetupError::BackendTooNarrow);
-        }
-        let odd = modmath::Odd::new(p).ok_or(CurveSetupError::InvalidModulus)?;
-        Ok(Self::new_odd(odd))
+        Ok(Self::new_odd(checked_odd_modulus(&P_BYTES)?))
     }
 
     /// Cached modulus accessor. Returns a borrow rather than a copy (unlike
@@ -226,15 +235,7 @@ where
     where
         T: UnsignedModularInt,
     {
-        let p = crate::from_le_bytes::<T>(&P_BYTES);
-        // Runtime-length carriers report width per value, so probe a
-        // fully-populated `p` (all 32 bytes decoded) rather than the carrier's
-        // static width.
-        if (const_num_traits::BitsPrecision::bits_precision(&p) as usize) < 256 {
-            return Err(CurveSetupError::BackendTooNarrow);
-        }
-        let odd = modmath::Odd::new(p).ok_or(CurveSetupError::InvalidModulus)?;
-        Ok(Self::new_odd(odd))
+        Ok(Self::new_odd(checked_odd_modulus(&P_BYTES)?))
     }
 
     /// Cached modulus accessor — see [`Curve25519Field::modulus`].
@@ -370,98 +371,76 @@ pub trait VerifyField<T> {
     fn modulus(&self) -> &T;
 }
 
-impl<T> VerifyField<T> for Curve25519Field<T>
-where
-    T: UnsignedModularInt + Copy + WideMul + CiosMontMul + modmath::NonCt,
-    for<'a> &'a T:
-        const_num_traits::WrappingAdd<Output = T> + const_num_traits::WrappingSub<Output = T>,
-{
-    type Residue<'f>
-        = ResidueNct<'f, T>
-    where
-        Self: 'f;
+/// Generate the `VerifyField` forwarding impl for a curve field wrapper. Both
+/// personalities forward identically — deref ops (`reduce`/`mul`/`exp`/`one`/
+/// `zero`/`into_raw`) to the wrapped `modmath` field, the lazy `add`/`sub` and
+/// Fermat `inv` to the inherent curve methods — differing only in residue type
+/// and carrier bounds. Adding a `VerifyField` method updates both impls here.
+macro_rules! impl_verify_field {
+    ($field:ident, $residue:ident, $($bound:tt)+) => {
+        impl<T> VerifyField<T> for $field<T>
+        where
+            T: $($bound)+,
+            for<'a> &'a T: const_num_traits::WrappingAdd<Output = T>
+                + const_num_traits::WrappingSub<Output = T>,
+        {
+            type Residue<'f>
+                = $residue<'f, T>
+            where
+                Self: 'f;
 
-    fn reduce<'f>(&'f self, raw: &T) -> ResidueNct<'f, T> {
-        self.inner.reduce(raw)
-    }
-    fn mul<'f>(&'f self, a: &ResidueNct<'f, T>, b: &ResidueNct<'f, T>) -> ResidueNct<'f, T> {
-        self.inner.mul(a, b)
-    }
-    fn add<'f>(&'f self, a: &ResidueNct<'f, T>, b: &ResidueNct<'f, T>) -> ResidueNct<'f, T> {
-        Curve25519Field::add(self, a, b)
-    }
-    fn sub<'f>(&'f self, a: &ResidueNct<'f, T>, b: &ResidueNct<'f, T>) -> ResidueNct<'f, T> {
-        Curve25519Field::sub(self, a, b)
-    }
-    fn inv<'f>(&'f self, a: &ResidueNct<'f, T>) -> ResidueNct<'f, T> {
-        Curve25519Field::inv(self, a)
-    }
-    fn exp<'f>(&'f self, base: &ResidueNct<'f, T>, exp: &T) -> ResidueNct<'f, T> {
-        self.inner.exp(base, exp)
-    }
-    fn one<'f>(&'f self) -> ResidueNct<'f, T> {
-        self.inner.one()
-    }
-    fn zero<'f>(&'f self) -> ResidueNct<'f, T> {
-        self.inner.zero()
-    }
-    fn into_raw<'f>(&'f self, a: &ResidueNct<'f, T>) -> T {
-        self.inner.into_raw(a)
-    }
-    fn modulus(&self) -> &T {
-        Curve25519Field::modulus(self)
-    }
+            fn reduce<'f>(&'f self, raw: &T) -> $residue<'f, T> {
+                self.inner.reduce(raw)
+            }
+            fn mul<'f>(&'f self, a: &$residue<'f, T>, b: &$residue<'f, T>) -> $residue<'f, T> {
+                self.inner.mul(a, b)
+            }
+            fn add<'f>(&'f self, a: &$residue<'f, T>, b: &$residue<'f, T>) -> $residue<'f, T> {
+                $field::add(self, a, b)
+            }
+            fn sub<'f>(&'f self, a: &$residue<'f, T>, b: &$residue<'f, T>) -> $residue<'f, T> {
+                $field::sub(self, a, b)
+            }
+            fn inv<'f>(&'f self, a: &$residue<'f, T>) -> $residue<'f, T> {
+                $field::inv(self, a)
+            }
+            fn exp<'f>(&'f self, base: &$residue<'f, T>, exp: &T) -> $residue<'f, T> {
+                self.inner.exp(base, exp)
+            }
+            fn one<'f>(&'f self) -> $residue<'f, T> {
+                self.inner.one()
+            }
+            fn zero<'f>(&'f self) -> $residue<'f, T> {
+                self.inner.zero()
+            }
+            fn into_raw<'f>(&'f self, a: &$residue<'f, T>) -> T {
+                self.inner.into_raw(a)
+            }
+            fn modulus(&self) -> &T {
+                $field::modulus(self)
+            }
+        }
+    };
 }
 
-impl<T> VerifyField<T> for Curve25519FieldCt<T>
-where
-    T: UnsignedModularInt
+impl_verify_field!(
+    Curve25519Field,
+    ResidueNct,
+    UnsignedModularInt + Copy + WideMul + CiosMontMul + modmath::NonCt
+);
+
+impl_verify_field!(
+    Curve25519FieldCt,
+    ResidueCt,
+    UnsignedModularInt
         + Copy
         + PartialEq
         + WideMul
         + CiosMontMulCt
         + const_num_traits::CtIsZero
         + subtle::ConditionallySelectable
-        + subtle::ConstantTimeLess,
-    for<'a> &'a T:
-        const_num_traits::WrappingAdd<Output = T> + const_num_traits::WrappingSub<Output = T>,
-{
-    type Residue<'f>
-        = ResidueCt<'f, T>
-    where
-        Self: 'f;
-
-    fn reduce<'f>(&'f self, raw: &T) -> ResidueCt<'f, T> {
-        self.inner.reduce(raw)
-    }
-    fn mul<'f>(&'f self, a: &ResidueCt<'f, T>, b: &ResidueCt<'f, T>) -> ResidueCt<'f, T> {
-        self.inner.mul(a, b)
-    }
-    fn add<'f>(&'f self, a: &ResidueCt<'f, T>, b: &ResidueCt<'f, T>) -> ResidueCt<'f, T> {
-        Curve25519FieldCt::add(self, a, b)
-    }
-    fn sub<'f>(&'f self, a: &ResidueCt<'f, T>, b: &ResidueCt<'f, T>) -> ResidueCt<'f, T> {
-        Curve25519FieldCt::sub(self, a, b)
-    }
-    fn inv<'f>(&'f self, a: &ResidueCt<'f, T>) -> ResidueCt<'f, T> {
-        Curve25519FieldCt::inv(self, a)
-    }
-    fn exp<'f>(&'f self, base: &ResidueCt<'f, T>, exp: &T) -> ResidueCt<'f, T> {
-        self.inner.exp(base, exp)
-    }
-    fn one<'f>(&'f self) -> ResidueCt<'f, T> {
-        self.inner.one()
-    }
-    fn zero<'f>(&'f self) -> ResidueCt<'f, T> {
-        self.inner.zero()
-    }
-    fn into_raw<'f>(&'f self, a: &ResidueCt<'f, T>) -> T {
-        self.inner.into_raw(a)
-    }
-    fn modulus(&self) -> &T {
-        Curve25519FieldCt::modulus(self)
-    }
-}
+        + subtle::ConstantTimeLess
+);
 
 #[cfg(all(test, feature = "fixed-bigint"))]
 mod tests {
