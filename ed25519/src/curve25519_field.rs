@@ -37,10 +37,9 @@ use crate::{P_BYTES, UnsignedModularInt};
 /// that need runtime handling — notably [`crate::sign_with_fields`] via
 /// [`crate::SigningKey::from_seed`], which propagates the error into
 /// [`crate::SignError::FieldSetup`]. Entry points that can afford it
-/// (`strict::verify`, `sign_with_fields`, and every x25519 fn) now use
-/// a `const { assert!(type_bit_width::<T>() >= 256, ...) }` guard, so
-/// a too-narrow `T` is a compile error at monomorphization and the
-/// `Result` handling on those paths is provably dead code.
+/// (`strict::verify`, `sign_with_fields`, and every x25519 fn) assert the
+/// width at runtime (`bits_precision(p) >= 256`), so a too-narrow `T` panics
+/// before any curve-constant load rather than surfacing as a `Result`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CurveSetupError {
     BackendTooNarrow,
@@ -110,11 +109,9 @@ where
         T: UnsignedModularInt,
     {
         let p = crate::from_le_bytes::<T>(&P_BYTES);
-        // Runtime-length carriers report width per-value, so we must
-        // probe a fully-populated value — decode P (all 32 bytes used)
-        // and check its precision. For fixed-carrier types this is
-        // still `carrier_bits`; for HeaplessBigInt it's `len * word_bits`
-        // after `from_le_slice` set len to CAP.
+        // Runtime-length carriers report width per value, so probe a
+        // fully-populated `p` (all 32 bytes decoded) rather than the carrier's
+        // static width.
         if (const_num_traits::BitsPrecision::bits_precision(&p) as usize) < 256 {
             return Err(CurveSetupError::BackendTooNarrow);
         }
@@ -243,11 +240,9 @@ where
         T: UnsignedModularInt,
     {
         let p = crate::from_le_bytes::<T>(&P_BYTES);
-        // Runtime-length carriers report width per-value, so we must
-        // probe a fully-populated value — decode P (all 32 bytes used)
-        // and check its precision. For fixed-carrier types this is
-        // still `carrier_bits`; for HeaplessBigInt it's `len * word_bits`
-        // after `from_le_slice` set len to CAP.
+        // Runtime-length carriers report width per value, so probe a
+        // fully-populated `p` (all 32 bytes decoded) rather than the carrier's
+        // static width.
         if (const_num_traits::BitsPrecision::bits_precision(&p) as usize) < 256 {
             return Err(CurveSetupError::BackendTooNarrow);
         }
@@ -592,21 +587,14 @@ mod tests {
         assert_eq!(f.into_raw(&prod), T256::from(12u8));
     }
 
-    /// Regression test for the CT add/sub "unconditional underflow"
-    /// concern raised by reviewers (Codex P1, Gemini medium) on
-    /// `Curve25519FieldCt::add` / `sub`: the CT body computes both
-    /// candidate results unconditionally (including `sum - modulus`
-    /// when `sum < modulus` and `a - b` when `a < b`) and then
-    /// `conditional_select`s. The reviewers worried this would
-    /// panic in debug builds.
-    ///
-    /// Under the `Ct` personality, `FixedUInt::Sub` discards the
-    /// overflow flag via `maybe_panic_if::<Ct>` (which dispatches on
-    /// `P::TAG` and explicitly drops `overflow` for Ct). The wrap is
-    /// by typestate design — that's the constant-time contract.
-    /// This test drives both add and sub through the underflow path
-    /// and asserts neither panics, with both producing the field-
-    /// correct result.
+    /// The `Ct` add/sub bodies compute both candidate results
+    /// unconditionally (`sum - modulus` even when `sum < modulus`, `a - b`
+    /// even when `a < b`) and `conditional_select` between them. Under the
+    /// `Ct` personality `FixedUInt::Sub` drops the overflow flag via
+    /// `maybe_panic_if::<Ct>` (dispatches on `P::TAG`), so the wrap is the
+    /// constant-time contract by typestate, not a bug. This drives both ops
+    /// through the underflow path and asserts neither panics, both giving the
+    /// field-correct result.
     #[test]
     fn ct_add_sub_never_panic_on_underflow_path() {
         let fct = curve_field_ct();

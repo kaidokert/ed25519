@@ -12,17 +12,7 @@
 //!   - `HeaplessBigInt<u32, 8, {Ct,Nct}>` — narrow runtime-length.
 //!   - `HeaplessBigInt<u32, 16, {Ct,Nct}>` — wide runtime-length
 //!     (512-bit box holding a 255-bit value → `len < CAP`), the
-//!     cortex_m / riscv / krabitls deploy shape.
-//!
-//! History — bugs surfaced and fixed through this reducer:
-//!   - sub-width CarryingMul split (fixed-bigint alpha.16),
-//!   - reduce/into_raw limb shift (modmath cios.5),
-//!   - carrier-wider-than-modulus Montgomery error (modmath cios.6),
-//!   - minimal-width `zero()` seed in `sha512_modq` breaking verify on
-//!     runtime-width carriers (ed25519-side fix: seed at q's width).
-//!     `len` is the number's width, not corruptible metadata; a
-//!     runtime-width `zero()` is a 32-bit integer, not a truncated
-//!     256-bit one.
+//!     cortex_m / riscv deploy shape.
 
 #![cfg(all(
     feature = "fixed-bigint",
@@ -218,8 +208,8 @@ fn ct_field_mul_small() {
 }
 
 // ---------------------------------------------------------------------------
-// 4. Nct field: reduce / mul / inv (the VERIFY personality — the one
-//    krabitls hits and the Ct probes above never covered).
+// 4. Nct field: reduce / mul / inv (the VERIFY personality (Nct) — the
+//    Ct probes above never covered it).
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -299,7 +289,6 @@ fn raw_scalar_reduce_over_q() {
 //     Seven chained ops (reduce/mul/sub/mul/add/inv/mul) reusing
 //     residues, vs single-op probes above. Discriminates "chained
 //     field arithmetic" from the point-op / NAF / point_equal layer.
-//     Cross-checked heapless-Nct against the FixedUInt-Nct reference.
 // ---------------------------------------------------------------------------
 
 fn recover_x2_bytes<T>() -> [u8; 32]
@@ -341,7 +330,7 @@ fn nct_recover_x2_chain_matches_reference() {
 //      x25519. Verify's where-clause is the only one that bounds
 //      `for<'a> &'a T: BitAnd`. If the runtime-length `&T & &T` impl
 //      is wrong, NAF digits are corrupt → wrong double-scalar-mul →
-//      verify returns false, exactly the observed failure.
+//      verify returns false.
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -376,9 +365,8 @@ fn ref_bitand_known_answers() {
 //     recoding does `s_working >>= 1` up to 256× to consume the scalar
 //     bit by bit; `recover_x` does `p3 >> 3`. Sign traverses the
 //     scalar as bytes and never shifts a `T`, so this is a verify-only
-//     path. alpha.21 reworked `Shl`; a symmetric `Shr` len-tracking
-//     bug on the runtime-length carrier would corrupt NAF and fail
-//     verify while leaving sign untouched.
+//     path: a wrong runtime-length `Shr` corrupts NAF and fails verify
+//     while leaving sign untouched.
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -436,20 +424,11 @@ fn shr_assign_bit_walk() {
 }
 
 // ---------------------------------------------------------------------------
-// 5.95 Full `sha512_modq` Horner reduction — the raw-`T` scalar-mod-q
-//      path VERIFY uses (sign reduces mod q through modmath's Ct field,
-//      whose CT `conditional_select` widens the accumulator to full CAP
-//      on the first reduce; verify's plain `if acc >= q` branch does
-//      not — which is why sign passed and verify failed on the same
-//      carrier).
-//
-//      Root cause was NOT a carrier bug: `<T as Zero>::zero()` on a
-//      runtime-width backend is minimal-width, so a zero-seeded acc is
-//      a 32-bit integer and `2*acc` correctly wraps at 2^32 — it never
-//      reaches q, never widens, and the reduction silently truncates.
-//      Seeding at q's width (`q - q`, the fix mirrored from
-//      `strict::sha512_modq`) gives the accumulator room to carry.
-//      `len` is the number's WIDTH, not corruptible metadata.
+// 5.95 Full `sha512_modq` Horner reduction — the raw-`T` scalar-mod-q path
+//      VERIFY uses (sign reduces mod q through modmath's Ct field). The
+//      accumulator is seeded at q's width (`q - q`), not `zero()`: a
+//      minimal-width `zero()` on a runtime-length carrier wraps at 2^32 and
+//      truncates the reduction. `len` is the number's WIDTH, not metadata.
 // ---------------------------------------------------------------------------
 
 fn horner_mod_q<T>(hash: &[u8; 64]) -> [u8; 32]
@@ -459,7 +438,8 @@ where
 {
     let q = decode::<T>(&Q_BYTES);
     let one = <T as One>::one();
-    // Seed at q's width, not zero()'s minimal width — the actual fix.
+    // Seed at q's width, not `zero()`'s minimal width, so the accumulator
+    // has room to carry.
     let mut acc = <&T as WrappingSub>::wrapping_sub(&q, &q);
     for byte_idx in (0..64).rev() {
         for bit_idx in (0..8).rev() {
@@ -551,9 +531,7 @@ fn overflowing_add_self_double_to_cap() {
 fn add_carry_into_second_limb() {
     // A single carry from limb 0 into limb 1 is handled correctly on a
     // decoded (byte-width) value: `0xC000_0000 + 0xC000_0000 =
-    // 0x1_8000_0000` preserves bit 32 on both carriers. The Horner
-    // failure was never here — it was the minimal-width `zero()` seed
-    // (see `horner_mod_q`).
+    // 0x1_8000_0000` preserves bit 32 on both carriers.
     fn inner<T: FromByteSlice + ToBytes + Copy + OverflowingAdd<Output = T>>() {
         let mut x = [0u8; 32];
         x[3] = 0xc0; // 0xC000_0000 in limb 0
@@ -597,18 +575,11 @@ fn double_dense_value() {
     );
 }
 
-// Regression guard for the krabitls verify failure. The raw-`T`
-// `sha512_modq` Horner reduction reproduces `verify`'s scalar-mod-q
-// path. It failed on HeaplessBigInt purely because the accumulator was
-// seeded with `<T as Zero>::zero()`, which is MINIMAL width on a
-// runtime-width carrier — so acc was a 32-bit integer, `2*acc` wrapped
-// at 2^32 (correct for a 32-bit number), acc never reached q, never
-// widened, and the reduction silently truncated. `FixedUInt<u32,8>`
-// was unaffected because its `zero()` is intrinsically 256-bit.
-//
-// Not a carrier bug — `len` is the number's width, not corruptible
-// metadata. The fix (mirrored here and in `strict::sha512_modq`) seeds
-// at q's width via `q - q`. With that, all carriers agree bit-for-bit.
+// Raw-`T` `sha512_modq` Horner must agree across carriers. The accumulator is
+// seeded at q's width (`q - q`), not `<T as Zero>::zero()`: a minimal-width seed
+// on a runtime-length carrier wraps at 2^32 and truncates the reduction, while
+// `FixedUInt`'s `zero()` is intrinsically 256-bit. `len` is the number's width,
+// not corruptible metadata.
 #[test]
 fn horner_mod_q_matches_reference() {
     // A realistic full-width hash-shaped input (not all-zero, MSB set).

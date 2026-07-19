@@ -163,12 +163,10 @@ where
         + const_num_traits::ToBytes<Bytes = <T as const_num_traits::ToBytes>::Bytes>,
     <T as const_num_traits::ToBytes>::Bytes: zeroize::Zeroize,
 {
-    // Backend width check. Runtime — `BitsPrecision::bits_precision`
-    // needs a `T` value and is not const-callable across carriers on
-    // the alpha stack (runtime-length backends only know their width
-    // per-value). Panics on wrong backend selection; downstream
-    // panic-free audit treats these as backend-config errors, not
-    // secret-dependent panics.
+    // Backend width check. Runtime, not const{}: `bits_precision` needs a `T`
+    // value (runtime-length carriers only know their width per-value). A
+    // wrong-backend panic here is a config error, not a secret-dependent one
+    // (the panic-free audit classifies it as such).
     let width =
         const_num_traits::BitsPrecision::bits_precision(&crate::from_le_bytes::<T>(&P_BYTES))
             as usize;
@@ -181,7 +179,7 @@ where
         "x25519: backend T is wider than the fixed-size scratch buffer (MAX_T_BYTES * 8)"
     );
 
-    // The entry-point const-block guards the width case; the Odd
+    // The entry-point width asserts guard the width case; the Odd
     // proof inside the factory is statically true for the Curve25519
     // prime — both Err arms are unreachable here. Fail-closed to
     // an all-zero shared secret rather than pulling in a panic
@@ -289,7 +287,7 @@ where
         "x25519_blinded: backend T is wider than the fixed-size scratch buffer (MAX_T_BYTES * 8)"
     );
 
-    // The entry-point const-block guards the width case; the Odd
+    // The entry-point width asserts guard the width case; the Odd
     // proof inside the factory is statically true for the Curve25519
     // prime — both Err arms are unreachable here. Fail-closed to
     // an all-zero shared secret rather than pulling in a panic

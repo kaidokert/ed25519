@@ -58,13 +58,9 @@ where
     // (> q). At each step acc < q, so 2*acc < 2q < 2^254, which fits in
     // 256-bit T.
     //
-    // Seed the accumulator at `q`'s width, not `T::zero()`. On a
-    // runtime-width backend `zero()` is minimal-width (it can't guess
-    // the intended width), so `2*acc` would wrap at the low limb and
-    // the reduction would silently compute a truncated result.
-    // `zero_with_precision_of(q)` gives a zero at q's width so the
-    // doubling has room to carry. (Fixed-width backends are
-    // unaffected: it's their `zero()` at the carrier width.)
+    // Seed at `q`'s width via `zero_with_precision_of`, not `T::zero()`: a
+    // runtime-width backend's `zero()` is minimal-width, so `2*acc` would wrap
+    // the low limb and truncate the reduction. (No-op for fixed-width backends.)
     let mut acc = <T as const_num_traits::WithPrecision>::zero_with_precision_of(q);
     let one = T::one();
     // Process from most significant bit (byte 63, bit 7) to least (byte 0, bit 0)
@@ -419,16 +415,12 @@ where
         + const_num_traits::WrappingAdd<Output = T>
         + const_num_traits::WrappingSub<Output = T>,
 {
-    // Guard: T must be at least 256 bits wide for Ed25519 constants.
-    // `verify_with_field` and the `Verifier` blanket both bottom out
-    // in this inner fn, and either could be handed a narrow `T` via
-    // a caller-built `Curve25519Field::new` bypass. The const-assert
-    // makes that a compile error at monomorphization instead of a
-    // runtime branch — matches the pattern used by `sign_with_fields`
-    // and the x25519 entry points, and removes both the runtime
-    // check and the panic path from `from_le_bytes` at this site
-    // (any monomorphization that reaches the `D_BYTES` load has
-    // `T::BYTE_WIDTH >= 32` by construction).
+    // Guard: T must be >= 256 bits for the Ed25519 constants. Both
+    // `verify_with_field` and the `Verifier` blanket bottom out here and
+    // could be handed a narrow `T` via a caller-built `Curve25519Field::new`.
+    // Runtime assert (the const-eval form needs a const width accessor that
+    // `T` doesn't expose); fires before any curve-constant load, so those
+    // loads are infallible in practice.
     assert!(
         (const_num_traits::BitsPrecision::bits_precision(&crate::from_le_bytes::<T>(
             &crate::P_BYTES

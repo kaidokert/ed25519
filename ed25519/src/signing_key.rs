@@ -120,14 +120,11 @@ where
         + const_num_traits::ToBytes<Bytes = <T as const_num_traits::ToBytes>::Bytes>,
     <T as const_num_traits::ToBytes>::Bytes: zeroize::Zeroize,
 {
-    // Backend width is a static property of T; check at
-    // monomorphization. `sign_with_fields` is public and accepts
-    // pre-built fields — a caller could bypass the runtime width
-    // check in `Curve25519FieldCt::curve25519()` by constructing a
-    // narrow field via `Curve25519FieldCt::new`. The const-assert
-    // makes that bypass a compile error and keeps the loading of
-    // `Q_BYTES` below infallible-in-practice (any monomorphization
-    // that reaches this line has `T::BYTE_WIDTH >= 32`).
+    // Backend width guard. `sign_with_fields` is public and accepts pre-built
+    // fields, so a caller could bypass the width check in
+    // `Curve25519FieldCt::curve25519()` by constructing a narrow field via
+    // `Curve25519FieldCt::new`. The runtime assert catches that (panics) and
+    // keeps the `Q_BYTES` load below infallible in practice.
     assert!(
         (const_num_traits::BitsPrecision::bits_precision(&crate::from_le_bytes::<T>(
             &crate::P_BYTES
