@@ -19,6 +19,7 @@ fn main() -> ! {
             #[cfg(not(feature = "baseline"))]
             {
                 ed25519_heapless::x25519::<FixedUInt<u8, 32, Ct>>(&ALICE_PRIVATE, &BOB_PUBLIC)
+                    .unwrap()
                     == EXPECTED_SHARED
             }
         },

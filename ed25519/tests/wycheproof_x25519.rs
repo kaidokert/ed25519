@@ -68,7 +68,7 @@ fn wycheproof_x25519() {
                 .try_into()
                 .expect("Wycheproof shared_secret should always be 32 bytes for X25519");
 
-            let got = x25519::<T>(&priv_bytes, &pub_bytes);
+            let got = x25519::<T>(&priv_bytes, &pub_bytes).unwrap();
             ran += 1;
             if got != expected {
                 eprintln!(

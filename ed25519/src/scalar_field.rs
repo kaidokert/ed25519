@@ -10,7 +10,7 @@
 //! discharges that proof once at the boundary so the `FieldCt`
 //! constructor itself is infallible.
 
-use crate::curve25519_field::CurveSetupError;
+use crate::curve25519_field::{CurveSetupError, checked_odd_modulus};
 use crate::{Q_BYTES, UnsignedModularInt};
 use modmath::{CiosMontMulCt, FieldCt, Parity, WideMul};
 
@@ -27,10 +27,5 @@ where
     for<'a> &'a T:
         const_num_traits::WrappingAdd<Output = T> + const_num_traits::WrappingSub<Output = T>,
 {
-    if modmath::type_bit_width::<T>() < 256 {
-        return Err(CurveSetupError::BackendTooNarrow);
-    }
-    let q = crate::from_le_bytes::<T>(&Q_BYTES);
-    let q_odd = modmath::Odd::new(q).ok_or(CurveSetupError::InvalidModulus)?;
-    Ok(FieldCt::new_odd(q_odd))
+    Ok(FieldCt::new_odd(checked_odd_modulus::<T>(&Q_BYTES)?))
 }

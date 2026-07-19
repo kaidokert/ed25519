@@ -229,12 +229,10 @@ where
         + const_num_traits::ToBytes<Bytes = <T as const_num_traits::ToBytes>::Bytes>,
     <T as const_num_traits::ToBytes>::Bytes: zeroize::Zeroize,
 {
-    const {
-        // x25519.rs caps T at 64 bytes; the same bound applies here so
-        // the scratch buffer below can be a stack array.
-        assert!(core::mem::size_of::<T>() <= 64);
-    }
-
+    // No width guard needed: the only requirement is `T::Bytes >= 32` (for the
+    // `[..32]` slice below), upheld by every caller via
+    // `Curve25519FieldCt::curve25519()`, which rejects sub-256-bit backends
+    // before any point op runs.
     let z_inv = field.inv(&pp.2);
     let x = field.mul(&pp.0, &z_inv);
     let y = field.mul(&pp.1, &z_inv);
