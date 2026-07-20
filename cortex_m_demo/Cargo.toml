@@ -35,3 +35,8 @@ unexpected_cfgs = { level = "warn", check-cfg = [
     'cfg(thumbv7m)',
     'cfg(thumbv7em)',
 ] }
+
+# Experimental: ed25519_heapless (path dep) uses SchoolbookFieldRef from
+# modmath v0.6.1-alpha.1; this excluded crate needs its own patch.
+[patch.crates-io]
+modmath = { git = "https://github.com/kaidokert/modmath-rs.git", tag = "v0.6.1-alpha.1" }
