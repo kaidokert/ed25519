@@ -3,12 +3,6 @@ resolver = "2"
 
 members = [ "panic-free-audit", "ct-ctgrind", "ladder-branches" ]
 
-# Nested workspaces don't inherit the root `[patch.crates-io]`; mirror the
-# experimental modmath pin so ed25519_heapless (which now uses
-# SchoolbookFieldRef) resolves the same graph here.
-[patch.crates-io]
-modmath = { git = "https://github.com/kaidokert/modmath-rs.git", tag = "v0.6.1-alpha.1" }
-
 # Pinned release codegen for the CT-verification gate. The taint
 # verifier and the asm-grep driver must inspect deployment-shaped
 # code (fat LTO inlines every helper into its call site, matching

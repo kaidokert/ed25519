@@ -13,7 +13,7 @@ categories = ["cryptography", "no-std", "no-std::no-alloc"]
 [dependencies]
 log = { version = "0.4", optional = true }
 env_logger = { version = "0.11", optional = true }
-modmath = { version = "0.6.0", features = ["zeroize", "constrained"] }
+modmath = { version = "0.6.1", features = ["zeroize", "constrained"] }
 fixed-bigint = { version = "0.6.0", default-features = false, features = ["use-unsafe", "zeroize", "cios"], optional = true }
 subtle = { version = "2.6", default-features = false }
 const-num-traits = { version = "0.2.1", default-features = false, features = ["ct"] }
