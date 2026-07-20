@@ -125,7 +125,6 @@ impl<T> UnsignedModularInt for T where
 /// also satisfies it, so the fixed-width `Copy` verify path is unaffected.
 pub trait VerifyBackend:
     Clone
-    + PartialEq
     + PartialOrd
     + const_num_traits::One
     + const_num_traits::Zero
@@ -143,7 +142,6 @@ pub trait VerifyBackend:
 
 impl<T> VerifyBackend for T where
     T: Clone
-        + PartialEq
         + PartialOrd
         + const_num_traits::One
         + const_num_traits::Zero

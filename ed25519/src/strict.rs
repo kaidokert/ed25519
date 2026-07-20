@@ -16,12 +16,7 @@ type NielsPoint<'f, F, T> = (Res<'f, F, T>, Res<'f, F, T>, Res<'f, F, T>);
 use crate::{D_BYTES, G_T_BYTES, G_X_BYTES, G_Y_BYTES, MODP_SQRT_M1_BYTES, Q_BYTES};
 
 #[inline(never)]
-fn sha512_modq<T: VerifyBackend>(parts: &[&[u8]], q: &T) -> T
-where
-    for<'a> &'a T: core::ops::BitAnd<Output = T>
-        + const_num_traits::WrappingAdd<Output = T>
-        + const_num_traits::WrappingSub<Output = T>,
-{
+fn sha512_modq<T: VerifyBackend>(parts: &[&[u8]], q: &T) -> T {
     // Enforce "exactly one" SHA-512 backend at compile time. Two
     // mutually-exclusive arms + two compile_error! guards cover all four
     // feature-flag combinations cleanly.
@@ -161,7 +156,8 @@ where
     // Phase 6: choose sign. Parity is a property of the *normal-form* value,
     // not the Montgomery encoding, so round-trip through `into_raw`.
     let x_raw = field.into_raw(&x);
-    let parity = (&x_raw & &T::one()) == T::one();
+    let one = T::one();
+    let parity = (&x_raw & &one) == one;
     let x = if (parity as u8) != sign {
         let reduced = field.reduce(&x_raw);
         field.sub(&zero, &reduced)
@@ -206,9 +202,6 @@ fn point_double<'f, F, T>(pp: &EdPoint<'f, F, T>, field: &'f F) -> EdPoint<'f, F
 where
     F: VerifyField<T>,
     T: VerifyBackend,
-    for<'a> &'a T: core::ops::BitAnd<Output = T>
-        + const_num_traits::WrappingAdd<Output = T>
-        + const_num_traits::WrappingSub<Output = T>,
 {
     // Edwards curve doubling on extended-twisted coordinates.
     // A = X²; B = Y²; C = 2·Z²; D = −A (a = −1 for Ed25519)
@@ -239,9 +232,6 @@ fn to_niels<'f, F, T>(pp: &EdPoint<'f, F, T>, d_raw: T, field: &'f F) -> NielsPo
 where
     F: VerifyField<T>,
     T: VerifyBackend,
-    for<'a> &'a T: core::ops::BitAnd<Output = T>
-        + const_num_traits::WrappingAdd<Output = T>
-        + const_num_traits::WrappingSub<Output = T>,
 {
     let y_plus_x = field.add(&pp.1, &pp.0);
     let y_minus_x = field.sub(&pp.1, &pp.0);
@@ -260,9 +250,6 @@ fn point_add_niels<'f, F, T>(
 where
     F: VerifyField<T>,
     T: VerifyBackend,
-    for<'a> &'a T: core::ops::BitAnd<Output = T>
-        + const_num_traits::WrappingAdd<Output = T>
-        + const_num_traits::WrappingSub<Output = T>,
 {
     // A = (Y₁−X₁)·(y−x); B = (Y₁+X₁)·(y+x); C = T₁·2dt; D = 2·Z₁
     let pp_y_minus_x = field.sub(&pp.1, &pp.0);
@@ -289,9 +276,6 @@ fn point_equal<'f, F, T>(pp: &EdPoint<'f, F, T>, qq: &EdPoint<'f, F, T>, field: 
 where
     F: VerifyField<T>,
     T: VerifyBackend,
-    for<'a> &'a T: core::ops::BitAnd<Output = T>
-        + const_num_traits::WrappingAdd<Output = T>
-        + const_num_traits::WrappingSub<Output = T>,
 {
     // Projective equality: X₁/Z₁ = X₂/Z₂ ↔ X₁·Z₂ = X₂·Z₁ (and same for Y).
     let t1 = field.mul(&pp.0, &qq.2);
@@ -314,9 +298,7 @@ fn naf_double_scalar_mul<'f, F, T>(
 where
     F: VerifyField<T>,
     T: VerifyBackend,
-    for<'a> &'a T: core::ops::BitAnd<Output = T>
-        + const_num_traits::WrappingAdd<Output = T>
-        + const_num_traits::WrappingSub<Output = T>,
+    for<'a> &'a T: core::ops::BitAnd<Output = T>,
 {
     // NAF operates on raw scalars (s, h ∈ Z_q), not field elements.
     let naf = crate::jsf::NafIterator::new(s, h);

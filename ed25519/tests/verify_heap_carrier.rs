@@ -9,6 +9,7 @@ use ed25519_heapless::{curve25519_schoolbook, verify_with_field};
 use num_bigint::FixedWidthBigUint;
 
 fn hex32(s: &str) -> [u8; 32] {
+    assert_eq!(s.len(), 64, "expected 64 hex chars (32 bytes)");
     let mut o = [0u8; 32];
     for i in 0..32 {
         o[i] = u8::from_str_radix(&s[2 * i..2 * i + 2], 16).unwrap();
@@ -16,6 +17,7 @@ fn hex32(s: &str) -> [u8; 32] {
     o
 }
 fn hex64(s: &str) -> [u8; 64] {
+    assert_eq!(s.len(), 128, "expected 128 hex chars (64 bytes)");
     let mut o = [0u8; 64];
     for i in 0..64 {
         o[i] = u8::from_str_radix(&s[2 * i..2 * i + 2], 16).unwrap();
