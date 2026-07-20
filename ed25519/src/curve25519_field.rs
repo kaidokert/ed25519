@@ -24,7 +24,8 @@
 //! through that. Don't.
 
 use modmath::{
-    CiosMontMul, CiosMontMulCt, FieldCt, FieldNct, Parity, ResidueCt, ResidueNct, WideMul,
+    CiosMontMul, CiosMontMulCt, FieldCt, FieldNct, FieldOps, Parity, ResidueCt, ResidueNct,
+    SchoolbookFieldRef, WideMul,
 };
 
 use crate::{P_BYTES, UnsignedModularInt};
@@ -58,6 +59,22 @@ where
         return Err(CurveSetupError::BackendTooNarrow);
     }
     modmath::Odd::new(m).ok_or(CurveSetupError::InvalidModulus)
+}
+
+/// Build the variable-time Nct schoolbook verify field over the Curve25519
+/// prime for a `Clone` (non-`Copy`) heap carrier — the entry point for a
+/// verify-only heap-backed build (e.g. `num-bigint`). Pairs with
+/// [`crate::verify_with_field`]; the returned field can never reach a
+/// constant-time path (`SchoolbookFieldRef` carries no `subtle` bound).
+pub fn curve25519_schoolbook<T>() -> Result<SchoolbookFieldRef<T>, CurveSetupError>
+where
+    T: crate::VerifyBackend,
+{
+    let p = crate::from_le_bytes::<T>(&P_BYTES);
+    if (const_num_traits::BitsPrecision::bits_precision(&p) as usize) < 256 {
+        return Err(CurveSetupError::BackendTooNarrow);
+    }
+    SchoolbookFieldRef::new(p).ok_or(CurveSetupError::InvalidModulus)
 }
 
 // =========================================================================
@@ -441,6 +458,56 @@ impl_verify_field!(
         + subtle::ConditionallySelectable
         + subtle::ConstantTimeLess
 );
+
+/// Bridge the modmath `Clone` / by-reference vartime field
+/// ([`modmath::SchoolbookFieldRef`]) onto the verify surface, so a non-`Copy`
+/// heap carrier can drive verify without the Montgomery/CIOS `Copy` path.
+/// Variable-time and Nct-only — `SchoolbookFieldRef` carries no `subtle` bound,
+/// so this impl can never resolve on a constant-time path.
+impl<T> VerifyField<T> for SchoolbookFieldRef<T>
+where
+    SchoolbookFieldRef<T>: FieldOps<Backend = T>,
+{
+    type Residue<'f>
+        = <SchoolbookFieldRef<T> as FieldOps>::Residue<'f>
+    where
+        Self: 'f;
+
+    fn reduce<'f>(&'f self, raw: &T) -> Self::Residue<'f> {
+        FieldOps::reduce(self, raw)
+    }
+    fn mul<'f>(&'f self, a: &Self::Residue<'f>, b: &Self::Residue<'f>) -> Self::Residue<'f> {
+        FieldOps::mul(self, a, b)
+    }
+    fn add<'f>(&'f self, a: &Self::Residue<'f>, b: &Self::Residue<'f>) -> Self::Residue<'f> {
+        FieldOps::add(self, a, b)
+    }
+    fn sub<'f>(&'f self, a: &Self::Residue<'f>, b: &Self::Residue<'f>) -> Self::Residue<'f> {
+        FieldOps::sub(self, a, b)
+    }
+    fn inv<'f>(&'f self, a: &Self::Residue<'f>) -> Self::Residue<'f> {
+        // Total inverse: EEA returns `None` only for a non-invertible operand
+        // (≡ 0). Fold that to zero, matching the Nct Fermat `inv(0) = 0` the
+        // verify path already tolerates — recover_x's denominator is provably
+        // nonzero, so the `None` branch is unreachable there anyway.
+        FieldOps::inv(self, a).unwrap_or_else(|| FieldOps::zero(self))
+    }
+    fn exp<'f>(&'f self, base: &Self::Residue<'f>, exp: &T) -> Self::Residue<'f> {
+        FieldOps::exp(self, base, exp)
+    }
+    fn one<'f>(&'f self) -> Self::Residue<'f> {
+        FieldOps::one(self)
+    }
+    fn zero<'f>(&'f self) -> Self::Residue<'f> {
+        FieldOps::zero(self)
+    }
+    fn into_raw<'f>(&'f self, a: &Self::Residue<'f>) -> T {
+        FieldOps::into_raw(self, a)
+    }
+    fn modulus(&self) -> &T {
+        FieldOps::modulus(self)
+    }
+}
 
 #[cfg(all(test, feature = "fixed-bigint"))]
 mod tests {

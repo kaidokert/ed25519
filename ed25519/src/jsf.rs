@@ -108,7 +108,7 @@ impl NafIterator {
         T: const_num_traits::Zero
             + const_num_traits::One
             + const_num_traits::WrappingAdd<Output = T>
-            + Copy
+            + Clone
             + PartialOrd
             + PartialEq
             + core::ops::ShrAssign<usize>,
@@ -129,8 +129,8 @@ impl NafIterator {
         // `.wrapping_add` names the contract at the trait boundary.
         let zero = T::zero();
         let one = T::one();
-        let two = one.wrapping_add(one);
-        let three = two.wrapping_add(one);
+        let two = one.clone().wrapping_add(one.clone());
+        let three = two.wrapping_add(one.clone());
 
         // Process scalars bit by bit to generate NAF digits
         while s_working > zero || h_working > zero {
@@ -171,10 +171,10 @@ impl NafIterator {
             h_working >>= 1;
 
             if s_carry {
-                s_working = s_working.wrapping_add(one);
+                s_working = s_working.wrapping_add(one.clone());
             }
             if h_carry {
-                h_working = h_working.wrapping_add(one);
+                h_working = h_working.wrapping_add(one.clone());
             }
         }
 

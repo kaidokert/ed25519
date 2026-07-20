@@ -1,6 +1,6 @@
-use crate::UnsignedModularInt;
 use crate::curve25519_field::{Curve25519Field, VerifyField};
 use crate::jsf::NafSign;
+use crate::{UnsignedModularInt, VerifyBackend};
 
 // Tuples of field residues. Lifetime `'f` binds them to the producing
 // field instance — the type system prevents mixing residues from a
@@ -16,10 +16,11 @@ type NielsPoint<'f, F, T> = (Res<'f, F, T>, Res<'f, F, T>, Res<'f, F, T>);
 use crate::{D_BYTES, G_T_BYTES, G_X_BYTES, G_Y_BYTES, MODP_SQRT_M1_BYTES, Q_BYTES};
 
 #[inline(never)]
-fn sha512_modq<T: UnsignedModularInt>(parts: &[&[u8]], q: &T) -> T
+fn sha512_modq<T: VerifyBackend>(parts: &[&[u8]], q: &T) -> T
 where
-    for<'a> &'a T:
-        const_num_traits::WrappingAdd<Output = T> + const_num_traits::WrappingSub<Output = T>,
+    for<'a> &'a T: core::ops::BitAnd<Output = T>
+        + const_num_traits::WrappingAdd<Output = T>
+        + const_num_traits::WrappingSub<Output = T>,
 {
     // Enforce "exactly one" SHA-512 backend at compile time. Two
     // mutually-exclusive arms + two compile_error! guards cover all four
@@ -101,9 +102,10 @@ where
 fn recover_x<'f, F, T>(y_raw: T, sign: u8, d_raw: T, field: &'f F) -> Option<Res<'f, F, T>>
 where
     F: VerifyField<T>,
-    T: UnsignedModularInt + Copy,
-    for<'a> &'a T:
-        const_num_traits::WrappingAdd<Output = T> + const_num_traits::WrappingSub<Output = T>,
+    T: VerifyBackend,
+    for<'a> &'a T: core::ops::BitAnd<Output = T>
+        + const_num_traits::WrappingAdd<Output = T>
+        + const_num_traits::WrappingSub<Output = T>,
 {
     // Phase 1: x² = (y² − 1) / (d·y² + 1)
     let x2 = {
@@ -159,7 +161,7 @@ where
     // Phase 6: choose sign. Parity is a property of the *normal-form* value,
     // not the Montgomery encoding, so round-trip through `into_raw`.
     let x_raw = field.into_raw(&x);
-    let parity = (x_raw & T::one()) == T::one();
+    let parity = (&x_raw & &T::one()) == T::one();
     let x = if (parity as u8) != sign {
         let reduced = field.reduce(&x_raw);
         field.sub(&zero, &reduced)
@@ -178,9 +180,10 @@ fn decompress_edward_point<'f, F, T>(
 ) -> Option<EdPoint<'f, F, T>>
 where
     F: VerifyField<T>,
-    T: UnsignedModularInt + Copy,
-    for<'a> &'a T:
-        const_num_traits::WrappingAdd<Output = T> + const_num_traits::WrappingSub<Output = T>,
+    T: VerifyBackend,
+    for<'a> &'a T: core::ops::BitAnd<Output = T>
+        + const_num_traits::WrappingAdd<Output = T>
+        + const_num_traits::WrappingSub<Output = T>,
 {
     let mut bytes = encoded;
     let sign = bytes[31] >> 7;
@@ -191,7 +194,7 @@ where
         return None;
     }
 
-    let x = recover_x(y_raw, sign, d_raw, field)?;
+    let x = recover_x(y_raw.clone(), sign, d_raw, field)?;
     let y = field.reduce(&y_raw);
     let one = field.one();
     let t = field.mul(&x, &y);
@@ -202,9 +205,10 @@ where
 fn point_double<'f, F, T>(pp: &EdPoint<'f, F, T>, field: &'f F) -> EdPoint<'f, F, T>
 where
     F: VerifyField<T>,
-    T: UnsignedModularInt + Copy,
-    for<'a> &'a T:
-        const_num_traits::WrappingAdd<Output = T> + const_num_traits::WrappingSub<Output = T>,
+    T: VerifyBackend,
+    for<'a> &'a T: core::ops::BitAnd<Output = T>
+        + const_num_traits::WrappingAdd<Output = T>
+        + const_num_traits::WrappingSub<Output = T>,
 {
     // Edwards curve doubling on extended-twisted coordinates.
     // A = X²; B = Y²; C = 2·Z²; D = −A (a = −1 for Ed25519)
@@ -234,9 +238,10 @@ where
 fn to_niels<'f, F, T>(pp: &EdPoint<'f, F, T>, d_raw: T, field: &'f F) -> NielsPoint<'f, F, T>
 where
     F: VerifyField<T>,
-    T: UnsignedModularInt + Copy,
-    for<'a> &'a T:
-        const_num_traits::WrappingAdd<Output = T> + const_num_traits::WrappingSub<Output = T>,
+    T: VerifyBackend,
+    for<'a> &'a T: core::ops::BitAnd<Output = T>
+        + const_num_traits::WrappingAdd<Output = T>
+        + const_num_traits::WrappingSub<Output = T>,
 {
     let y_plus_x = field.add(&pp.1, &pp.0);
     let y_minus_x = field.sub(&pp.1, &pp.0);
@@ -254,9 +259,10 @@ fn point_add_niels<'f, F, T>(
 ) -> EdPoint<'f, F, T>
 where
     F: VerifyField<T>,
-    T: UnsignedModularInt + Copy,
-    for<'a> &'a T:
-        const_num_traits::WrappingAdd<Output = T> + const_num_traits::WrappingSub<Output = T>,
+    T: VerifyBackend,
+    for<'a> &'a T: core::ops::BitAnd<Output = T>
+        + const_num_traits::WrappingAdd<Output = T>
+        + const_num_traits::WrappingSub<Output = T>,
 {
     // A = (Y₁−X₁)·(y−x); B = (Y₁+X₁)·(y+x); C = T₁·2dt; D = 2·Z₁
     let pp_y_minus_x = field.sub(&pp.1, &pp.0);
@@ -282,9 +288,10 @@ where
 fn point_equal<'f, F, T>(pp: &EdPoint<'f, F, T>, qq: &EdPoint<'f, F, T>, field: &'f F) -> bool
 where
     F: VerifyField<T>,
-    T: UnsignedModularInt + Copy,
-    for<'a> &'a T:
-        const_num_traits::WrappingAdd<Output = T> + const_num_traits::WrappingSub<Output = T>,
+    T: VerifyBackend,
+    for<'a> &'a T: core::ops::BitAnd<Output = T>
+        + const_num_traits::WrappingAdd<Output = T>
+        + const_num_traits::WrappingSub<Output = T>,
 {
     // Projective equality: X₁/Z₁ = X₂/Z₂ ↔ X₁·Z₂ = X₂·Z₁ (and same for Y).
     let t1 = field.mul(&pp.0, &qq.2);
@@ -306,7 +313,7 @@ fn naf_double_scalar_mul<'f, F, T>(
 ) -> EdPoint<'f, F, T>
 where
     F: VerifyField<T>,
-    T: UnsignedModularInt + Copy,
+    T: VerifyBackend,
     for<'a> &'a T: core::ops::BitAnd<Output = T>
         + const_num_traits::WrappingAdd<Output = T>
         + const_num_traits::WrappingSub<Output = T>,
@@ -319,7 +326,7 @@ where
     let mut result: EdPoint<'f, F, T> = (field.zero(), field.one(), field.one(), field.zero());
 
     // Precompute Niels form of base points + their negations.
-    let g_niels = to_niels(g, d_raw, field);
+    let g_niels = to_niels(g, d_raw.clone(), field);
     let a_niels = to_niels(a, d_raw, field);
     let neg_g_niels = (
         g_niels.1.clone(),
@@ -393,7 +400,7 @@ where
 pub fn verify_with_field<F, T>(field: &F, public: [u8; 32], msg: &[u8], signature: [u8; 64]) -> bool
 where
     F: VerifyField<T>,
-    T: UnsignedModularInt + Copy,
+    T: VerifyBackend,
     for<'a> &'a T: core::ops::BitAnd<Output = T>
         + const_num_traits::WrappingAdd<Output = T>
         + const_num_traits::WrappingSub<Output = T>,
@@ -405,7 +412,7 @@ where
 fn verify_inner<F, T>(field: &F, public: [u8; 32], msg: &[u8], signature: [u8; 64]) -> bool
 where
     F: VerifyField<T>,
-    T: UnsignedModularInt + Copy,
+    T: VerifyBackend,
     for<'a> &'a T: core::ops::BitAnd<Output = T>
         + const_num_traits::WrappingAdd<Output = T>
         + const_num_traits::WrappingSub<Output = T>,
@@ -414,7 +421,7 @@ where
 
     // Phase 1: decompress the public key A, then negate (we'll check
     // s·B − h·A = R rather than s·B = h·A + R).
-    let neg_aa = match decompress_edward_point(public, d, field) {
+    let neg_aa = match decompress_edward_point(public, d.clone(), field) {
         Some(aa) => {
             let zero = field.zero();
             (field.sub(&zero, &aa.0), aa.1, aa.2, field.sub(&zero, &aa.3))
@@ -431,7 +438,7 @@ where
     let rrs: [u8; 32] = signature[0..32].try_into().unwrap_or_default();
 
     // Phase 2: decompress R.
-    let rr = match decompress_edward_point(rrs, d, field) {
+    let rr = match decompress_edward_point(rrs, d.clone(), field) {
         Some(rr) => rr,
         None => return false,
     };
