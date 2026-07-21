@@ -34,10 +34,8 @@ fn main() -> ! {
     #[cfg(not(feature = "external-measurement"))]
     let passed = {
         let mut peripherals = cortex_m::Peripherals::take().unwrap();
-        let mut platform = CounterPlatform::new(SysTickCycleCounter::start(
-            &mut peripherals.SYST,
-            None,
-        ));
+        let mut platform =
+            CounterPlatform::new(SysTickCycleCounter::start(&mut peripherals.SYST, None));
         benchmark
             .run(&mut platform, &mut reporter, portable_workload)
             .unwrap()
