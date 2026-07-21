@@ -12,6 +12,8 @@ env:
 jobs:
   panic-free-audit:
     runs-on: ubuntu-latest
+    env:
+      RUSTUP_TOOLCHAIN: 1.86.0
     permissions:
       contents: read
     strategy:
