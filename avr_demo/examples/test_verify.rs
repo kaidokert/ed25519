@@ -15,7 +15,7 @@ fn main() -> ! {
     let pins = arduino_hal::pins!(dp);
     let serial = arduino_hal::default_serial!(dp, pins, 57600);
 
-    let fields = [Field::token("target", "atmega2560")];
+    let fields = [Field::token("architecture", "atmega2560")];
     let mut reporter = UfmtReporter::new(serial);
     // SAFETY: ATmega2560 SRAM above `_end` is reserved for this single stack.
     unsafe {

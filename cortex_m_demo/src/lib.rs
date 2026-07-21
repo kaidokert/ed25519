@@ -35,7 +35,10 @@ pub const EXPECTED_SHARED: [u8; 32] = [
 
 pub fn test_fixture(testable: fn() -> bool, algo: &str, backend: &str) {
     let fields = [
-        Field::token("target", krabi_caliper::stack::cortex_m_architecture_name()),
+        Field::token(
+            "architecture",
+            krabi_caliper::stack::cortex_m_architecture_name(),
+        ),
         Field::token("algo", algo),
         Field::token("backend", backend),
     ];
