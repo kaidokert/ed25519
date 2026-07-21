@@ -6,7 +6,7 @@ use core::hint::black_box;
 use cortex_m_rt::entry;
 use ed25519_heapless::{SigningKey, sign, x25519, x25519_base};
 use fixed_bigint::FixedUInt;
-use krabi_caliper::cortex_m::DwtCycleCounter;
+use krabi_caliper::cortex_m::DwtMeasurementPlatform;
 use krabi_caliper::report::Field;
 use krabi_caliper::suite::{PairedSuite, PairedSuiteConfig, PairedSuiteFields};
 
@@ -103,11 +103,14 @@ fn fixture_negative_early_exit(secret: &[u8; 32]) -> bool {
 
 #[entry]
 fn main() -> ! {
-    let mut reporter = krabi_caliper::rtt::init_ct_compatible();
+    let mut reporter = krabi_caliper::protocol::rtt::init_ct_compatible();
     let mut peripherals = cortex_m::Peripherals::take().unwrap();
-    let mut counter =
-        DwtCycleCounter::enable(&mut peripherals.DCB, &mut peripherals.DWT, Some(16_000_000))
-            .unwrap();
+    let mut platform = DwtMeasurementPlatform::enable(
+        &mut peripherals.DCB,
+        &mut peripherals.DWT,
+        Some(16_000_000),
+    )
+    .unwrap();
     let run_fields = [
         Field::token("carrier", CARRIER),
         Field::u64("trials", TRIALS as u64),
@@ -116,7 +119,7 @@ fn main() -> ! {
     let fixture_fields = [Field::token("carrier", CARRIER)];
     let summary_fields = [Field::token("carrier", CARRIER)];
     let mut suite = PairedSuite::<_, _, TRIALS>::start(
-        &mut counter,
+        &mut platform,
         &mut reporter,
         PairedSuiteConfig {
             suite: "ed25519-cyccnt",
@@ -169,7 +172,7 @@ fn main() -> ! {
 
 #[panic_handler]
 fn panic(info: &core::panic::PanicInfo) -> ! {
-    krabi_caliper::rtt::print(format_args!("PANIC: {}\n", info));
+    krabi_caliper::protocol::rtt::print(format_args!("PANIC: {}\n", info));
     loop {
         cortex_m::asm::nop();
     }
