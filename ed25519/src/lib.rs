@@ -58,7 +58,9 @@ pub(crate) mod strict_sign;
 pub use signing_key::{SignError, SigningKey, sign, sign_with_fields};
 pub(crate) mod x25519;
 
-pub use curve25519_field::{Curve25519Field, Curve25519FieldCt, CurveSetupError, VerifyField};
+pub use curve25519_field::{
+    Curve25519Field, Curve25519FieldCt, CurveSetupError, VerifyField, curve25519_schoolbook,
+};
 pub use modmath::{Field, FieldCt, FieldNct, Residue, ResidueCt, ResidueNct};
 
 use core::marker::PhantomData;
@@ -111,6 +113,47 @@ impl<T> UnsignedModularInt for T where
         + modmath::Parity
         + const_num_traits::FromByteSlice
         + const_num_traits::ToBytes
+{
+}
+
+/// Carrier bound bundle for the **verify** path. Verify is variable-time on
+/// public data, so — unlike [`SignBackend`] — it needs neither `Copy` nor
+/// `subtle`: a `Clone` heap carrier (e.g. num-bigint) satisfies it. This is the
+/// `Clone` / consume-self / by-reference subset of [`UnsignedModularInt`] that
+/// verify's own code exercises, minus the Montgomery-only ops (those live on
+/// the field's `VerifyField` impl, not here). Any `UnsignedModularInt` carrier
+/// also satisfies it, so the fixed-width `Copy` verify path is unaffected.
+pub trait VerifyBackend:
+    Clone
+    + PartialOrd
+    + const_num_traits::One
+    + const_num_traits::Zero
+    + const_num_traits::BitsPrecision
+    + const_num_traits::WithPrecision
+    + const_num_traits::ops::overflowing::OverflowingAdd<Output = Self>
+    + const_num_traits::WrappingAdd<Output = Self>
+    + const_num_traits::WrappingSub<Output = Self>
+    + core::ops::Shr<usize, Output = Self>
+    + core::ops::ShrAssign<usize>
+    + modmath::Parity
+    + const_num_traits::FromByteSlice
+{
+}
+
+impl<T> VerifyBackend for T where
+    T: Clone
+        + PartialOrd
+        + const_num_traits::One
+        + const_num_traits::Zero
+        + const_num_traits::BitsPrecision
+        + const_num_traits::WithPrecision
+        + const_num_traits::ops::overflowing::OverflowingAdd<Output = Self>
+        + const_num_traits::WrappingAdd<Output = Self>
+        + const_num_traits::WrappingSub<Output = Self>
+        + core::ops::Shr<usize, Output = Self>
+        + core::ops::ShrAssign<usize>
+        + modmath::Parity
+        + const_num_traits::FromByteSlice
 {
 }
 
