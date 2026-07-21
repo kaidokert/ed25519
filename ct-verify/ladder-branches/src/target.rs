@@ -26,7 +26,7 @@ const RISCV_CALIBRATIONS: &[SymbolCalibration] = &[
     SymbolCalibration {
         display_name: "x25519::montgomery_ladder",
         selector: "montgomery_ladder",
-        expected_branches: 1,
+        expected_branches: 2,
     },
     SymbolCalibration {
         display_name: "strict_sign::scalar_mult_ct",

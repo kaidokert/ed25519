@@ -9,7 +9,7 @@ use krabi_caliper::Benchmark;
 #[cfg(not(feature = "external-measurement"))]
 use krabi_caliper::CounterPlatform;
 #[cfg(not(feature = "external-measurement"))]
-use krabi_caliper::cortex_m::CycleCounters as CycleCounter;
+use krabi_caliper::cortex_m::SysTickCycleCounter;
 
 #[inline(never)]
 fn portable_workload() -> bool {
@@ -23,7 +23,7 @@ fn portable_workload() -> bool {
 #[entry]
 fn main() -> ! {
     let benchmark = Benchmark::<3>::new("portable-workload").warmups(1);
-    let mut reporter = krabi_caliper::semihosting::init().unwrap();
+    let mut reporter = krabi_caliper::protocol::semihosting::init().unwrap();
 
     #[cfg(feature = "external-measurement")]
     let passed = benchmark
@@ -33,7 +33,11 @@ fn main() -> ! {
 
     #[cfg(not(feature = "external-measurement"))]
     let passed = {
-        let mut platform = CounterPlatform::new(CycleCounter::start(false, None).unwrap());
+        let mut peripherals = cortex_m::Peripherals::take().unwrap();
+        let mut platform = CounterPlatform::new(SysTickCycleCounter::start(
+            &mut peripherals.SYST,
+            None,
+        ));
         benchmark
             .run(&mut platform, &mut reporter, portable_workload)
             .unwrap()
@@ -41,8 +45,8 @@ fn main() -> ! {
     };
 
     if passed {
-        krabi_caliper::semihosting::exit_success();
+        krabi_caliper::protocol::semihosting::exit_success();
     } else {
-        krabi_caliper::semihosting::exit_failure();
+        krabi_caliper::protocol::semihosting::exit_failure();
     }
 }

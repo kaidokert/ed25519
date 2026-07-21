@@ -5,10 +5,10 @@ use const_num_traits::Ct;
 use core::hint::black_box;
 use cortex_m_rt::entry;
 use ed25519_heapless::{SigningKey, sign, x25519, x25519_base};
+use fixed_bigint::FixedUInt;
 use krabi_caliper::cortex_m::DwtCycleCounter;
 use krabi_caliper::report::Field;
 use krabi_caliper::suite::{PairedSuite, PairedSuiteConfig, PairedSuiteFields};
-use fixed_bigint::FixedUInt;
 
 const TRIALS: usize = 4;
 const BATCHES: usize = 1;

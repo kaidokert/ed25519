@@ -4,7 +4,7 @@ use core::fmt::Write;
 use core::hint::black_box;
 use krabi_caliper::report::Field;
 use krabi_caliper::risc_v::{FootprintConfig, MmioTxFifo32, write_mmio32};
-use krabi_caliper::uart::{UartReporter, reporter};
+use krabi_caliper::protocol::uart::{UartReporter, reporter};
 
 pub const PUBLIC_KEY: [u8; 32] = [
     0x33, 0xbc, 0x91, 0xa3, 0xca, 0xb8, 0x87, 0xc8, 0xbf, 0x3c, 0x63, 0x61, 0x46, 0xd2, 0xe3, 0x8d,

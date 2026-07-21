@@ -4,9 +4,11 @@
 
 use avr_demo as _;
 use fixed_bigint::FixedUInt;
-use krabi_caliper::avr::timer_measurement;
 use krabi_caliper::report::{Field, UfmtReporter};
-use krabi_caliper::stack::{DescendingStack, StackChunkState, StackConfig, StackMap, StackProbe};
+use krabi_caliper::stack::{
+    Avr, DescendingStack, LinkerStack, StackChunkState, StackConfig, StackMap, StackProbe,
+};
+use krabi_caliper::Counter;
 
 const PUBLIC_KEY: [u8; 32] = [
     0x33, 0xbc, 0x91, 0xa3, 0xca, 0xb8, 0x87, 0xc8, 0xbf, 0x3c, 0x63, 0x61, 0x46, 0xd2, 0xe3, 0x8d,
@@ -23,7 +25,8 @@ const MESSAGE: &[u8] = b"Hello world!\n";
 /// Print a visual map of stack usage in 64-byte chunks
 /// Shows '#' for used (watermark overwritten) and '.' for unused (watermark intact)
 fn print_stack_map(serial: &mut impl ufmt::uWrite, stack: &impl DescendingStack) {
-    let map = StackMap::new(stack, 0xce).unwrap();
+    // SAFETY: the caller keeps the stack quiescent while it is scanned.
+    let map = unsafe { StackMap::new(stack, 0xce) }.unwrap();
     let stack_start = stack.bottom().as_ptr() as usize;
     let total = map.len();
 
@@ -62,20 +65,26 @@ fn print_stack_map(serial: &mut impl ufmt::uWrite, stack: &impl DescendingStack)
 
 #[arduino_hal::entry]
 fn main() -> ! {
-    let dp = arduino_hal::Peripherals::take().unwrap();
+    let mut dp = arduino_hal::Peripherals::take().unwrap();
     let pins = arduino_hal::pins!(dp);
     let serial = arduino_hal::default_serial!(dp, pins, 57600);
 
     // SAFETY: ATmega2560 SRAM above `_end` is reserved for this single stack.
-    let stack_region = unsafe { krabi_caliper::avr::atmega2560_stack() };
-    let stack_probe =
-        StackProbe::paint(&stack_region, StackConfig::new(64).sentinel(0xce)).unwrap();
+    let stack_region = unsafe { LinkerStack::<Avr>::avr_runtime(0x2200) };
+    let stack_probe = unsafe {
+        StackProbe::paint(&stack_region, StackConfig::new(64).sentinel(0xce))
+    }
+    .unwrap();
 
-    let counter = krabi_caliper::avr::Atmega2560Timer1Counter::start(&dp.TC1);
+    let mut counter = krabi_caliper::avr::Atmega2560Timer1Counter::start_prescale_1024(
+        &mut dp.TC1,
+        Some(15_625),
+    );
+    let start = counter.now();
     let result = ed25519_heapless::verify::<FixedUInt<u8, 32>>(PUBLIC_KEY, MESSAGE, SIGNATURE);
-    let ticks = counter.elapsed_ticks();
+    let timer1 = counter.elapsed(start);
 
-    let stack = stack_probe.measure();
+    let stack = unsafe { stack_probe.measure() };
     let fields = [Field::token("target", "atmega2560")];
     let mut reporter = UfmtReporter::new(serial);
     krabi_caliper::report_completed!(
@@ -84,7 +93,7 @@ fn main() -> ! {
         passed: result,
         fields: &fields,
         stack: stack,
-        measurements: [("timer1", timer_measurement(ticks, 15_625, false))]
+        measurements: [("timer1", timer1)]
     )
     .unwrap();
     let mut serial = reporter.into_inner();
