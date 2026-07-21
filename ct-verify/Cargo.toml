@@ -1,7 +1,7 @@
 [workspace]
 resolver = "2"
 
-members = [ "panic-free-audit", "ct-ctgrind", "ladder-branches" ]
+members = [ "panic-free-audit", "ct-ctgrind", "ladder-branches", "cyccnt-hardware" ]
 default-members = [ "panic-free-audit", "ct-ctgrind", "ladder-branches" ]
 
 # Pinned release codegen for the CT-verification gate. The taint

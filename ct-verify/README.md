@@ -5,7 +5,7 @@ secret-touching surface. Nested workspace with its own pinned release
 profile so the harness inspects deployment-shaped code without
 leaking the pin into the main crate's own `--release` builds.
 
-Three members, each catching what the others can't:
+Four members, each catching what the others can't:
 
 - **`panic-free-audit`** — cross-target staticlib. Wraps
   `SigningKey::from_seed`, `sign`, `verify`, `x25519`, and
@@ -52,6 +52,15 @@ Three members, each catching what the others can't:
   than replacing it: ctgrind proves the branches are actually
   secret-independent under runtime taint; this check proves the
   emitted structure stays what we calibrated.
+
+- **`cyccnt-hardware`** — paired-secret timing regression gate for the
+  J-Trace STM32F407VG. It runs key derivation, signing, X25519, and
+  X25519-base across the same `u32x8`, `u32x16`, and `u8x32` carrier
+  shapes used by ctgrind. Recorded trials use balanced ABBA ordering,
+  mask interrupts, and read DWT `CYCCNT`; an early-exit negative control
+  must produce disjoint timing ranges. This adds physical target evidence
+  but does not replace taint or instruction-flow analysis: distinct paths
+  can have equal cycle counts.
 
 ## Scope boundary
 
@@ -125,6 +134,9 @@ cargo build --release -p ladder-branches
 cargo build --release -p ct-ctgrind
 cargo krabi-caliper ctgrind target/release/ct-ctgrind
 
+# Physical STM32F407 CYCCNT gate (run each carrier separately)
+cargo run --release --target thumbv7em-none-eabihf \
+    -p cyccnt-hardware --features carrier-u32x8
 ```
 
 CI runs all three in `.github/workflows/ct-verify.yml` on every
