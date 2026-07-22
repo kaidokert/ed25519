@@ -50,7 +50,9 @@ fn print_stack_map(serial: &mut impl ufmt::uWrite, stack: &impl DescendingStack)
     // Also print per-256B region summary with byte counts
     ufmt::uwriteln!(serial, "").ok();
     ufmt::uwriteln!(serial, "Per-256B region (used/256):").ok();
+    let mut used = 0;
     for region in map.chunks(256) {
+        used += region.used_bytes;
         ufmt::uwriteln!(
             serial,
             "  {:04X}: {}/{}",
@@ -60,7 +62,7 @@ fn print_stack_map(serial: &mut impl ufmt::uWrite, stack: &impl DescendingStack)
         )
         .ok();
     }
-    ufmt::uwriteln!(serial, "  Total free RAM: {}", total).ok();
+    ufmt::uwriteln!(serial, "  Total free RAM: {}", total - used).ok();
 }
 
 #[arduino_hal::entry]
