@@ -27,7 +27,7 @@ fixed-bigint = { version = "0.6.0", default-features = false, features = ["use-u
 const-num-traits = { version = "0.2.1", default-features = false, features = ["ct"] }
 
 [patch.crates-io]
-krabi-caliper = { git = "https://github.com/kaidokert/krabi-caliper-rs", tag = "v0.1.0-alpha.2" }
+krabi-caliper = { git = "https://github.com/kaidokert/krabi-caliper-rs", tag = "v0.1.0-alpha.4" }
 
 [profile.release]
 codegen-units = 1
