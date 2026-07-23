@@ -26,6 +26,8 @@ const RISCV_CALIBRATIONS: &[SymbolCalibration] = &[
     SymbolCalibration {
         display_name: "x25519::montgomery_ladder",
         selector: "montgomery_ladder",
+        // The shared instruction parser recognizes both RISC-V loop-control
+        // branches; the previous tab-based parser missed one of them.
         expected_branches: 2,
     },
     SymbolCalibration {

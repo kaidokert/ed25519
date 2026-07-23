@@ -11,7 +11,7 @@ cargo krabi-caliper run ed25519-jtrace-f407
 ```
 
 Run these commands in this directory after installing `krabi-caliper` with
-its `cli` feature. Configuration lives in `krabi-caliper.toml`.
+its `cli,campaign` features. Configuration lives in `krabi-caliper.toml`.
 
 The J-Trace campaign reuses the same case set as QEMU, adding the board feature
 at profile level and using RTT on the STM32F407VG. It finishes in a `NOP` loop
