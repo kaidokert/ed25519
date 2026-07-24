@@ -37,9 +37,35 @@ const RISCV_CALIBRATIONS: &[SymbolCalibration] = &[
     },
 ];
 
-/// Every target supported by the previous standalone driver. CI exercises one
-/// representative Thumb and RISC-V lowering; the sibling triples remain
-/// available for local calibration checks.
+const AARCH64_CALIBRATIONS: &[SymbolCalibration] = &[
+    SymbolCalibration {
+        display_name: "x25519::montgomery_ladder",
+        selector: "montgomery_ladder",
+        expected_branches: 1,
+    },
+    SymbolCalibration {
+        display_name: "strict_sign::scalar_mult_ct",
+        selector: "scalar_mult_ct",
+        expected_branches: 1,
+    },
+];
+
+const X86_64_CALIBRATIONS: &[SymbolCalibration] = &[
+    SymbolCalibration {
+        display_name: "x25519::montgomery_ladder",
+        selector: "montgomery_ladder",
+        expected_branches: 1,
+    },
+    SymbolCalibration {
+        display_name: "strict_sign::scalar_mult_ct",
+        selector: "scalar_mult_ct",
+        expected_branches: 1,
+    },
+];
+
+/// Every target supported by the previous standalone driver, plus the two 64-bit
+/// host ISAs. CI exercises one representative lowering per ISA family; the
+/// sibling triples remain available for local calibration checks.
 pub const TARGETS: &[TargetSpec] = &[
     TargetSpec {
         triple: "thumbv7em-none-eabi",
@@ -84,6 +110,24 @@ pub const TARGETS: &[TargetSpec] = &[
         forbidden: mnemonics::RISCV_FORBIDDEN,
         allowed_cmov: &[],
         calibrations: RISCV_CALIBRATIONS,
+        extra_cargo_args: &[],
+    },
+    TargetSpec {
+        triple: "aarch64-unknown-none",
+        priority: 4,
+        toolchain: "1.86.0",
+        forbidden: mnemonics::AARCH64_FORBIDDEN,
+        allowed_cmov: mnemonics::AARCH64_ALLOWED,
+        calibrations: AARCH64_CALIBRATIONS,
+        extra_cargo_args: &[],
+    },
+    TargetSpec {
+        triple: "x86_64-unknown-none",
+        priority: 4,
+        toolchain: "1.86.0",
+        forbidden: mnemonics::X86_64_FORBIDDEN,
+        allowed_cmov: mnemonics::X86_64_ALLOWED,
+        calibrations: X86_64_CALIBRATIONS,
         extra_cargo_args: &[],
     },
 ];

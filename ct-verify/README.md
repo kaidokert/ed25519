@@ -51,7 +51,11 @@ Three members, each catching what the others can't:
   structural claim isn't observable). Supplements ctgrind rather
   than replacing it: ctgrind proves the branches are actually
   secret-independent under runtime taint; this check proves the
-  emitted structure stays what we calibrated.
+  emitted structure stays what we calibrated. Calibrated across four
+  ISA families — Thumb, RISC-V, AArch64, and x86_64 — so the two
+  64-bit host lowerings are gated alongside the embedded ones (the
+  per-bit selection lowers to `csel`/`cmov`, leaving only the public
+  loop-control branch on every ISA).
 
 ## Scope boundary
 
@@ -120,6 +124,8 @@ cargo krabi-caliper panic-audit --package panic-free-audit \
 cargo build --release -p ladder-branches
 ./target/release/ladder-branches thumbv7em-none-eabi
 ./target/release/ladder-branches riscv32imc-unknown-none-elf
+./target/release/ladder-branches aarch64-unknown-none
+./target/release/ladder-branches x86_64-unknown-none
 
 # ctgrind runtime taint (Linux only; install `valgrind` first)
 cargo build --release -p ct-ctgrind
