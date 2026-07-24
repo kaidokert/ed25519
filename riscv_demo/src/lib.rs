@@ -2,10 +2,9 @@
 
 use core::fmt::Write;
 use core::hint::black_box;
-
-pub mod cyclecount;
-pub mod stack;
-pub mod uart;
+use krabi_caliper::protocol::uart::{UartReporter, reporter};
+use krabi_caliper::report::Field;
+use krabi_caliper::risc_v::{FootprintConfig, MmioTxFifo32, write_mmio32};
 
 pub const PUBLIC_KEY: [u8; 32] = [
     0x33, 0xbc, 0x91, 0xa3, 0xca, 0xb8, 0x87, 0xc8, 0xbf, 0x3c, 0x63, 0x61, 0x46, 0xd2, 0xe3, 0x8d,
@@ -19,35 +18,34 @@ pub const SIGNATURE: [u8; 64] = [
 ];
 pub const MESSAGE: &[u8] = b"Hello world!\n";
 
-use cyclecount::CycleCounter;
-use stack::{check_stack_high_water_mark, paint_stack};
-use uart::{UartWriter, uart_init};
+type SifiveReporter = UartReporter<MmioTxFifo32<0x1001_3000>>;
+
+fn uart_init() {
+    // SAFETY: sifive_e UART0 is exclusively owned by this single-core fixture.
+    unsafe { write_mmio32(0x1001_3008, 1) }
+}
+
+fn uart_reporter() -> SifiveReporter {
+    // SAFETY: sifive_e UART0 is exclusively owned by this single-core fixture.
+    reporter(unsafe { MmioTxFifo32::new() })
+}
 
 pub fn test_fixture(testable: fn() -> bool, backend: &str) -> ! {
     uart_init();
-
-    paint_stack();
-    let counter = CycleCounter::new();
-    let result = testable();
-    let elapsed = counter.elapsed() / 1000;
-    let stack = check_stack_high_water_mark();
-
-    let mut w = UartWriter;
-    if result {
-        let _ = writeln!(w, "ed25519 ACCEPT");
-    } else {
-        let _ = writeln!(w, "ed25519 REJECT");
+    let fields = [
+        Field::token("architecture", "riscv32"),
+        Field::token("backend", backend),
+    ];
+    // SAFETY: riscv-rt owns the single stack described by its linker symbols.
+    unsafe {
+        krabi_caliper::risc_v::run_footprint::<256, _>(
+            uart_reporter,
+            FootprintConfig::new("ed25519-footprint", &fields),
+            testable,
+        )
     }
-    let _ = writeln!(
-        w,
-        "METRIC stack:{} cycles:{} target:riscv32 backend:{}",
-        stack, elapsed, backend
-    );
-
-    // sifive_e has no exit mechanism — loop forever, wrapper kills QEMU
-    loop {
-        unsafe { core::arch::asm!("wfi") }
-    }
+    .unwrap();
+    krabi_caliper::risc_v::park()
 }
 
 #[inline(never)]
@@ -60,9 +58,9 @@ pub fn fake_verify(public: [u8; 32], msg: &[u8], signature: [u8; 64]) -> bool {
 #[panic_handler]
 fn panic(info: &core::panic::PanicInfo) -> ! {
     uart_init();
-    let mut w = UartWriter;
-    let _ = writeln!(w, "PANIC: {}", info);
+    let mut reporter = uart_reporter();
+    let _ = writeln!(reporter, "PANIC: {}", info);
     loop {
-        unsafe { core::arch::asm!("wfi") }
+        core::hint::spin_loop()
     }
 }

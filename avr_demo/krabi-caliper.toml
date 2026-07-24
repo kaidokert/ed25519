@@ -1,0 +1,12 @@
+[profiles.avr]
+preset = "simavr-atmega2560"
+toolchain = "nightly-2025-11-01"
+timeout-seconds = 120
+
+[campaigns.ed25519-avr]
+profile = "avr"
+baseline-case = "baseline"
+cases = [
+  { name = "baseline", example = "test_verify", features = ["baseline"], expected-benchmark = "ed25519-footprint" },
+  { name = "verify", example = "test_verify", expected-benchmark = "ed25519-footprint" },
+]

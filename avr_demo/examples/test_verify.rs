@@ -3,52 +3,38 @@
 #![feature(asm_experimental_arch)]
 
 use avr_demo as _;
-use avr_demo::stack_measurement::*;
 use avr_demo::{MESSAGE, PUBLIC_KEY, SIGNATURE};
 #[cfg(not(feature = "baseline"))]
 use fixed_bigint::FixedUInt;
+use krabi_caliper::avr::FootprintConfig;
+use krabi_caliper::report::{Field, UfmtReporter};
 
 #[arduino_hal::entry]
 fn main() -> ! {
-    let dp = arduino_hal::Peripherals::take().unwrap();
+    let mut dp = arduino_hal::Peripherals::take().unwrap();
     let pins = arduino_hal::pins!(dp);
-    let mut serial = arduino_hal::default_serial!(dp, pins, 57600);
+    let serial = arduino_hal::default_serial!(dp, pins, 57600);
 
-    // Use TC1 (16-bit) in normal mode, prescaler 1024 → 15625 Hz at 16MHz
-    // Max measurable: 65536/15625 = 4.19 seconds. 1 tick = 64µs.
-    let tc1 = &dp.TC1;
-    tc1.tccr1b.write(|w| w.cs1().prescale_1024());
-
-    unsafe { fill_stack_with_watermark() };
-
-    let start: u16 = tc1.tcnt1.read().bits();
-    let result = {
-        #[cfg(feature = "baseline")]
-        {
-            avr_demo::fake_verify(PUBLIC_KEY, MESSAGE, SIGNATURE)
-        }
-        #[cfg(not(feature = "baseline"))]
-        {
-            ed25519_heapless::verify::<FixedUInt<u8, 32>>(PUBLIC_KEY, MESSAGE, SIGNATURE)
-        }
-    };
-    let end: u16 = tc1.tcnt1.read().bits();
-
-    let stack_used = unsafe { measure_stack_usage() };
-
-    // ticks * 1000 / 15625 = ms, but use integer math: ticks * 8 / 125
-    let ticks = end.wrapping_sub(start);
-    let ms = (ticks as u32) * 8 / 125;
-
-    if result {
-        ufmt::uwriteln!(&mut serial, "ACCEPT").ok();
-    } else {
-        ufmt::uwriteln!(&mut serial, "REJECT").ok();
+    let fields = [Field::token("architecture", "atmega2560")];
+    let mut reporter = UfmtReporter::new(serial);
+    // SAFETY: ATmega2560 SRAM above `_end` is reserved for this single stack.
+    unsafe {
+        krabi_caliper::avr::run_atmega2560_footprint::<64, _>(
+            &mut dp.TC1,
+            &mut reporter,
+            FootprintConfig::new("ed25519-footprint", &fields).sentinel(0xce),
+            || {
+                #[cfg(feature = "baseline")]
+                {
+                    avr_demo::fake_verify(PUBLIC_KEY, MESSAGE, SIGNATURE)
+                }
+                #[cfg(not(feature = "baseline"))]
+                {
+                    ed25519_heapless::verify::<FixedUInt<u8, 32>>(PUBLIC_KEY, MESSAGE, SIGNATURE)
+                }
+            },
+        )
     }
-    ufmt::uwriteln!(&mut serial, "Time: {} ms ({} ticks)", ms, ticks).ok();
-    ufmt::uwriteln!(&mut serial, "Max stack usage: {} bytes", stack_used).ok();
-
-    loop {
-        unsafe { core::arch::asm!("sleep") }
-    }
+    .unwrap();
+    krabi_caliper::avr::park_simavr(&dp.CPU)
 }

@@ -1,9 +1,10 @@
 #![no_std]
 #![feature(asm_experimental_arch)]
+#![feature(abi_avr_interrupt)]
 
 use core::hint::black_box;
 
-pub mod stack_measurement;
+krabi_caliper::atmega2560_timer1_overflow_handler!();
 
 pub const PUBLIC_KEY: [u8; 32] = [
     0x33, 0xbc, 0x91, 0xa3, 0xca, 0xb8, 0x87, 0xc8, 0xbf, 0x3c, 0x63, 0x61, 0x46, 0xd2, 0xe3, 0x8d,

@@ -1,0 +1,12 @@
+[profiles.qemu-riscv32-sifive-e]
+preset = "qemu-riscv32-sifive-e"
+timeout-seconds = 120
+
+[campaigns.ed25519-riscv32]
+profile = "qemu-riscv32-sifive-e"
+cases = [
+  { name = "ed25519-u8-baseline", example = "ed25519_u8", features = ["baseline"], expected-benchmark = "ed25519-footprint" },
+  { name = "ed25519-u8-verify", example = "ed25519_u8", expected-benchmark = "ed25519-footprint", baseline = "ed25519-u8-baseline" },
+  { name = "ed25519-u32-baseline", example = "ed25519_u32", features = ["baseline"], expected-benchmark = "ed25519-footprint" },
+  { name = "ed25519-u32-verify", example = "ed25519_u32", expected-benchmark = "ed25519-footprint", baseline = "ed25519-u32-baseline" },
+]

@@ -27,11 +27,12 @@
 //! equality) that Valgrind MUST flag. If it doesn't, the taint
 //! plumbing is broken.
 
-use crate::macros::{ctgrind_fixture, taint_val, untaint_val};
 use const_num_traits::Ct;
 use core::hint::black_box;
 use ed25519_heapless::{SigningKey, sign, x25519, x25519_base};
 use fixed_bigint::FixedUInt;
+use krabi_caliper::ctgrind_fixture;
+use krabi_caliper::host::ctgrind::{taint_val, untaint_val};
 
 type T32x8 = FixedUInt<u32, 8, Ct>;
 type T32x16 = FixedUInt<u32, 16, Ct>;
@@ -121,41 +122,4 @@ positive_fixtures_for_carrier!(
     ct_fix__x25519_base__u8x32
 );
 
-// ============================================================================
-// Negative controls — MUST trip Valgrind memcheck errors.
-// ============================================================================
-
-// Naked secret-dep branch. Reads the low bit of a tainted byte and
-// takes different code paths on it.
-ctgrind_fixture!(nct_fix__neg__branch_on_secret, {
-    let secret = black_box([0u8; 32]);
-    taint_val(&secret);
-    let observed = if secret[0] & 1 == 0 {
-        black_box(1u8)
-    } else {
-        black_box(2u8)
-    };
-    let _ = black_box(observed);
-});
-
-// Secret-index memory access. Uses a tainted byte as a table index.
-ctgrind_fixture!(nct_fix__neg__index_by_secret, {
-    let secret = black_box([0u8; 32]);
-    let table = black_box([0u8; 256]);
-    taint_val(&secret);
-    let idx = secret[0] as usize;
-    let observed = table[idx];
-    let _ = black_box(observed);
-});
-
-// Secret-value equality test. `==` on a tainted operand.
-ctgrind_fixture!(nct_fix__neg__equality_on_secret, {
-    let secret = black_box([0u8; 32]);
-    taint_val(&secret);
-    let observed = if secret[0] == 42 {
-        black_box(1u8)
-    } else {
-        black_box(2u8)
-    };
-    let _ = black_box(observed);
-});
+krabi_caliper::ctgrind_standard_controls!();

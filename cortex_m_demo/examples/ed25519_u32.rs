@@ -22,5 +22,7 @@ fn main() -> ! {
         "ed25519",
         "u32",
     );
-    loop {}
+    loop {
+        cortex_m::asm::nop();
+    }
 }

@@ -2,6 +2,7 @@
 resolver = "2"
 
 members = [ "panic-free-audit", "ct-ctgrind", "ladder-branches" ]
+default-members = [ "panic-free-audit", "ct-ctgrind", "ladder-branches" ]
 
 # Pinned release codegen for the CT-verification gate. The taint
 # verifier and the asm-grep driver must inspect deployment-shaped

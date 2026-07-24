@@ -108,8 +108,13 @@ component is installed.
 
 ```
 # Panic-free audit + neg-control self-test
-./panic-free-audit/check.sh thumbv7em-none-eabi
-./panic-free-audit/check.sh riscv32imc-unknown-none-elf
+cargo krabi-caliper panic-audit --package panic-free-audit \
+  --target thumbv7em-none-eabi --features panic-handler \
+  --negative-features neg-controls \
+  --owned-symbol 'panic_audit__|ed25519_heapless::' \
+  --expect-negative panic_audit__neg__bounds_check \
+  --expect-negative panic_audit__neg__unwrap \
+  --expect-negative panic_audit__neg__expect
 
 # Per-ISA ladder-branch calibration (reuses the same archive)
 cargo build --release -p ladder-branches
@@ -118,8 +123,8 @@ cargo build --release -p ladder-branches
 
 # ctgrind runtime taint (Linux only; install `valgrind` first)
 cargo build --release -p ct-ctgrind
-valgrind --tool=memcheck --error-limit=no --error-exitcode=0 -q \
-    target/release/ct-ctgrind
+cargo krabi-caliper ctgrind target/release/ct-ctgrind
+
 ```
 
 CI runs all three in `.github/workflows/ct-verify.yml` on every

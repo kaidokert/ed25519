@@ -13,13 +13,13 @@ crate-type = ["staticlib"]
 
 [features]
 default = []
-# See lib.rs — enabled by check.sh for the cross-built staticlib. When
+# Enabled by the shared panic-audit command for the cross-built staticlib. When
 # off, the host build links std (workspace clippy / cargo check) which
 # supplies its own panic handler.
 panic-handler = []
 # Turn on the deliberately-panicky `panic_audit__neg__*` fixtures so
 # the harness self-test can assert they DO trip. Off in the positive
-# pass; on in the negative pass driven by check.sh. If a negative
+# pass; on in the negative pass driven by krabi-caliper. If a negative
 # fixture ever fails to trip, either the fixture stopped being panicky
 # or the walker regex is broken.
 neg-controls = []

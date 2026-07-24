@@ -1,10 +1,10 @@
 #![no_std]
 
 use core::hint::black_box;
-use cortex_m_semihosting::{debug, hprintln};
+use krabi_caliper::cortex_m::FootprintConfig;
+use krabi_caliper::report::Field;
 
-pub mod cyclecount;
-pub mod stack;
+krabi_caliper::cortex_m_systick_overflow_handler!();
 
 // Ed25519 test vector ("Hello world!\n" / kaidokert key)
 pub const PUBLIC_KEY: [u8; 32] = [
@@ -33,50 +33,29 @@ pub const EXPECTED_SHARED: [u8; 32] = [
     0xe0, 0x7e, 0x21, 0xc9, 0x47, 0xd1, 0x9e, 0x33, 0x76, 0xf0, 0x9b, 0x3c, 0x1e, 0x16, 0x17, 0x42,
 ];
 
-use cyclecount::CycleCounter;
-use stack::{check_stack_high_water_mark, paint_stack};
-
-pub fn target_arch_name() -> &'static str {
-    #[cfg(thumbv6m)]
-    {
-        "thumbv6m"
-    }
-    #[cfg(thumbv7m)]
-    {
-        "thumbv7m"
-    }
-    #[cfg(thumbv7em)]
-    {
-        "thumbv7em"
-    }
-}
-
 pub fn test_fixture(testable: fn() -> bool, algo: &str, backend: &str) {
-    paint_stack();
-    let counter = CycleCounter::new();
-    let result = testable();
-    // Cycle counts are printed in thousands so the METRIC line stays compact;
-    // consumers (run_suite.py) treat the `cycles:` field as "k" units.
-    let elapsed = counter.elapsed() / 1000;
-    let stack = check_stack_high_water_mark();
-    if result {
-        hprintln!("{} ACCEPT", algo);
-    } else {
-        hprintln!("{} REJECT", algo);
+    let fields = [
+        Field::token(
+            "architecture",
+            krabi_caliper::stack::cortex_m_architecture_name(),
+        ),
+        Field::token("algo", algo),
+        Field::token("backend", backend),
+    ];
+    let config = FootprintConfig::new("ed25519-footprint", &fields)
+        .enable_dwt(cfg!(feature = "jtrace-f407"));
+    #[cfg(feature = "jtrace-f407")]
+    let config = config.frequency_hz(16_000_000);
+    // SAFETY: cortex-m-rt owns the single stack described by its linker symbols.
+    let result = unsafe {
+        krabi_caliper::cortex_m::run_footprint::<256, _>(
+            || krabi_caliper::cortex_m_reporter!("jtrace-f407"),
+            config,
+            testable,
+        )
     }
-    hprintln!(
-        "METRIC stack:{} cycles:{} target:{} algo:{} backend:{}",
-        stack,
-        elapsed,
-        target_arch_name(),
-        algo,
-        backend
-    );
-    if result {
-        debug::exit(debug::EXIT_SUCCESS);
-    } else {
-        debug::exit(debug::EXIT_FAILURE);
-    }
+    .unwrap();
+    krabi_caliper::finish_cortex_m_report!(result, "jtrace-f407");
 }
 
 #[inline(never)]
@@ -93,4 +72,14 @@ pub fn fake_x25519(k: [u8; 32], u: [u8; 32]) -> [u8; 32] {
     EXPECTED_SHARED
 }
 
+#[cfg(not(feature = "jtrace-f407"))]
 use panic_semihosting as _;
+
+#[cfg(feature = "jtrace-f407")]
+#[panic_handler]
+fn panic(info: &core::panic::PanicInfo) -> ! {
+    krabi_caliper::protocol::rtt::print(format_args!("PANIC: {}\n", info));
+    loop {
+        cortex_m::asm::nop();
+    }
+}

@@ -12,6 +12,8 @@ env:
 jobs:
   panic-free-audit:
     runs-on: ubuntu-latest
+    env:
+      RUSTUP_TOOLCHAIN: 1.86.0
     permissions:
       contents: read
     strategy:
@@ -22,12 +24,25 @@ jobs:
           - riscv32imc-unknown-none-elf
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.86
         with:
           targets: ${{ matrix.target }}
           components: llvm-tools-preview
+      - name: Install krabi-caliper
+        run: cargo install krabi-caliper --version 0.1.0 --features cli,campaign
       - name: Panic-free audit (${{ matrix.target }})
-        run: ct-verify/panic-free-audit/check.sh ${{ matrix.target }}
+        run: |
+          cargo krabi-caliper panic-audit \
+            --workspace ct-verify \
+            --package panic-free-audit \
+            --target ${{ matrix.target }} \
+            --features panic-handler \
+            --negative-features neg-controls \
+            --owned-symbol 'panic_audit__|ed25519_heapless::' \
+            --expect-negative panic_audit__neg__bounds_check \
+            --expect-negative panic_audit__neg__unwrap \
+            --expect-negative panic_audit__neg__expect \
+            --json target/panic-audit/${{ matrix.target }}.json
       - name: Build ladder-branches
         working-directory: ct-verify
         run: cargo build --release -p ladder-branches
