@@ -38,6 +38,7 @@ jobs:
           set -euo pipefail
           export PATH="/usr/local/cargo/bin:$HOME/.cargo/bin:$PATH"
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          rustup target add thumbv7em-none-eabihf
 
           env_file="${KRABI_RIG_DIR:-$HOME/.config/krabi-caliper/rigs}/$RIG.env"
           [ -f "$env_file" ] || { echo "::error::rig '$RIG' has no env on this bench ($env_file)"; exit 1; }
