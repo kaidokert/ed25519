@@ -46,4 +46,7 @@ timeout-seconds = 1800
 [campaigns.ed25519-ct-jtrace-f407]
 profile = "jtrace-f407"
 case-set = "ed25519-cyccnt"
-constant-time = { welch-threshold = 4.5, minimum-samples-per-class = 4, protected-classes = ["positive"], control-classes = ["negative"], gate = false }
+# Gating: the positive classes must stay under the Welch threshold and the
+# negative control must exceed it, so this catches a systematic A/B bias that
+# stays under the on-device 32-cycle spread bound yet is statistically distinct.
+constant-time = { welch-threshold = 4.5, minimum-samples-per-class = 4, protected-classes = ["positive"], control-classes = ["negative"], gate = true }

@@ -15,7 +15,7 @@ const BATCHES: usize = 1;
 // Calibrated on the STM32F407/J-Trace path: positive operations varied by
 // 7–20 cycles over 26–477 million-cycle calls, with overlapping A/B ranges.
 // Keep this absolute and deliberately small; every raw bound is reported.
-const MAX_POSITIVE_SPREAD: u32 = 32;
+const MAX_POSITIVE_SPREAD: u64 = 32;
 
 const SECRET_A: [u8; 32] = [0; 32];
 const SECRET_B: [u8; 32] = [
@@ -114,7 +114,7 @@ fn main() -> ! {
     let run_fields = [
         Field::token("carrier", CARRIER),
         Field::u64("trials", TRIALS as u64),
-        Field::u64("max_positive_spread", MAX_POSITIVE_SPREAD as u64),
+        Field::u64("max_positive_spread", MAX_POSITIVE_SPREAD),
     ];
     let fixture_fields = [Field::token("carrier", CARRIER)];
     let summary_fields = [Field::token("carrier", CARRIER)];
@@ -129,7 +129,7 @@ fn main() -> ! {
             frequency_hz: Some(16_000_000),
             warmup_blocks: 1,
             batches: BATCHES,
-            positive_max_spread: MAX_POSITIVE_SPREAD as u64,
+            positive_max_spread: MAX_POSITIVE_SPREAD,
             positive_require_overlap: true,
             fields: PairedSuiteFields {
                 run: &run_fields,
