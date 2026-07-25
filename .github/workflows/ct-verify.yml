@@ -54,6 +54,37 @@ jobs:
         working-directory: ct-verify
         run: target/release/ladder-branches ${{ matrix.target }}
 
+  # 64-bit host ISAs get the ladder-branch gate but not the panic-audit
+  # gate: the panic-audit negative controls are deliberate bounds/unwrap/
+  # expect panics that a 32-bit embedded lowering keeps as owned symbols,
+  # but 64-bit codegen folds them away, so the controls can't self-verify
+  # there. The ladder driver cross-builds both targets from any host and
+  # disassembles the archive, so one x86_64 runner covers both.
+  ladder-host-arches:
+    runs-on: ubuntu-latest
+    env:
+      RUSTUP_TOOLCHAIN: 1.86.0
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - aarch64-unknown-none
+          - x86_64-unknown-none
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.86
+        with:
+          targets: ${{ matrix.target }}
+          components: llvm-tools-preview
+      - name: Build ladder-branches
+        working-directory: ct-verify
+        run: cargo build --release -p ladder-branches
+      - name: Ladder-branch calibration (${{ matrix.target }})
+        working-directory: ct-verify
+        run: target/release/ladder-branches ${{ matrix.target }}
+
   ct-ctgrind:
     permissions:
       contents: read
