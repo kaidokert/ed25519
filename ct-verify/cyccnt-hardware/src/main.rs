@@ -9,12 +9,16 @@ use fixed_bigint::FixedUInt;
 use krabi_caliper::cortex_m::DwtMeasurementPlatform;
 use krabi_caliper::report::Field;
 use krabi_caliper::suite::{PairedSuite, PairedSuiteConfig, PairedSuiteFields};
+use stm32f4xx_hal::pac;
+use stm32f4xx_hal::prelude::*;
 
 const TRIALS: usize = 4;
 const BATCHES: usize = 1;
-// Calibrated on the STM32F407/J-Trace path: positive operations varied by
-// 7–20 cycles over 26–477 million-cycle calls, with overlapping A/B ranges.
-// Keep this absolute and deliberately small; every raw bound is reported.
+// Absolute cycle spread allowed between the A/B classes of a positive fixture.
+// The 16 MHz/0-wait-state path held 7–20 cycles; at 168 MHz the flash wait
+// states and ART prefetch add secret-independent fetch variance, so this is
+// provisional pending the first rig run — every raw bound is reported, so the
+// campaign output gives the true 168 MHz spread to tighten this back down to.
 const MAX_POSITIVE_SPREAD: u64 = 32;
 
 const SECRET_A: [u8; 32] = [0; 32];
@@ -105,10 +109,18 @@ fn fixture_negative_early_exit(secret: &[u8; 32]) -> bool {
 fn main() -> ! {
     let mut reporter = krabi_caliper::protocol::rtt::init_ct_compatible();
     let mut peripherals = cortex_m::Peripherals::take().unwrap();
+    // Run at the F407's nominal 168 MHz instead of the 16 MHz HSI reset default,
+    // so the fixed-cycle workloads finish ~10x faster in wall time. The gate is
+    // in core cycles (frequency-independent), so this only shortens the rig run.
+    // The PLL is HSI-sourced to avoid assuming a populated HSE crystal (±1% on
+    // reported time, but the cycle-count verdict is exact); `freeze` sets the 5
+    // flash wait states and enables the ART prefetch/cache for the fast path.
+    let dp = pac::Peripherals::take().unwrap();
+    let _clocks = dp.RCC.constrain().cfgr.sysclk(168.MHz()).freeze();
     let mut platform = DwtMeasurementPlatform::enable(
         &mut peripherals.DCB,
         &mut peripherals.DWT,
-        Some(16_000_000),
+        Some(168_000_000),
     )
     .unwrap();
     let run_fields = [
@@ -126,7 +138,7 @@ fn main() -> ! {
             target: "thumbv7em-none-eabihf",
             board: Some("stm32f407vg"),
             unit: krabi_caliper::Unit::CoreCycles,
-            frequency_hz: Some(16_000_000),
+            frequency_hz: Some(168_000_000),
             warmup_blocks: 1,
             batches: BATCHES,
             positive_max_spread: MAX_POSITIVE_SPREAD,
