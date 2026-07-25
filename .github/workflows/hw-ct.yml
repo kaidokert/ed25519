@@ -1,0 +1,54 @@
+# Hardware constant-time measurement on the F407 bench rig.
+name: hw-ct
+
+on:
+  push:
+    branches: [heapless]
+  pull_request:
+
+jobs:
+  cyccnt:
+    runs-on: [self-hosted, rig-stm32f407-dwt]
+
+    permissions:
+      contents: read
+
+    container:
+      image: 127.0.0.1:5000/pi-hw-runner:latest
+      options: --privileged
+      volumes:
+        - /dev/bus/usb:/dev/bus/usb
+        - /run/lock:/run/lock
+        - /srv/krabi-caliper/rigs:/rigs:ro
+
+    env:
+      RIG: stm32f407-dwt
+      CAMPAIGN: ed25519-ct-jtrace-f407
+      KRABI_RIG_DIR: /rigs
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: krabi-caliper on the rig
+        shell: bash
+        working-directory: ct-verify/cyccnt-hardware
+        run: |
+          set -euo pipefail
+          export PATH="/usr/local/cargo/bin:$HOME/.cargo/bin:$PATH"
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+          env_file="${KRABI_RIG_DIR:-$HOME/.config/krabi-caliper/rigs}/$RIG.env"
+          [ -f "$env_file" ] || { echo "::error::rig '$RIG' has no env on this bench ($env_file)"; exit 1; }
+          set -a; source "$env_file"; set +a
+          : "${KRABI_PROBE:?rig $RIG did not export KRABI_PROBE}"
+          echo "bench=${KRABI_BENCH:-?} rig=${KRABI_RIG:-?} probe=$KRABI_PROBE"
+
+          exec 9>"/run/lock/krabi-rig-$RIG"
+          flock -w 1800 9
+
+          probe-rs list | grep -qF "$KRABI_PROBE" \
+            || { echo "::error::probe $KRABI_PROBE not attached to ${KRABI_BENCH:-this bench}"; exit 1; }
+
+          cargo krabi-caliper run "$CAMPAIGN"

@@ -2,4 +2,6 @@
 target = "thumbv7em-none-eabihf"
 
 [target.thumbv7em-none-eabihf]
-runner = "probe-rs run --chip STM32F407VGTx --protocol swd --probe 1366:1020:001224000224"
+# The campaign supplies the probe selector from KRABI_PROBE. Plain `cargo run`
+# intentionally relies on probe-rs auto-detection for local, single-probe use.
+runner = "probe-rs run --chip STM32F407VGTx --protocol swd"
