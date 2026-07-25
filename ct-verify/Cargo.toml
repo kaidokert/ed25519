@@ -1,7 +1,11 @@
 [workspace]
 resolver = "2"
 
-members = [ "panic-free-audit", "ct-ctgrind", "ladder-branches" ]
+members = [ "panic-free-audit", "ct-ctgrind", "ladder-branches", "cyccnt-hardware" ]
+# cyccnt-hardware only builds for thumbv7em-none-eabihf (its build.rs asserts
+# the target), so it stays out of default-members: a host `cargo <cmd>` from
+# here must not try to build it. Invoke it explicitly from its own directory,
+# where `.cargo/config.toml` pins the target. Avoid `--workspace` at this root.
 default-members = [ "panic-free-audit", "ct-ctgrind", "ladder-branches" ]
 
 # Pinned release codegen for the CT-verification gate. The taint
