@@ -23,19 +23,8 @@ timeout-seconds = 300
 target-dir = "target"
 artifact-extension = ""
 
-[[case-sets.ed25519-cyccnt]]
-name = "u32x8"
-binary = "cyccnt-hardware"
-features = ["carrier-u32x8"]
-expected-suite = "ed25519-cyccnt"
-
-[[case-sets.ed25519-cyccnt]]
-name = "u32x16"
-binary = "cyccnt-hardware"
-features = ["carrier-u32x16"]
-expected-suite = "ed25519-cyccnt"
-timeout-seconds = 1800
-
+# THROWAWAY EXPERIMENT — only u8x32, the carrier with the sign glitch. The other
+# case-sets are dropped so the depth run stays a single fixture on one carrier.
 [[case-sets.ed25519-cyccnt]]
 name = "u8x32"
 binary = "cyccnt-hardware"

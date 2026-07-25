@@ -1,5 +1,10 @@
 #![no_main]
 #![no_std]
+// THROWAWAY EXPERIMENT — do not merge. Noise characterization for the u8x32
+// `sign` rig glitch: 32 samples/class, sign + negative control only, strict raw
+// evidence, unchanged ABBA/BAAB ordering. The other fixtures stay defined but
+// uncalled so the diff against the production fixture is minimal.
+#![allow(dead_code)]
 
 use const_num_traits::Ct;
 use core::hint::black_box;
@@ -12,7 +17,7 @@ use krabi_caliper::suite::{PairedSuite, PairedSuiteConfig, PairedSuiteFields};
 use stm32f4xx_hal::pac;
 use stm32f4xx_hal::prelude::*;
 
-const TRIALS: usize = 4;
+const TRIALS: usize = 32;
 const BATCHES: usize = 1;
 // Absolute cycle spread allowed between a positive fixture's A/B classes. Holds
 // at 7–20 cycles on the 0-wait-state path (16 and 30 MHz). Do not raise it to
@@ -151,22 +156,9 @@ fn main() -> ! {
         },
     )
     .unwrap();
-    suite
-        .positive(
-            "signing_key_from_seed",
-            &SECRET_A,
-            &SECRET_B,
-            fixture_keygen,
-        )
-        .unwrap();
+    // Only the affected fixture, at depth, plus the control (harness sanity).
     suite
         .positive("sign", &SECRET_A, &SECRET_B, fixture_sign)
-        .unwrap();
-    suite
-        .positive("x25519", &SECRET_A, &SECRET_B, fixture_x25519)
-        .unwrap();
-    suite
-        .positive("x25519_base", &SECRET_A, &SECRET_B, fixture_x25519_base)
         .unwrap();
     suite
         .negative(
