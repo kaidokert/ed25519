@@ -14,11 +14,9 @@ use stm32f4xx_hal::prelude::*;
 
 const TRIALS: usize = 4;
 const BATCHES: usize = 1;
-// Absolute cycle spread allowed between the A/B classes of a positive fixture.
-// The 16 MHz/0-wait-state path held 7–20 cycles; at 168 MHz the flash wait
-// states and ART prefetch add secret-independent fetch variance, so this is
-// provisional pending the first rig run — every raw bound is reported, so the
-// campaign output gives the true 168 MHz spread to tighten this back down to.
+// Absolute cycle spread allowed between a positive fixture's A/B classes. Holds
+// at 7–20 cycles on the 0-wait-state path (16 and 30 MHz). Do not raise it to
+// accommodate a higher-clock ART run — that hides the very variance it gates.
 const MAX_POSITIVE_SPREAD: u64 = 32;
 
 const SECRET_A: [u8; 32] = [0; 32];
@@ -109,18 +107,20 @@ fn fixture_negative_early_exit(secret: &[u8; 32]) -> bool {
 fn main() -> ! {
     let mut reporter = krabi_caliper::protocol::rtt::init_ct_compatible();
     let mut peripherals = cortex_m::Peripherals::take().unwrap();
-    // Run at the F407's nominal 168 MHz instead of the 16 MHz HSI reset default,
-    // so the fixed-cycle workloads finish ~10x faster in wall time. The gate is
-    // in core cycles (frequency-independent), so this only shortens the rig run.
-    // The PLL is HSI-sourced to avoid assuming a populated HSE crystal (±1% on
-    // reported time, but the cycle-count verdict is exact); `freeze` sets the 5
-    // flash wait states and enables the ART prefetch/cache for the fast path.
+    // Run at 30 MHz — the F407's 0-wait-state flash ceiling — instead of the
+    // 16 MHz HSI reset default. At 0 wait states the core-cycle counts stay
+    // frequency-independent and deterministic (no flash-prefetch jitter), so the
+    // 16 MHz spread/overlap/Welch calibration carries over unchanged while wall
+    // time roughly halves. Higher clocks need wait states + the ART prefetch,
+    // whose cache jitter breaks the tight positive gate (a 168 MHz trial pushed
+    // x25519's A/B spread past 2000 cycles). PLL is HSI-sourced — reported time
+    // is ±1% but the cycle-count verdict is exact.
     let dp = pac::Peripherals::take().unwrap();
-    let _clocks = dp.RCC.constrain().cfgr.sysclk(168.MHz()).freeze();
+    let _clocks = dp.RCC.constrain().cfgr.sysclk(30.MHz()).freeze();
     let mut platform = DwtMeasurementPlatform::enable(
         &mut peripherals.DCB,
         &mut peripherals.DWT,
-        Some(168_000_000),
+        Some(30_000_000),
     )
     .unwrap();
     let run_fields = [
@@ -138,7 +138,7 @@ fn main() -> ! {
             target: "thumbv7em-none-eabihf",
             board: Some("stm32f407vg"),
             unit: krabi_caliper::Unit::CoreCycles,
-            frequency_hz: Some(168_000_000),
+            frequency_hz: Some(30_000_000),
             warmup_blocks: 1,
             batches: BATCHES,
             positive_max_spread: MAX_POSITIVE_SPREAD,
