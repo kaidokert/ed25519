@@ -5,13 +5,17 @@ board = "jtrace-reference-board"
 mcu = "STM32F407VG"
 transport = "rtt"
 probe = "${KRABI_PROBE}"
-clock-frequency-hz = 16000000
+clock-frequency-hz = 30000000
 executable = "probe-rs"
 args = [
   "run",
   "--chip", "STM32F407VGTx",
   "--protocol", "swd",
   "--probe", "${KRABI_PROBE}",
+  # Attach with the target held in reset so each chunk starts from a clean core
+  # state; attaching to still-running firmware from the previous chunk can fail
+  # to clear its breakpoints on the later attaches of the sequence.
+  "--connect-under-reset",
   "--non-interactive",
   "--disable-progressbars",
   "--no-location",
@@ -29,23 +33,30 @@ binary = "cyccnt-hardware"
 features = ["carrier-u32x8"]
 expected-suite = "ed25519-cyccnt"
 
+# No per-case timeout override: each chunk is one fixture, so all inherit the
+# profile's 300 s (5 min) limit.
 [[case-sets.ed25519-cyccnt]]
 name = "u32x16"
 binary = "cyccnt-hardware"
 features = ["carrier-u32x16"]
 expected-suite = "ed25519-cyccnt"
-timeout-seconds = 1800
 
 [[case-sets.ed25519-cyccnt]]
 name = "u8x32"
 binary = "cyccnt-hardware"
 features = ["carrier-u8x32"]
 expected-suite = "ed25519-cyccnt"
-timeout-seconds = 1800
 
 [campaigns.ed25519-ct-jtrace-f407]
 profile = "jtrace-f407"
 case-set = "ed25519-cyccnt"
+# Expand the three carrier cases across the fixture axis so each
+# (carrier, fixture) pair — 12 in all — measures in its own probe-rs session.
+# A fresh session per fixture keeps cross-fixture probe/bus state from
+# perturbing a later fixture's first timed samples; each pair is independently
+# gated with its own negative control.
+matrix = { fixture = ["keygen", "sign", "x25519", "x25519-base"] }
+matrix-features = ["fix-{fixture}"]
 # Gating: the positive classes must stay under the Welch threshold and the
 # negative control must exceed it, so this catches a systematic A/B bias that
 # stays under the on-device 32-cycle spread bound yet is statistically distinct.

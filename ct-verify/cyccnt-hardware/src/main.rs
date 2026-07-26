@@ -9,12 +9,14 @@ use fixed_bigint::FixedUInt;
 use krabi_caliper::cortex_m::DwtMeasurementPlatform;
 use krabi_caliper::report::Field;
 use krabi_caliper::suite::{PairedSuite, PairedSuiteConfig, PairedSuiteFields};
+use stm32f4xx_hal::pac;
+use stm32f4xx_hal::prelude::*;
 
 const TRIALS: usize = 4;
 const BATCHES: usize = 1;
-// Calibrated on the STM32F407/J-Trace path: positive operations varied by
-// 7–20 cycles over 26–477 million-cycle calls, with overlapping A/B ranges.
-// Keep this absolute and deliberately small; every raw bound is reported.
+// Absolute cycle spread allowed between a positive fixture's A/B classes; the
+// 0-wait-state path holds 7–20. Do not raise it to accommodate a higher-clock
+// ART run — that hides the very variance it gates.
 const MAX_POSITIVE_SPREAD: u64 = 32;
 
 const SECRET_A: [u8; 32] = [0; 32];
@@ -34,6 +36,18 @@ const _: () = assert!(
     "enable exactly one carrier feature",
 );
 
+// One positive fixture per binary — each carrier/fixture pair is a separate
+// probe-rs attachment (krabi-caliper.toml's matrix), so cross-fixture probe/bus
+// state can't perturb a later fixture's first timed samples.
+const _: () = assert!(
+    cfg!(feature = "fix-keygen") as usize
+        + cfg!(feature = "fix-sign") as usize
+        + cfg!(feature = "fix-x25519") as usize
+        + cfg!(feature = "fix-x25519-base") as usize
+        == 1,
+    "enable exactly one fixture feature",
+);
+
 #[cfg(feature = "carrier-u32x8")]
 type Carrier = FixedUInt<u32, 8, Ct>;
 #[cfg(feature = "carrier-u32x8")]
@@ -49,6 +63,7 @@ type Carrier = FixedUInt<u8, 32, Ct>;
 #[cfg(feature = "carrier-u8x32")]
 const CARRIER: &str = "u8x32";
 
+#[cfg(feature = "fix-keygen")]
 #[inline(never)]
 fn fixture_keygen(seed: &[u8; 32]) -> bool {
     match SigningKey::<Carrier>::from_seed(black_box(seed)) {
@@ -60,6 +75,7 @@ fn fixture_keygen(seed: &[u8; 32]) -> bool {
     }
 }
 
+#[cfg(feature = "fix-sign")]
 #[inline(never)]
 fn fixture_sign(seed: &[u8; 32]) -> bool {
     let Ok(key) = SigningKey::<Carrier>::from_seed(black_box(seed)) else {
@@ -74,6 +90,7 @@ fn fixture_sign(seed: &[u8; 32]) -> bool {
     }
 }
 
+#[cfg(feature = "fix-x25519")]
 #[inline(never)]
 fn fixture_x25519(secret: &[u8; 32]) -> bool {
     let output = x25519::<Carrier>(black_box(secret), black_box(&PUBLIC_U));
@@ -81,6 +98,7 @@ fn fixture_x25519(secret: &[u8; 32]) -> bool {
     true
 }
 
+#[cfg(feature = "fix-x25519-base")]
 #[inline(never)]
 fn fixture_x25519_base(secret: &[u8; 32]) -> bool {
     let output = x25519_base::<Carrier>(black_box(secret));
@@ -105,10 +123,18 @@ fn fixture_negative_early_exit(secret: &[u8; 32]) -> bool {
 fn main() -> ! {
     let mut reporter = krabi_caliper::protocol::rtt::init_ct_compatible();
     let mut peripherals = cortex_m::Peripherals::take().unwrap();
+    // 30 MHz is the F407's 0-wait-state flash ceiling. At 0 WS the core-cycle
+    // counts are frequency-independent and free of flash-prefetch jitter, so the
+    // spread/overlap/Welch gate holds while wall time halves. Higher clocks need
+    // wait states + the ART prefetch, whose cache jitter widens the positive
+    // spread past the gate. PLL is HSI-sourced: reported time is ±1%, the
+    // cycle-count verdict exact.
+    let dp = pac::Peripherals::take().unwrap();
+    let _clocks = dp.RCC.constrain().cfgr.sysclk(30.MHz()).freeze();
     let mut platform = DwtMeasurementPlatform::enable(
         &mut peripherals.DCB,
         &mut peripherals.DWT,
-        Some(16_000_000),
+        Some(30_000_000),
     )
     .unwrap();
     let run_fields = [
@@ -126,7 +152,7 @@ fn main() -> ! {
             target: "thumbv7em-none-eabihf",
             board: Some("stm32f407vg"),
             unit: krabi_caliper::Unit::CoreCycles,
-            frequency_hz: Some(16_000_000),
+            frequency_hz: Some(30_000_000),
             warmup_blocks: 1,
             batches: BATCHES,
             positive_max_spread: MAX_POSITIVE_SPREAD,
@@ -139,6 +165,7 @@ fn main() -> ! {
         },
     )
     .unwrap();
+    #[cfg(feature = "fix-keygen")]
     suite
         .positive(
             "signing_key_from_seed",
@@ -147,15 +174,21 @@ fn main() -> ! {
             fixture_keygen,
         )
         .unwrap();
+    #[cfg(feature = "fix-sign")]
     suite
         .positive("sign", &SECRET_A, &SECRET_B, fixture_sign)
         .unwrap();
+    #[cfg(feature = "fix-x25519")]
     suite
         .positive("x25519", &SECRET_A, &SECRET_B, fixture_x25519)
         .unwrap();
+    #[cfg(feature = "fix-x25519-base")]
     suite
         .positive("x25519_base", &SECRET_A, &SECRET_B, fixture_x25519_base)
         .unwrap();
+    // The negative control runs in every chunk so each attachment is
+    // independently trustworthy — a chunk that can't separate A from B is
+    // rejected regardless of its positive verdict.
     suite
         .negative(
             "negative_early_exit",
