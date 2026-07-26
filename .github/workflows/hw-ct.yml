@@ -79,7 +79,17 @@ jobs:
           name: ed25519-hw-ct-${{ github.sha }}
           path: ${{ runner.temp }}/prepared
 
+      - name: Restore prepared-campaign tooling
+        id: caliper-cli-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            /usr/local/cargo/bin/cargo-krabi-caliper
+            /usr/local/cargo/bin/krabi-caliper-simavr
+          key: caliper-cli-${{ runner.os }}-${{ runner.arch }}-${{ env.CALIPER_TAG }}
+
       - name: Install prepared-campaign tooling
+        if: steps.caliper-cli-cache.outputs.cache-hit != 'true'
         shell: bash
         run: |
           export PATH="/usr/local/cargo/bin:$HOME/.cargo/bin:$PATH"
