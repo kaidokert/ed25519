@@ -36,6 +36,19 @@ const _: () = assert!(
     "enable exactly one carrier feature",
 );
 
+// One positive fixture per binary: each carrier/fixture pair is a separate
+// probe-rs attachment (see krabi-caliper.toml's matrix). Isolating fixtures
+// keeps cross-fixture probe/bus state from perturbing a later fixture's first
+// timed samples, which is what breaks a combined-sequence run.
+const _: () = assert!(
+    cfg!(feature = "fix-keygen") as usize
+        + cfg!(feature = "fix-sign") as usize
+        + cfg!(feature = "fix-x25519") as usize
+        + cfg!(feature = "fix-x25519-base") as usize
+        == 1,
+    "enable exactly one fixture feature",
+);
+
 #[cfg(feature = "carrier-u32x8")]
 type Carrier = FixedUInt<u32, 8, Ct>;
 #[cfg(feature = "carrier-u32x8")]
@@ -51,6 +64,7 @@ type Carrier = FixedUInt<u8, 32, Ct>;
 #[cfg(feature = "carrier-u8x32")]
 const CARRIER: &str = "u8x32";
 
+#[cfg(feature = "fix-keygen")]
 #[inline(never)]
 fn fixture_keygen(seed: &[u8; 32]) -> bool {
     match SigningKey::<Carrier>::from_seed(black_box(seed)) {
@@ -62,6 +76,7 @@ fn fixture_keygen(seed: &[u8; 32]) -> bool {
     }
 }
 
+#[cfg(feature = "fix-sign")]
 #[inline(never)]
 fn fixture_sign(seed: &[u8; 32]) -> bool {
     let Ok(key) = SigningKey::<Carrier>::from_seed(black_box(seed)) else {
@@ -76,6 +91,7 @@ fn fixture_sign(seed: &[u8; 32]) -> bool {
     }
 }
 
+#[cfg(feature = "fix-x25519")]
 #[inline(never)]
 fn fixture_x25519(secret: &[u8; 32]) -> bool {
     let output = x25519::<Carrier>(black_box(secret), black_box(&PUBLIC_U));
@@ -83,6 +99,7 @@ fn fixture_x25519(secret: &[u8; 32]) -> bool {
     true
 }
 
+#[cfg(feature = "fix-x25519-base")]
 #[inline(never)]
 fn fixture_x25519_base(secret: &[u8; 32]) -> bool {
     let output = x25519_base::<Carrier>(black_box(secret));
@@ -151,6 +168,8 @@ fn main() -> ! {
         },
     )
     .unwrap();
+    // Exactly one positive fixture per attachment (feature-selected).
+    #[cfg(feature = "fix-keygen")]
     suite
         .positive(
             "signing_key_from_seed",
@@ -159,15 +178,21 @@ fn main() -> ! {
             fixture_keygen,
         )
         .unwrap();
+    #[cfg(feature = "fix-sign")]
     suite
         .positive("sign", &SECRET_A, &SECRET_B, fixture_sign)
         .unwrap();
+    #[cfg(feature = "fix-x25519")]
     suite
         .positive("x25519", &SECRET_A, &SECRET_B, fixture_x25519)
         .unwrap();
+    #[cfg(feature = "fix-x25519-base")]
     suite
         .positive("x25519_base", &SECRET_A, &SECRET_B, fixture_x25519_base)
         .unwrap();
+    // The negative control runs in every chunk so each attachment is
+    // independently trustworthy — a chunk that can't separate A from B is
+    // rejected regardless of its positive verdict.
     suite
         .negative(
             "negative_early_exit",

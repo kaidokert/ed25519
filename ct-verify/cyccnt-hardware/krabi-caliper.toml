@@ -46,6 +46,14 @@ timeout-seconds = 1800
 [campaigns.ed25519-ct-jtrace-f407]
 profile = "jtrace-f407"
 case-set = "ed25519-cyccnt"
+# Each (carrier, fixture) pair is its own attachment: the three carrier cases
+# above are expanded across the fixture axis, so keygen/sign/x25519/x25519_base
+# each measure in a fresh probe-rs session rather than sharing one. That keeps
+# cross-fixture probe/bus state from perturbing a later fixture's first timed
+# samples (the failure mode of the combined sequence). 3 x 4 = 12 chunks, each
+# well under the profile timeout, each independently gated with its own control.
+matrix = { fixture = ["keygen", "sign", "x25519", "x25519-base"] }
+matrix-features = ["fix-{fixture}"]
 # Gating: the positive classes must stay under the Welch threshold and the
 # negative control must exceed it, so this catches a systematic A/B bias that
 # stays under the on-device 32-cycle spread bound yet is statistically distinct.
