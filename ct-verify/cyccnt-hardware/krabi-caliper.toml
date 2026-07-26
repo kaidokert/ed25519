@@ -12,6 +12,11 @@ args = [
   "--chip", "STM32F407VGTx",
   "--protocol", "swd",
   "--probe", "${KRABI_PROBE}",
+  # Attach with the target held in reset so each chunk starts from a clean core
+  # state. Without it, re-attaching to firmware left running from the previous
+  # chunk intermittently fails with "could not clear all hardware breakpoints"
+  # on the later attachments of a 12-chunk sequence.
+  "--connect-under-reset",
   "--non-interactive",
   "--disable-progressbars",
   "--no-location",
@@ -29,19 +34,19 @@ binary = "cyccnt-hardware"
 features = ["carrier-u32x8"]
 expected-suite = "ed25519-cyccnt"
 
+# No per-case timeout override: each chunk is one fixture, so all inherit the
+# profile's 300 s (5 min) limit. The old 1800 s was for the combined run.
 [[case-sets.ed25519-cyccnt]]
 name = "u32x16"
 binary = "cyccnt-hardware"
 features = ["carrier-u32x16"]
 expected-suite = "ed25519-cyccnt"
-timeout-seconds = 1800
 
 [[case-sets.ed25519-cyccnt]]
 name = "u8x32"
 binary = "cyccnt-hardware"
 features = ["carrier-u8x32"]
 expected-suite = "ed25519-cyccnt"
-timeout-seconds = 1800
 
 [campaigns.ed25519-ct-jtrace-f407]
 profile = "jtrace-f407"
