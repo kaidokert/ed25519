@@ -14,9 +14,9 @@ use stm32f4xx_hal::prelude::*;
 
 const TRIALS: usize = 4;
 const BATCHES: usize = 1;
-// Absolute cycle spread allowed between a positive fixture's A/B classes. Holds
-// at 7–20 cycles on the 0-wait-state path (16 and 30 MHz). Do not raise it to
-// accommodate a higher-clock ART run — that hides the very variance it gates.
+// Absolute cycle spread allowed between a positive fixture's A/B classes; the
+// 0-wait-state path holds 7–20. Do not raise it to accommodate a higher-clock
+// ART run — that hides the very variance it gates.
 const MAX_POSITIVE_SPREAD: u64 = 32;
 
 const SECRET_A: [u8; 32] = [0; 32];
@@ -36,10 +36,9 @@ const _: () = assert!(
     "enable exactly one carrier feature",
 );
 
-// One positive fixture per binary: each carrier/fixture pair is a separate
-// probe-rs attachment (see krabi-caliper.toml's matrix). Isolating fixtures
-// keeps cross-fixture probe/bus state from perturbing a later fixture's first
-// timed samples, which is what breaks a combined-sequence run.
+// One positive fixture per binary — each carrier/fixture pair is a separate
+// probe-rs attachment (krabi-caliper.toml's matrix), so cross-fixture probe/bus
+// state can't perturb a later fixture's first timed samples.
 const _: () = assert!(
     cfg!(feature = "fix-keygen") as usize
         + cfg!(feature = "fix-sign") as usize
@@ -124,14 +123,12 @@ fn fixture_negative_early_exit(secret: &[u8; 32]) -> bool {
 fn main() -> ! {
     let mut reporter = krabi_caliper::protocol::rtt::init_ct_compatible();
     let mut peripherals = cortex_m::Peripherals::take().unwrap();
-    // Run at 30 MHz — the F407's 0-wait-state flash ceiling — instead of the
-    // 16 MHz HSI reset default. At 0 wait states the core-cycle counts stay
-    // frequency-independent and deterministic (no flash-prefetch jitter), so the
-    // 16 MHz spread/overlap/Welch calibration carries over unchanged while wall
-    // time roughly halves. Higher clocks need wait states + the ART prefetch,
-    // whose cache jitter breaks the tight positive gate (a 168 MHz trial pushed
-    // x25519's A/B spread past 2000 cycles). PLL is HSI-sourced — reported time
-    // is ±1% but the cycle-count verdict is exact.
+    // 30 MHz is the F407's 0-wait-state flash ceiling. At 0 WS the core-cycle
+    // counts are frequency-independent and free of flash-prefetch jitter, so the
+    // spread/overlap/Welch gate holds while wall time halves. Higher clocks need
+    // wait states + the ART prefetch, whose cache jitter widens the positive
+    // spread past the gate. PLL is HSI-sourced: reported time is ±1%, the
+    // cycle-count verdict exact.
     let dp = pac::Peripherals::take().unwrap();
     let _clocks = dp.RCC.constrain().cfgr.sysclk(30.MHz()).freeze();
     let mut platform = DwtMeasurementPlatform::enable(
@@ -168,7 +165,6 @@ fn main() -> ! {
         },
     )
     .unwrap();
-    // Exactly one positive fixture per attachment (feature-selected).
     #[cfg(feature = "fix-keygen")]
     suite
         .positive(

@@ -13,9 +13,8 @@ args = [
   "--protocol", "swd",
   "--probe", "${KRABI_PROBE}",
   # Attach with the target held in reset so each chunk starts from a clean core
-  # state. Without it, re-attaching to firmware left running from the previous
-  # chunk intermittently fails with "could not clear all hardware breakpoints"
-  # on the later attachments of a 12-chunk sequence.
+  # state; attaching to still-running firmware from the previous chunk can fail
+  # to clear its breakpoints on the later attaches of the sequence.
   "--connect-under-reset",
   "--non-interactive",
   "--disable-progressbars",
@@ -35,7 +34,7 @@ features = ["carrier-u32x8"]
 expected-suite = "ed25519-cyccnt"
 
 # No per-case timeout override: each chunk is one fixture, so all inherit the
-# profile's 300 s (5 min) limit. The old 1800 s was for the combined run.
+# profile's 300 s (5 min) limit.
 [[case-sets.ed25519-cyccnt]]
 name = "u32x16"
 binary = "cyccnt-hardware"
@@ -51,12 +50,11 @@ expected-suite = "ed25519-cyccnt"
 [campaigns.ed25519-ct-jtrace-f407]
 profile = "jtrace-f407"
 case-set = "ed25519-cyccnt"
-# Each (carrier, fixture) pair is its own attachment: the three carrier cases
-# above are expanded across the fixture axis, so keygen/sign/x25519/x25519_base
-# each measure in a fresh probe-rs session rather than sharing one. That keeps
-# cross-fixture probe/bus state from perturbing a later fixture's first timed
-# samples (the failure mode of the combined sequence). 3 x 4 = 12 chunks, each
-# well under the profile timeout, each independently gated with its own control.
+# Expand the three carrier cases across the fixture axis so each
+# (carrier, fixture) pair — 12 in all — measures in its own probe-rs session.
+# A fresh session per fixture keeps cross-fixture probe/bus state from
+# perturbing a later fixture's first timed samples; each pair is independently
+# gated with its own negative control.
 matrix = { fixture = ["keygen", "sign", "x25519", "x25519-base"] }
 matrix-features = ["fix-{fixture}"]
 # Gating: the positive classes must stay under the Welch threshold and the
