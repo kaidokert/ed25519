@@ -1,132 +1,17 @@
-# Hardware constant-time measurement on the F407 bench rig.
 name: hw-ct
 
 on:
   push:
-    branches: [heapless]
+    branches:
+      - heapless
+      - 'feature/**'
   pull_request:
-
-env:
-  CAMPAIGN: ed25519-ct-jtrace-f407
-  CALIPER_VERSION: 0.1.3
+  workflow_dispatch:
 
 jobs:
-  build:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: thumbv7em-none-eabihf
-
-      - uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            ct-verify/cyccnt-hardware/target
-          key: hw-ct-build-${{ env.CALIPER_VERSION }}-${{ hashFiles('ct-verify/cyccnt-hardware/Cargo.toml', 'ct-verify/cyccnt-hardware/Cargo.lock', 'ct-verify/cyccnt-hardware/krabi-caliper.toml') }}
-          restore-keys: hw-ct-build-${{ env.CALIPER_VERSION }}-
-
-      - name: Install prepared-campaign tooling
-        run: |
-          cargo install \
-            krabi-caliper \
-            --version "$CALIPER_VERSION" \
-            --features cli,campaign
-
-      - name: Build prepared campaign
-        working-directory: ct-verify/cyccnt-hardware
-        run: cargo krabi-caliper build "$CAMPAIGN" --output "$RUNNER_TEMP/prepared"
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: ed25519-hw-ct-${{ github.sha }}
-          path: ${{ runner.temp }}/prepared
-          if-no-files-found: error
-          retention-days: 3
-
-  cyccnt:
-    needs: build
-    runs-on: [self-hosted, rig-stm32f407-dwt]
-    permissions:
-      contents: read
-
-    container:
-      image: 127.0.0.1:5000/pi-hw-runner:latest
-      options: --privileged
-      volumes:
-        - /dev/bus/usb:/dev/bus/usb
-        - /run/lock:/run/lock
-        - /srv/krabi-caliper/rigs:/rigs:ro
-
-    env:
-      RIG: stm32f407-dwt
-      KRABI_RIG_DIR: /rigs
-
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-
-      - uses: actions/download-artifact@v4
-        with:
-          name: ed25519-hw-ct-${{ github.sha }}
-          path: ${{ runner.temp }}/prepared
-
-      - name: Restore prepared-campaign tooling
-        id: caliper-cli-cache
-        uses: actions/cache/restore@v4
-        with:
-          path: |
-            /usr/local/cargo/bin/cargo-krabi-caliper
-            /usr/local/cargo/bin/krabi-caliper-simavr
-          key: caliper-cli-${{ runner.os }}-${{ runner.arch }}-${{ env.CALIPER_VERSION }}
-
-      - name: Install prepared-campaign tooling
-        if: steps.caliper-cli-cache.outputs.cache-hit != 'true'
-        shell: bash
-        run: |
-          export PATH="/usr/local/cargo/bin:$HOME/.cargo/bin:$PATH"
-          cargo install \
-            krabi-caliper \
-            --version "$CALIPER_VERSION" \
-            --features cli,campaign
-
-      - name: Save prepared-campaign tooling
-        if: steps.caliper-cli-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: |
-            /usr/local/cargo/bin/cargo-krabi-caliper
-            /usr/local/cargo/bin/krabi-caliper-simavr
-          key: caliper-cli-${{ runner.os }}-${{ runner.arch }}-${{ env.CALIPER_VERSION }}
-
-      - name: Run prepared campaign on the rig
-        shell: bash
-        working-directory: ct-verify/cyccnt-hardware
-        run: |
-          set -euo pipefail
-          export PATH="/usr/local/cargo/bin:$HOME/.cargo/bin:$PATH"
-          git config --global --add safe.directory "$GITHUB_WORKSPACE"
-
-          env_file="${KRABI_RIG_DIR:-$HOME/.config/krabi-caliper/rigs}/$RIG.env"
-          [ -f "$env_file" ] || { echo "::error::rig '$RIG' has no env on this bench ($env_file)"; exit 1; }
-          set -a; source "$env_file"; set +a
-          : "${KRABI_PROBE:?rig $RIG did not export KRABI_PROBE}"
-          echo "bench=${KRABI_BENCH:-?} rig=${KRABI_RIG:-?} probe=$KRABI_PROBE"
-
-          exec 9>"/run/lock/krabi-rig-$RIG"
-          flock -w 1800 9
-
-          probe-rs list | grep -qF "$KRABI_PROBE" \
-            || { echo "::error::probe $KRABI_PROBE not attached to ${KRABI_BENCH:-this bench}"; exit 1; }
-
-          cargo krabi-caliper run \
-            "$CAMPAIGN" \
-            --prepared "$RUNNER_TEMP/prepared/manifest.json"
+  hardware:
+    uses: ./.github/workflows/reusable-hw-ct.yml
+    with:
+      campaigns-json: '["ed25519-ct-jtrace-f407"]'
+      working-directory: ct-verify/cyccnt-hardware
+      prepared: true
