@@ -27,20 +27,10 @@ timeout-seconds = 300
 target-dir = "target"
 artifact-extension = ""
 
-[[case-sets.ed25519-cyccnt]]
-name = "u32x8"
-binary = "cyccnt-hardware"
-features = ["carrier-u32x8"]
-expected-suite = "ed25519-cyccnt"
-
-# No per-case timeout override: each chunk is one fixture, so all inherit the
-# profile's 300 s (5 min) limit.
-[[case-sets.ed25519-cyccnt]]
-name = "u32x16"
-binary = "cyccnt-hardware"
-features = ["carrier-u32x16"]
-expected-suite = "ed25519-cyccnt"
-
+# THROWAWAY EXPERIMENT — only the u8x32 carrier, only x25519-base (the 12th/last
+# chunk of the full run that crashes the probe on teardown). Isolating it to a
+# single attachment tests whether the crash is position-dependent (cumulative
+# probe degradation over 12 attaches) or intrinsic to this fixture/firmware.
 [[case-sets.ed25519-cyccnt]]
 name = "u8x32"
 binary = "cyccnt-hardware"
@@ -55,7 +45,7 @@ case-set = "ed25519-cyccnt"
 # A fresh session per fixture keeps cross-fixture probe/bus state from
 # perturbing a later fixture's first timed samples; each pair is independently
 # gated with its own negative control.
-matrix = { fixture = ["keygen", "sign", "x25519", "x25519-base"] }
+matrix = { fixture = ["x25519-base"] }
 matrix-features = ["fix-{fixture}"]
 # Gating: the positive classes must stay under the Welch threshold and the
 # negative control must exceed it, so this catches a systematic A/B bias that
