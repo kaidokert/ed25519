@@ -27,12 +27,9 @@ timeout-seconds = 300
 target-dir = "target"
 artifact-extension = ""
 
-[[case-sets.ed25519-cyccnt]]
-name = "u32x8"
-binary = "cyccnt-hardware"
-features = ["carrier-u32x8"]
-expected-suite = "ed25519-cyccnt"
-
+# THROWAWAY EXPERIMENT (revert) — u32x8 carrier dropped, leaving 2 carriers x 4
+# fixtures = 8 chunks. Moves the crashing u8x32 x25519-base chunk from the 12th
+# attach to the 8th, testing whether the probe survives fewer attaches.
 # No per-case timeout override: each chunk is one fixture, so all inherit the
 # profile's 300 s (5 min) limit.
 [[case-sets.ed25519-cyccnt]]
