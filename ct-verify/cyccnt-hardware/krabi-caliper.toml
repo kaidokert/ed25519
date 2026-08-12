@@ -31,7 +31,7 @@ artifact-extension = ""
 # breakpoints" on shutdown; a fresh probe-rs reset per chunk clears that wedged
 # state so it can't accumulate across the 12 sequential attaches.
 prepare = [
-  { executable = "probe-rs", args = ["reset", "--chip", "STM32F407VGTx", "--protocol", "swd", "--probe", "${KRABI_PROBE}", "--connect-under-reset", "--non-interactive"] },
+  { executable = "probe-rs", args = ["reset", "--chip", "STM32F407VGTx", "--protocol", "swd", "--probe", "${KRABI_PROBE}", "--non-interactive"] },
 ]
 
 [[case-sets.ed25519-cyccnt]]
