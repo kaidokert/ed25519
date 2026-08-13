@@ -1,5 +1,8 @@
 [workspace]
-resolver = "2"
+# rust-version-aware resolver: Cargo.lock is gitignored, so CI resolves fresh
+# against the pinned 1.86 toolchain. v2 would pull a dep requiring a newer rustc
+# and break the build; v3 keeps the selection within rust-version.
+resolver = "3"
 
 members = [ "panic-free-audit", "ct-ctgrind", "ladder-branches", "cyccnt-hardware" ]
 # cyccnt-hardware only builds for thumbv7em-none-eabihf (its build.rs asserts

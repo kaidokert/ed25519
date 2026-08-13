@@ -26,6 +26,10 @@ completion-action = "interrupt"
 timeout-seconds = 300
 target-dir = "target"
 artifact-extension = ""
+# Brief settle between chunks — consecutive probe attaches are flaky without it.
+prepare = [
+  { executable = "sleep", args = ["5"] },
+]
 
 [[case-sets.ed25519-cyccnt]]
 name = "u32x8"
