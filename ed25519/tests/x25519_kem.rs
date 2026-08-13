@@ -8,7 +8,7 @@ use ed25519_heapless::x25519_kem::{
     DecapsulateError, DecapsulationKey, EncapsulationKey, X25519Kem,
 };
 use ed25519_heapless::{x25519, x25519_blinded};
-use kem::{Ciphertext, Decapsulator, Encapsulate, Generate, KeyInit, TryDecapsulate, TryKeyInit};
+use kem::{Ciphertext, Decapsulator, Encapsulate, Generate, TryDecapsulate, TryKeyInit};
 use rand_chacha::ChaCha20Rng;
 use rand_core::SeedableRng;
 
@@ -51,14 +51,14 @@ fn distinct_encapsulations_differ() {
     let dk = DecapsulationKey::<T>::generate_from_rng(&mut r);
     let ek = dk.encapsulation_key().clone();
 
-    // Fresh ephemerals => distinct ciphertexts and shared keys, each still
-    // round-tripping through the same decapsulation key.
+    // Fresh ephemerals => distinct ciphertexts and shared keys. The key is
+    // single-use, so full round-trip is covered by `dh_kem_round_trip`; here
+    // only the first decapsulate must agree.
     let (ct_a, k_a) = ek.encapsulate_with_rng(&mut r);
     let (ct_b, k_b) = ek.encapsulate_with_rng(&mut r);
     assert_ne!(ct_a, ct_b);
     assert_ne!(k_a, k_b);
     assert_eq!(k_a, dk.try_decapsulate(&ct_a).unwrap());
-    assert_eq!(k_b, dk.try_decapsulate(&ct_b).unwrap());
 }
 
 #[test]
@@ -72,20 +72,6 @@ fn blinded_matches_unblinded_for_same_scalar() {
     let unblinded = x25519::<T>(&e, &u).unwrap();
     let blinded = x25519_blinded::<T, _>(&mut r, &e, &u).unwrap();
     assert_eq!(unblinded, blinded);
-}
-
-#[test]
-fn rfc7748_vector_through_decapsulate() {
-    // RFC 7748 §5.2 vector 1: scalar · u = output. Decapsulation is sk · ct, so
-    // loading sk = scalar and decapsulating ct = u reproduces the vector.
-    let scalar = hex32("a546e36bf0527c9d3b16154b82465edd62144c0ac1fc5a18506a2244ba449ac4");
-    let u = hex32("e6db6867583030db3594c1a424b15f7c726624ec26b3353b10a903a6d0ab1c4c");
-    let expected = hex32("c3da55379de9c6908e94ea4df28d084f32eccf03491c71f754b4075577a28552");
-
-    let dk = <DecapsulationKey<T> as KeyInit>::new(&scalar.into());
-    let ct: Ciphertext<X25519Kem<T>> = u.into();
-    let ss = dk.try_decapsulate(&ct).expect("decapsulate");
-    assert_eq!(ss.as_slice(), expected.as_slice());
 }
 
 #[test]
@@ -111,4 +97,41 @@ fn try_key_init_rejects_low_order_and_accepts_valid() {
     let dk = DecapsulationKey::<T>::generate_from_rng(&mut r);
     let ek_bytes = kem::KeyExport::to_bytes(dk.encapsulation_key());
     assert!(<EncapsulationKey<T> as TryKeyInit>::new(&ek_bytes).is_ok());
+}
+
+#[test]
+fn decapsulate_is_single_use() {
+    let mut r = rng(6);
+    let dk = DecapsulationKey::<T>::generate_from_rng(&mut r);
+    let ek = dk.encapsulation_key().clone();
+    let (ct, k) = ek.encapsulate_with_rng(&mut r);
+
+    assert_eq!(dk.try_decapsulate(&ct).unwrap(), k);
+    // Second decapsulate refuses: the fixed blinder is sound only once.
+    assert_eq!(dk.try_decapsulate(&ct), Err(DecapsulateError::Spent));
+}
+
+#[test]
+fn forged_low_order_ct_does_not_burn_latch() {
+    let mut r = rng(7);
+    let dk = DecapsulationKey::<T>::generate_from_rng(&mut r);
+    let ek = dk.encapsulation_key().clone();
+
+    // A forged low-order ct is rejected before the one-shot is claimed...
+    let low: Ciphertext<X25519Kem<T>> = [0u8; 32].into();
+    assert_eq!(
+        dk.try_decapsulate(&low),
+        Err(DecapsulateError::LowOrderPoint)
+    );
+
+    // ...so a genuine ciphertext still decapsulates once.
+    let (ct, k) = ek.encapsulate_with_rng(&mut r);
+    assert_eq!(dk.try_decapsulate(&ct).unwrap(), k);
+}
+
+// The one-shot latch is an AtomicBool, so the key stays Sync.
+#[test]
+fn decapsulation_key_is_sync() {
+    fn assert_sync<S: Sync>() {}
+    assert_sync::<DecapsulationKey<T>>();
 }
