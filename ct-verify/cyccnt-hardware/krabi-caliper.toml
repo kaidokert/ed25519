@@ -26,6 +26,13 @@ completion-action = "interrupt"
 timeout-seconds = 300
 target-dir = "target"
 artifact-extension = ""
+# THROWAWAY EXPERIMENT (revert) — idle delay before every chunk (no reset, so no
+# attach conflict and no measurement noise). Tests whether the probe's USB/debug
+# degradation over the 12 attaches is time-recoverable (a pause between attaches
+# clears it) rather than per-attach accumulation.
+prepare = [
+  { executable = "sleep", args = ["15"] },
+]
 
 [[case-sets.ed25519-cyccnt]]
 name = "u32x8"

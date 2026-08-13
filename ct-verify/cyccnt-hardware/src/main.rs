@@ -14,6 +14,13 @@ use stm32f4xx_hal::prelude::*;
 
 const TRIALS: usize = 4;
 const BATCHES: usize = 1;
+// Discard two warmup blocks before the timed trials: the first block of a
+// multi-million-cycle fixture carries a one-time settling transient (~1000
+// cycles, key-independent) that would otherwise straddle the timed trials and
+// blow the tight max-spread bound. Two clears it with margin while keeping the
+// long u8x32 sign fixture under the per-case timeout (krabiecdsa uses 4, but its
+// sign is ~4x shorter than ours).
+const WARMUP_BLOCKS: usize = 2;
 // Absolute cycle spread allowed between a positive fixture's A/B classes; the
 // 0-wait-state path holds 7–20. Do not raise it to accommodate a higher-clock
 // ART run — that hides the very variance it gates.
@@ -140,6 +147,7 @@ fn main() -> ! {
     let run_fields = [
         Field::token("carrier", CARRIER),
         Field::u64("trials", TRIALS as u64),
+        Field::u64("warmup_blocks", WARMUP_BLOCKS as u64),
         Field::u64("max_positive_spread", MAX_POSITIVE_SPREAD),
     ];
     let fixture_fields = [Field::token("carrier", CARRIER)];
@@ -153,7 +161,7 @@ fn main() -> ! {
             board: Some("stm32f407vg"),
             unit: krabi_caliper::Unit::CoreCycles,
             frequency_hz: Some(30_000_000),
-            warmup_blocks: 1,
+            warmup_blocks: WARMUP_BLOCKS,
             batches: BATCHES,
             positive_max_spread: MAX_POSITIVE_SPREAD,
             positive_require_overlap: true,
