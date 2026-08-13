@@ -25,3 +25,15 @@ repos:
     -   id: clippy
         name: Clippy for ed25519_heapless
         args: ['--manifest-path=ed25519/Cargo.toml', '--features=fixed-bigint,sha512-hmac-sha512', '--', '-D', 'warnings']
+
+-   repo: local
+    hooks:
+    # Host hooks above can't catch no-atomic / no_std portability breaks (e.g. an
+    # AtomicBool RMW). Smoke-check the lib for Cortex-M0 (thumbv6m: AtomicBool
+    # load/store but no atomic swap/CAS), the strictest of our MCU targets.
+    -   id: cortex-m0-lib-check
+        name: Cortex-M0 lib smoke check (no-atomic target)
+        entry: cargo check --lib --manifest-path=ed25519/Cargo.toml --target=thumbv6m-none-eabi --no-default-features --features=sha512-hmac-sha512
+        language: system
+        types: [rust]
+        pass_filenames: false
