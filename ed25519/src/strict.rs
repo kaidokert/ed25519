@@ -59,8 +59,7 @@ fn sha512_modq<T: VerifyBackend>(parts: &[&[u8]], q: &T) -> T {
     // the low limb and truncate the reduction. (No-op for fixed-width backends.)
     let mut acc = <T as const_num_traits::WithPrecision>::zero_with_precision_of(q);
     let one = T::one();
-    // Process from most significant bit (byte 63, bit 7) to least (byte 0, bit 0)
-    // Hash is little-endian: byte 63 is MSB
+    // Hash is little-endian, so byte 63 is the MSB: fold from the top down.
     for byte_idx in (0..64).rev() {
         for bit_idx in (0..8).rev() {
             // acc = 2*acc + bit, then reduce. Since `acc` is reassigned
@@ -124,9 +123,9 @@ where
     // exactly divisible by 8 so we use `>> 3` (no division on T required).
     let exp = {
         let three = T::one().wrapping_add(T::one()).wrapping_add(T::one());
-        // UFCS on `<&T as WrappingAdd>` forces dispatch to fixed-bigint's
-        // `impl WrappingAdd for &FixedUInt<W, N, P>` — reads limbs through
-        // the reference, returns a fresh owned `T`.
+        // UFCS on `<&T as WrappingAdd>` forces the read-through-`&T` impl over
+        // the by-value one — reads limbs through the reference, no owned copy,
+        // returns a fresh owned `T`.
         let p3 = <&T as const_num_traits::WrappingAdd>::wrapping_add(field.modulus(), &three);
         p3 >> 3
     };
@@ -346,6 +345,7 @@ where
 /// batch verification, anything walking a cert tree) should build the
 /// field once via [`Curve25519Field::curve25519`] and call
 /// [`verify_with_field`] instead, amortizing the precompute.
+#[must_use]
 pub fn verify<T>(public: [u8; 32], msg: &[u8], signature: [u8; 64]) -> bool
 where
     T: UnsignedModularInt + Copy + modmath::WideMul + modmath::CiosMontMul + modmath::NonCt,
@@ -379,6 +379,7 @@ where
 ///     if !verify_with_field(&field, pk, msg, sig) { return false; }
 /// }
 /// ```
+#[must_use]
 pub fn verify_with_field<F, T>(field: &F, public: [u8; 32], msg: &[u8], signature: [u8; 64]) -> bool
 where
     F: VerifyField<T>,
@@ -449,6 +450,5 @@ where
     // Phase 5: paired NAF double-scalar multiplication. Computes s·G + h·(−A).
     let sb_minus_ha = naf_double_scalar_mul(s, &g, h, &neg_aa, d, field);
 
-    // Phase 6: final check.
     point_equal(&sb_minus_ha, &rr, field)
 }

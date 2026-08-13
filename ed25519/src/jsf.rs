@@ -1,16 +1,15 @@
 // Paired NAF (Non-Adjacent Form) recoding for double-scalar multiplication.
 // Each scalar is independently recoded into signed digits {-1, 0, 1} using NAF,
 // then the two digit streams are paired for simultaneous processing.
-// No lookup tables - perfect for code-size constrained environments.
+// No lookup tables — suits code-size-constrained targets.
 //
-// TODO: implement true Joint Sparse Form (JSF / Solinas) which makes joint
-// decisions when both scalars are odd, guaranteeing at most one non-zero digit
-// per position. This would reduce point additions by ~33% vs paired NAF.
+// NOTE: true Joint Sparse Form (JSF / Solinas) makes joint decisions when both
+// scalars are odd, guaranteeing at most one non-zero digit per position; it
+// would cut point additions ~33% vs paired NAF. Not yet implemented.
 
 /// Signed NAF digit. `encode_digit` only ever emits `0b00`, `0b01`, or
-/// `0b11`; the `0b10` bit pattern is unused. Consumers can match
-/// exhaustively on the enum and skip the runtime `_ => unreachable!()`
-/// arm the old `i8` shape required.
+/// `0b11`; the `0b10` bit pattern is unused, so consumers can match the enum
+/// exhaustively with no `_ => unreachable!()` arm.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 pub enum NafSign {
@@ -120,7 +119,6 @@ impl NafIterator {
             index: 0,
         };
 
-        // Convert scalars to mutable copies for processing
         let mut s_working = s;
         let mut h_working = h;
 
@@ -132,9 +130,7 @@ impl NafIterator {
         let two = one.clone().wrapping_add(one.clone());
         let three = two.wrapping_add(one.clone());
 
-        // Process scalars bit by bit to generate NAF digits
         while s_working > zero || h_working > zero {
-            // Extract low bits from both scalars
             let s_bit = (&s_working & &one) == one;
             let h_bit = (&h_working & &one) == one;
 
@@ -166,7 +162,6 @@ impl NafIterator {
                 iter.len += 1;
             }
 
-            // Shift scalars right and handle carries
             s_working >>= 1;
             h_working >>= 1;
 

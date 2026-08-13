@@ -273,26 +273,21 @@ where
 
     /// CT lazy add: always compute both `sum` and `sum − modulus`, select
     /// branchlessly. No overflow possible on `sum` (2·p fits in T). The
-    /// `sum - self.modulus` candidate underflows when `sum < modulus` —
-    /// that's load-bearing for constant-time: the explicit `.wrapping_sub`
-    /// names wrap-around at the trait boundary, so the underflowing branch
-    /// never panics even in debug builds. See
+    /// `sum - self.modulus` candidate underflows when `sum < modulus`; the
+    /// explicit `.wrapping_sub` names wrap-around at the trait boundary, so the
+    /// underflowing branch can't panic even in debug builds. See
     /// `ct_add_sub_never_panic_on_underflow_path` test for the regression
     /// guard.
     #[inline]
     pub fn add<'f>(&'f self, a: &ResidueCt<'f, T>, b: &ResidueCt<'f, T>) -> ResidueCt<'f, T> {
-        // Stay in `&T` for the secret-derived operands so no implicit
-        // `T: Copy` materializations land on the stack. `.wrapping_add`
-        // / `.wrapping_sub` on `&T` receivers dispatch to fixed-bigint's
-        // `impl Wrapping{Add,Sub} for &FixedUInt<W, N, P>`, which reads
-        // limbs through the reference and produces a fresh owned `T`.
+        // Stay in `&T` for the secret-derived operands so no implicit `T: Copy`
+        // materializations land on the stack: the read-through-`&T` wrapping
+        // impls read limbs through the reference and produce a fresh owned `T`.
         use const_num_traits::{WrappingAdd, WrappingSub};
         let a_m = a.mont_value();
         let b_m = b.mont_value();
-        // Explicit UFCS on `<&T as WrappingAdd>` forces dispatch to
-        // fixed-bigint's `impl WrappingAdd for &FixedUInt<W, N, P>`
-        // instead of falling back to the by-value impl through autoderef
-        // of the receiver.
+        // Explicit UFCS on `<&T as WrappingAdd>` forces the read-through-`&T`
+        // impl over the by-value one that autoderef of the receiver would pick.
         let sum = zeroize::Zeroizing::new(<&T as WrappingAdd>::wrapping_add(a_m, b_m));
         let reduced =
             zeroize::Zeroizing::new(<&T as WrappingSub>::wrapping_sub(&*sum, &self.modulus));
@@ -601,7 +596,7 @@ mod tests {
     /// even when `a < b`) and `conditional_select` between them. Under the
     /// `Ct` personality `FixedUInt::Sub` drops the overflow flag via
     /// `maybe_panic_if::<Ct>` (dispatches on `P::TAG`), so the wrap is the
-    /// constant-time contract by typestate, not a bug. This drives both ops
+    /// constant-time contract by typestate. This drives both ops
     /// through the underflow path and asserts neither panics, both giving the
     /// field-correct result.
     #[test]

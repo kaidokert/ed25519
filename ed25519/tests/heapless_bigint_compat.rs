@@ -284,7 +284,7 @@ fn raw_scalar_reduce_over_q() {
 }
 
 // ---------------------------------------------------------------------------
-// 5.5 Chained Nct field computation — the `recover_x` phase-1 formula
+// 6. Chained Nct field computation — the `recover_x` phase-1 formula
 //     x² = (y² − 1) / (d·y² + 1) on a real 255-bit input (base point y).
 //     Seven chained ops (reduce/mul/sub/mul/add/inv/mul) reusing
 //     residues, vs single-op probes above. Discriminates "chained
@@ -325,7 +325,7 @@ fn nct_recover_x2_chain_matches_reference() {
 }
 
 // ---------------------------------------------------------------------------
-// 5.75 `&T: BitAnd` — used ONLY by the verify-side NAF recoding
+// 7. `&T: BitAnd` — used ONLY by the verify-side NAF recoding
 //      (`jsf.rs` does `&s & &one`, `&s & &three`), never by sign or
 //      x25519. Verify's where-clause is the only one that bounds
 //      `for<'a> &'a T: BitAnd`. If the runtime-length `&T & &T` impl
@@ -361,7 +361,7 @@ fn ref_bitand_known_answers() {
 }
 
 // ---------------------------------------------------------------------------
-// 5.9 `Shr<usize>` / `ShrAssign<usize>` on the raw scalar — the NAF
+// 8. `Shr<usize>` / `ShrAssign<usize>` on the raw scalar — the NAF
 //     recoding does `s_working >>= 1` up to 256× to consume the scalar
 //     bit by bit; `recover_x` does `p3 >> 3`. Sign traverses the
 //     scalar as bytes and never shifts a `T`, so this is a verify-only
@@ -424,11 +424,8 @@ fn shr_assign_bit_walk() {
 }
 
 // ---------------------------------------------------------------------------
-// 5.95 Full `sha512_modq` Horner reduction — the raw-`T` scalar-mod-q path
-//      VERIFY uses (sign reduces mod q through modmath's Ct field). The
-//      accumulator is seeded at q's width (`q - q`), not `zero()`: a
-//      minimal-width `zero()` on a runtime-length carrier wraps at 2^32 and
-//      truncates the reduction. `len` is the number's WIDTH, not metadata.
+// 9. Full `sha512_modq` Horner reduction — the raw-`T` scalar-mod-q path
+//     VERIFY uses (sign reduces mod q through modmath's Ct field).
 // ---------------------------------------------------------------------------
 
 fn horner_mod_q<T>(hash: &[u8; 64]) -> [u8; 32]
@@ -575,11 +572,7 @@ fn double_dense_value() {
     );
 }
 
-// Raw-`T` `sha512_modq` Horner must agree across carriers. The accumulator is
-// seeded at q's width (`q - q`), not `<T as Zero>::zero()`: a minimal-width seed
-// on a runtime-length carrier wraps at 2^32 and truncates the reduction, while
-// `FixedUInt`'s `zero()` is intrinsically 256-bit. `len` is the number's width,
-// not corruptible metadata.
+// Raw-`T` `sha512_modq` Horner must agree across carriers.
 #[test]
 fn horner_mod_q_matches_reference() {
     // A realistic full-width hash-shaped input (not all-zero, MSB set).
@@ -601,7 +594,7 @@ fn horner_mod_q_matches_reference() {
 }
 
 // ---------------------------------------------------------------------------
-// 6. End-to-end: x25519, sign-side pubkey, and the full Nct verify path.
+// 10. End-to-end: x25519, sign-side pubkey, and the full Nct verify path.
 // ---------------------------------------------------------------------------
 
 #[test]
