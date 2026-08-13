@@ -14,11 +14,13 @@ use stm32f4xx_hal::prelude::*;
 
 const TRIALS: usize = 4;
 const BATCHES: usize = 1;
-// Discard four warmup blocks before the timed trials: the first block of a
+// Discard two warmup blocks before the timed trials: the first block of a
 // multi-million-cycle fixture carries a one-time settling transient (~1000
 // cycles, key-independent) that would otherwise straddle the timed trials and
-// blow the tight max-spread bound. Matches krabiecdsa's calibration.
-const WARMUP_BLOCKS: usize = 4;
+// blow the tight max-spread bound. Two clears it with margin while keeping the
+// long u8x32 sign fixture under the per-case timeout (krabiecdsa uses 4, but its
+// sign is ~4x shorter than ours).
+const WARMUP_BLOCKS: usize = 2;
 // Absolute cycle spread allowed between a positive fixture's A/B classes; the
 // 0-wait-state path holds 7–20. Do not raise it to accommodate a higher-clock
 // ART run — that hides the very variance it gates.
