@@ -4,9 +4,11 @@
 
 #![cfg(feature = "fixed-bigint")]
 
-use ed25519_heapless::x25519_kem::{DecapsulationKey, X25519Kem};
+use ed25519_heapless::x25519_kem::{
+    DecapsulateError, DecapsulationKey, EncapsulationKey, X25519Kem,
+};
 use ed25519_heapless::{x25519, x25519_blinded};
-use kem::{Ciphertext, Decapsulator, Encapsulate, Generate, KeyInit, TryDecapsulate};
+use kem::{Ciphertext, Decapsulator, Encapsulate, Generate, KeyInit, TryDecapsulate, TryKeyInit};
 use rand_chacha::ChaCha20Rng;
 use rand_core::SeedableRng;
 
@@ -84,4 +86,29 @@ fn rfc7748_vector_through_decapsulate() {
     let ct: Ciphertext<X25519Kem<T>> = u.into();
     let ss = dk.try_decapsulate(&ct).expect("decapsulate");
     assert_eq!(ss.as_slice(), expected.as_slice());
+}
+
+#[test]
+fn decapsulate_rejects_low_order_ciphertext() {
+    // All-zero ciphertext is a low-order point → all-zero shared secret; must be
+    // rejected rather than returned as a valid Ok.
+    let mut r = rng(4);
+    let dk = DecapsulationKey::<T>::generate_from_rng(&mut r);
+    let ct: Ciphertext<X25519Kem<T>> = [0u8; 32].into();
+    assert_eq!(
+        dk.try_decapsulate(&ct),
+        Err(DecapsulateError::LowOrderPoint)
+    );
+}
+
+#[test]
+fn try_key_init_rejects_low_order_and_accepts_valid() {
+    // All-zero encapsulation key is low-order → rejected at decode.
+    assert!(<EncapsulationKey<T> as TryKeyInit>::new(&[0u8; 32].into()).is_err());
+
+    // A public key derived from a real secret is accepted.
+    let mut r = rng(5);
+    let dk = DecapsulationKey::<T>::generate_from_rng(&mut r);
+    let ek_bytes = kem::KeyExport::to_bytes(dk.encapsulation_key());
+    assert!(<EncapsulationKey<T> as TryKeyInit>::new(&ek_bytes).is_ok());
 }

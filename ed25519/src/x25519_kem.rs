@@ -28,11 +28,44 @@ use kem::{
     KeySizeUser, SharedKey, TryDecapsulate, TryKeyInit,
 };
 use rand_core::{CryptoRng, TryCryptoRng};
+use subtle::ConstantTimeEq;
 use zeroize::Zeroizing;
 
 use crate::UnsignedModularInt;
 use crate::curve25519_field::CurveSetupError;
 use crate::x25519::{x25519, x25519_base, x25519_base_blinded, x25519_blinded};
+
+/// Fixed, non-secret scalar used to validate a decoded encapsulation key. Any
+/// clamped scalar is a multiple of 8, which annihilates every order-≤8 point, so
+/// `x25519(this, pk)` is all-zero exactly when `pk` is low-order.
+const KEY_VALIDATION_SCALAR: [u8; 32] = [0x0a; 32];
+
+/// Decapsulation failure.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DecapsulateError {
+    /// The backend `T` is too narrow to hold the 256-bit field.
+    BackendTooNarrow,
+    /// The ciphertext is a low-order point: the shared secret is the all-zero
+    /// value, which is publicly known, so the ciphertext is rejected.
+    LowOrderPoint,
+}
+
+impl From<CurveSetupError> for DecapsulateError {
+    fn from(_: CurveSetupError) -> Self {
+        Self::BackendTooNarrow
+    }
+}
+
+impl fmt::Display for DecapsulateError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::BackendTooNarrow => "backend too narrow for the 256-bit field",
+            Self::LowOrderPoint => "low-order ciphertext (all-zero shared secret)",
+        })
+    }
+}
+
+impl core::error::Error for DecapsulateError {}
 
 /// Backend bound for the X25519 KEM: the ladder bounds [`x25519_blinded`] needs,
 /// minus the higher-ranked `&T` clause. Rust does not propagate a `for<'a> &'a T`
@@ -183,11 +216,26 @@ where
     }
 }
 
-impl<T> TryKeyInit for EncapsulationKey<T> {
+impl<T> TryKeyInit for EncapsulationKey<T>
+where
+    T: X25519Backend,
+    for<'a> &'a T: const_num_traits::WrappingAdd<Output = T>
+        + const_num_traits::WrappingSub<Output = T>
+        + const_num_traits::ToBytes<Bytes = <T as const_num_traits::ToBytes>::Bytes>,
+    <T as const_num_traits::ToBytes>::Bytes: zeroize::Zeroize,
+{
     fn new(key: &Key<Self>) -> Result<Self, InvalidKey> {
-        // Every 32-byte string is a valid X25519 u-coordinate (RFC 7748 §5).
+        let pk: [u8; 32] = (*key).into();
+        // Encapsulation is infallible, so a bad key would silently produce a
+        // broken/public shared secret there — validate at decode instead. Probe
+        // with a fixed clamped scalar: a too-narrow backend errors, and a
+        // low-order point gives an all-zero result (constant-time compared).
+        let probe = x25519::<T>(&KEY_VALIDATION_SCALAR, &pk).map_err(|_| InvalidKey)?;
+        if bool::from(probe.ct_eq(&[0u8; 32])) {
+            return Err(InvalidKey);
+        }
         Ok(Self {
-            pk: (*key).into(),
+            pk,
             _t: PhantomData,
         })
     }
@@ -247,14 +295,20 @@ where
         + const_num_traits::ToBytes<Bytes = <T as const_num_traits::ToBytes>::Bytes>,
     <T as const_num_traits::ToBytes>::Bytes: zeroize::Zeroize,
 {
-    type Error = CurveSetupError;
+    type Error = DecapsulateError;
 
     fn try_decapsulate(
         &self,
         ct: &Ciphertext<Self::Kem>,
-    ) -> Result<SharedKey<Self::Kem>, CurveSetupError> {
+    ) -> Result<SharedKey<Self::Kem>, DecapsulateError> {
         let ct_bytes: [u8; 32] = (*ct).into();
         let ss = x25519::<T>(&self.sk, &ct_bytes)?;
+        // A low-order ciphertext yields an all-zero, publicly-known shared secret;
+        // reject it (constant-time) so a forged ciphertext can't masquerade as a
+        // valid encapsulation (RFC 7748 §6.1).
+        if bool::from(ss.ct_eq(&[0u8; 32])) {
+            return Err(DecapsulateError::LowOrderPoint);
+        }
         Ok(Array::from(ss))
     }
 }
