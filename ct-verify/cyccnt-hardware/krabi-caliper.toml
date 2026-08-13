@@ -26,12 +26,13 @@ completion-action = "interrupt"
 timeout-seconds = 300
 target-dir = "target"
 artifact-extension = ""
-# THROWAWAY EXPERIMENT (revert) — idle delay before every chunk (no reset, so no
-# attach conflict and no measurement noise). Tests whether the probe's USB/debug
-# degradation over the 12 attaches is time-recoverable (a pause between attaches
-# clears it) rather than per-attach accumulation.
+# Idle settle before every chunk. The J-Trace probe's USB/debug stack degrades
+# over the 12 sequential attach/detach cycles and eventually USB-faults on
+# teardown; a short pause between attaches lets it recover, cutting the
+# tail-attach fault rate. No reset (which would conflict with the run's own
+# connect-under-reset) and no measurement impact — it's dead time between chunks.
 prepare = [
-  { executable = "sleep", args = ["15"] },
+  { executable = "sleep", args = ["5"] },
 ]
 
 [[case-sets.ed25519-cyccnt]]
