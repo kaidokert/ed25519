@@ -129,9 +129,10 @@ fn forged_low_order_ct_does_not_burn_latch() {
     assert_eq!(dk.try_decapsulate(&ct).unwrap(), k);
 }
 
-// The one-shot latch is an AtomicBool, so the key stays Sync.
+// The one-shot latch is a `Cell` (for no-atomic MCU targets), so the key is
+// Send but not Sync — fine for a one-shot ephemeral key never shared by ref.
 #[test]
-fn decapsulation_key_is_sync() {
-    fn assert_sync<S: Sync>() {}
-    assert_sync::<DecapsulationKey<T>>();
+fn decapsulation_key_is_send() {
+    fn assert_send<S: Send>() {}
+    assert_send::<DecapsulationKey<T>>();
 }

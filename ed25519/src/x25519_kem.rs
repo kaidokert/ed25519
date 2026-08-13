@@ -24,9 +24,9 @@
 //! ciphertext whose shared secret is the all-zero (publicly known) value is
 //! rejected (RFC 7748 §6.1).
 
+use core::cell::Cell;
 use core::fmt;
 use core::marker::PhantomData;
-use core::sync::atomic::{AtomicBool, Ordering};
 
 use kem::common::array::Array;
 use kem::consts::U32;
@@ -218,8 +218,11 @@ pub struct DecapsulationKey<T> {
     ek: EncapsulationKey<T>,
     scalar_blind: Zeroizing<[u8; 4]>,
     coord_blind: Zeroizing<[u8; 32]>,
-    /// `AtomicBool` (not `Cell`) so the key stays `Sync`.
-    spent: AtomicBool,
+    /// One-shot latch. A `Cell`, not an `AtomicBool`: the no-atomic MCU targets
+    /// (thumbv6m, AVR, riscv32imc) lack atomic read-modify-write. The key is
+    /// thus `!Sync`, immaterial for a one-shot ephemeral key never shared across
+    /// threads (it stays `Send`).
+    spent: Cell<bool>,
 }
 
 impl<T> fmt::Debug for DecapsulationKey<T> {
@@ -351,7 +354,7 @@ where
         // Claim the key before the ladder runs: a second decapsulate refuses
         // rather than rerun under the same (r, λ) and let power traces be
         // averaged against one constant scalar.
-        if self.spent.swap(true, Ordering::Relaxed) {
+        if self.spent.replace(true) {
             return Err(DecapsulateError::Spent);
         }
         let r = u32::from_le_bytes(*self.scalar_blind);
@@ -391,7 +394,7 @@ where
             },
             scalar_blind,
             coord_blind,
-            spent: AtomicBool::new(false),
+            spent: Cell::new(false),
         })
     }
 }
@@ -427,7 +430,7 @@ mod tests {
             },
             scalar_blind: Zeroizing::new(scalar_blind),
             coord_blind: Zeroizing::new(coord_blind),
-            spent: AtomicBool::new(false),
+            spent: Cell::new(false),
         }
     }
 
