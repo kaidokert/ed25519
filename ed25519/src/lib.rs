@@ -160,16 +160,11 @@ impl<T> VerifyBackend for T where
 
 /// Load a static crypto-constant byte sequence into `T`.
 ///
-/// Wraps `FromByteSlice::from_le_slice`. All call sites pass 32-byte
-/// crypto constants or 32-byte runtime payloads into backends where
-/// `BYTE_WIDTH >= 32` (enforced by the `Curve25519Field::curve25519()`
-/// factories, which reject a narrow backend before any constant load), so
-/// the `Err` branch is structurally unreachable.
-/// The fail-closed `T::zero()` fallback avoids linking a panic path
-/// from this helper — if the impossible ever happens, the backend
-/// selection was invalid upstream and downstream field arithmetic
-/// with `T = 0` will fail the verify / sign consistency checks
-/// naturally rather than pulling in `panic_fmt`.
+/// Wraps `FromByteSlice::from_le_slice`. The `curve25519()` factories reject a
+/// narrow backend before any constant load, so with `BYTE_WIDTH >= 32` the `Err`
+/// branch is structurally unreachable. The fail-closed `T::zero()` fallback keeps
+/// `panic_fmt` unlinked; a `T = 0` from a genuinely invalid backend selection
+/// fails the verify / sign consistency checks downstream rather than panicking.
 #[inline]
 pub(crate) fn from_le_bytes<T>(bytes: &[u8]) -> T
 where
@@ -180,15 +175,12 @@ where
 
 /// Read `x`'s little-endian byte encoding through a `&T` receiver — no
 /// unwrapped `T` value materializes on the stack. Wraps the returned
-/// `Bytes` in `Zeroizing` for defense-in-depth (fixed-bigint's
-/// `BytesHolder` is already `ZeroizeOnDrop`; the wrap is redundant but
-/// harmless).
+/// `Bytes` in `Zeroizing` for defense-in-depth.
 ///
-/// The awkward incantation this hides — `<&T as ToBytes>::to_le_bytes(x)`
-/// — matters because `x.to_le_bytes()` and `(*x).to_le_bytes()` both
-/// auto-deref-and-copy through `Deref` and dispatch to the owned impl,
-/// which copies `T` off the `Zeroizing<T>` stack slot before consuming
-/// it — the exact leak the `&T` impl exists to prevent.
+/// The awkward incantation this hides — `<&T as ToBytes>::to_le_bytes(x)` —
+/// exists because `x.to_le_bytes()` and `(*x).to_le_bytes()` both auto-deref
+/// and dispatch to the owned impl, copying `T` off the `Zeroizing<T>` stack
+/// slot before consuming it — the exact leak the `&T` impl prevents.
 #[inline]
 pub(crate) fn to_le_bytes_ct<T>(
     x: &T,

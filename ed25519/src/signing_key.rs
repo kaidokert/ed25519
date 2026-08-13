@@ -156,8 +156,7 @@ where
 
     // Serialize s to 32 bytes (s < q < 2^253, fits with leading zeros).
     // s is public (part of the signature) but route through the same CT
-    // path for uniformity — cost is one BytesHolder allocation on the
-    // stack, no `T` copy.
+    // path for uniformity — cost is one `Bytes` value on the stack, no `T` copy.
     let s_bytes = crate::to_le_bytes_ct(&s);
     let s_bytes_slice: &[u8] = s_bytes.as_ref();
 

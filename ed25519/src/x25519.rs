@@ -10,8 +10,9 @@
 //! to the secret scalar). All field multiplications and squarings go through
 //! `FieldCt::mul`, which uses `subtle::ConditionallySelectable` for the
 //! final REDC reduction. Add/sub use `FieldCt::add` / `sub`, which are also
-//! branchless. The remaining gap to formal CT certification is in
-//! `fixed-bigint`'s per-limb primitives — see CLAUDE.md for the audit.
+//! branchless. The remaining gap to formal CT certification is in the
+//! backend's per-limb primitives, which this crate assumes but does not
+//! itself certify.
 
 use crate::curve25519_field::{Curve25519FieldCt, CurveSetupError};
 use crate::{P_BYTES, UnsignedModularInt};
@@ -189,12 +190,9 @@ where
     // All CT — z2 is secret-derived.
     let z2_inv = field.inv(&z2);
     let result_res = field.mul(&x2, &z2_inv);
-    // Wrap the owned `T` returned by `into_raw` in `Zeroizing` so the
-    // shared-secret bytes don't sit on the stack after this function
-    // returns. `T` is `Copy` (precluding `ZeroizeOnDrop` directly), but
-    // `T: zeroize::Zeroize` is implied by `UnsignedModularInt`'s
-    // `MontStorage` supertrait when modmath's `zeroize` feature is on
-    // — which we require — so `Zeroizing<T>` works without extra bounds.
+    // Wrap the shared-secret `T` in `Zeroizing` so it's wiped on return rather
+    // than left on the stack. `T: Zeroize` comes free via `UnsignedModularInt`'s
+    // `MontStorage` supertrait, so no extra bound is needed.
     let result = zeroize::Zeroizing::new(field.into_raw(&result_res));
 
     // Shared secret is sensitive; route through `to_le_bytes_ct(&*result)`

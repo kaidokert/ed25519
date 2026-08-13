@@ -309,10 +309,6 @@ where
     acc
 }
 
-// =========================================================================
-// Tests
-// =========================================================================
-
 /// The Ed25519 base point `G` in extended-twisted projective form
 /// over a CT field instance. Constants from `G_X_BYTES` / `G_Y_BYTES`
 /// / `G_T_BYTES`, projective `Z = 1`.
@@ -328,6 +324,10 @@ where
     let gt = field.reduce(&crate::from_le_bytes::<T>(&crate::G_T_BYTES));
     (gx, gy, one, gt)
 }
+
+// =========================================================================
+// Tests
+// =========================================================================
 
 #[cfg(all(test, feature = "fixed-bigint"))]
 mod tests {

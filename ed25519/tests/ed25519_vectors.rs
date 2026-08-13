@@ -157,7 +157,7 @@ fn negative_wrong_message() {
 fn negative_flipped_sig_bit() {
     let pk = hex_to_array_32(VALID_PK);
     let mut sig = hex_to_array_64(VALID_SIG);
-    sig[0] ^= 0x01; // Flip one bit in signature
+    sig[0] ^= 0x01;
     assert!(
         !ed25519_heapless::verify::<T>(pk, b"", sig),
         "Flipped signature bit should REJECT"
@@ -167,7 +167,7 @@ fn negative_flipped_sig_bit() {
 #[test]
 fn negative_flipped_pk_bit() {
     let mut pk = hex_to_array_32(VALID_PK);
-    pk[0] ^= 0x01; // Flip one bit in public key
+    pk[0] ^= 0x01;
     let sig = hex_to_array_64(VALID_SIG);
     assert!(
         !ed25519_heapless::verify::<T>(pk, b"", sig),
@@ -599,12 +599,10 @@ fn wycheproof_invalid_signatures() {
             );
             continue;
         }
-        // For vectors with non-64-byte signatures, verify length check
         let sig_bytes = hex_to_bytes(v.sig);
         if sig_bytes.len() != 64 {
-            // Truncated or garbage-appended sigs should be caught before crypto.
-            // Our verify() takes [u8; 64], so these can't even be passed.
-            // This documents that the length check is handled at the type level.
+            // Truncated or garbage-appended sigs can't reach crypto: our verify()
+            // takes [u8; 64], so the length check is enforced at the type level.
             continue;
         }
         let pk = hex_to_array_32(v.pk);
