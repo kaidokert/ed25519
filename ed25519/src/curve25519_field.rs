@@ -44,6 +44,17 @@ pub enum CurveSetupError {
     InvalidModulus,
 }
 
+impl core::fmt::Display for CurveSetupError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str(match self {
+            Self::BackendTooNarrow => "backend too narrow for the 256-bit field",
+            Self::InvalidModulus => "invalid field modulus",
+        })
+    }
+}
+
+impl core::error::Error for CurveSetupError {}
+
 /// Decode a 32-byte modulus into `T`, reject a backend too narrow to hold it
 /// (probed on the fully-decoded value, so runtime-length carriers report the
 /// right width, not their minimal-width `zero`), and lift it into the

@@ -21,6 +21,7 @@ zeroize = { version = "1.8", default-features = false }
 hmac-sha512 = { version = "1", default-features = false, features = ["opt_size"], optional = true }
 sha2 = { version = "0.11", default-features = false, optional = true }
 signature = { version = "3.0", default-features = false }
+kem = { version = "0.3", default-features = false }
 rand_core = { version = "0.10", default-features = false }
 
 [dev-dependencies]

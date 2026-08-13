@@ -57,6 +57,7 @@ pub(crate) mod strict_sign;
 #[cfg(any(feature = "sha512-hmac-sha512", feature = "sha512-sha2"))]
 pub use signing_key::{SignError, SigningKey, sign, sign_with_fields};
 pub(crate) mod x25519;
+pub mod x25519_kem;
 
 pub use curve25519_field::{
     Curve25519Field, Curve25519FieldCt, CurveSetupError, VerifyField, curve25519_schoolbook,
