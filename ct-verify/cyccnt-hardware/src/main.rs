@@ -18,13 +18,12 @@ const BATCHES: usize = 1;
 // multi-million-cycle fixture carries a one-time settling transient (~1000
 // cycles, key-independent) that would otherwise straddle the timed trials and
 // blow the tight max-spread bound. Two clears it with margin while keeping the
-// long u8x32 sign fixture under the per-case timeout (krabiecdsa uses 4, but its
-// sign is ~4x shorter than ours).
+// long u8x32 sign fixture under the per-case timeout.
 const WARMUP_BLOCKS: usize = 2;
 // Combined cycle spread allowed across a positive fixture's A/B classes. 64
-// leaves margin for a residual warmup-drift offset on the long fixtures while
-// staying far below any real leak; Welch remains the leak detector. Do not raise
-// it to accommodate a higher-clock ART run — that hides the variance it gates.
+// leaves margin for a residual warmup-drift offset on the long fixtures; Welch
+// is the leak detector, this bound only rejects gross variance. Do not raise it
+// to accommodate a higher-clock ART run — that hides the variance it gates.
 const MAX_POSITIVE_SPREAD: u64 = 64;
 
 const SECRET_A: [u8; 32] = [0; 32];
@@ -168,7 +167,7 @@ fn main() -> ! {
             // No overlap requirement: a residual ~10-cycle warmup drift can leave
             // the A/B ranges disjoint by a cycle or two even when the combined
             // spread is tiny, which the strict overlap check rejects brittly. The
-            // spread bound + Welch are the gates (matches krabiecdsa).
+            // spread bound + Welch are the gates.
             positive_require_overlap: false,
             fields: PairedSuiteFields {
                 run: &run_fields,

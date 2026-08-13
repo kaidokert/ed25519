@@ -12,11 +12,16 @@
 //! the trait carries no per-call RNG, so a blinded raw DH stays the inherent
 //! [`x25519_blinded`] function.
 //!
-//! X25519 returns [`CurveSetupError`] for a backend too narrow to hold the
-//! 256-bit prime. Width is a runtime property of the carrier, so there is no
-//! const guard: decapsulation propagates the error, and encapsulation — whose
-//! trait signature is infallible — fails closed to a zeroed output on that
-//! path, which a ≥256-bit `T` never reaches.
+//! `T` must be wide enough to hold the 256-bit prime — a runtime property of
+//! the carrier, so there is no const guard. Decode ([`TryKeyInit`]) and
+//! decapsulation propagate [`CurveSetupError`] on a too-narrow `T`; the
+//! infallible key-generation and encapsulation paths, whose trait signatures
+//! can't return it, `debug_assert` the width and fail closed to a zeroed output
+//! in release. A ≥256-bit `T` reaches none of these paths.
+//!
+//! Low-order inputs are refused: a decoded encapsulation key or a decapsulated
+//! ciphertext whose shared secret is the all-zero (publicly known) value is
+//! rejected (RFC 7748 §6.1).
 
 use core::fmt;
 use core::marker::PhantomData;
@@ -93,6 +98,24 @@ impl<T> X25519Backend for T where
         + subtle::ConstantTimeLess
         + 'static
 {
+}
+
+/// Public u-coordinate from a secret scalar, for the infallible key-construction
+/// paths. `T` must be ≥256 bits wide; the [`kem`] construction traits can't
+/// surface that runtime requirement as an error, so a too-narrow backend is a
+/// debug-asserted misconfiguration and fails closed to zero in release.
+fn derive_public<T>(sk: &[u8; 32]) -> [u8; 32]
+where
+    T: X25519Backend,
+    for<'a> &'a T: const_num_traits::WrappingAdd<Output = T>
+        + const_num_traits::WrappingSub<Output = T>
+        + const_num_traits::ToBytes<Bytes = <T as const_num_traits::ToBytes>::Bytes>,
+    <T as const_num_traits::ToBytes>::Bytes: zeroize::Zeroize,
+{
+    x25519_base::<T>(sk).unwrap_or_else(|_| {
+        debug_assert!(false, "X25519 KEM backend must be ≥256 bits wide");
+        [0u8; 32]
+    })
 }
 
 /// KEM marker for X25519 over backend `T`. Zero-sized; `PhantomData<fn() -> T>`
@@ -205,7 +228,7 @@ where
     /// is re-derived. Also drives [`kem::FromSeed`] (the secret is the seed).
     fn new(key: &Key<Self>) -> Self {
         let sk = Zeroizing::new((*key).into());
-        let pk = x25519_base::<T>(&sk).unwrap_or([0u8; 32]);
+        let pk = derive_public::<T>(&sk);
         Self {
             sk,
             ek: EncapsulationKey {
@@ -266,8 +289,16 @@ where
         rng.fill_bytes(e.as_mut_slice());
         // ct = e·G, ss = e·pk, both blinded off the same RNG. `&mut &mut *rng`
         // reborrows the `?Sized` R as a `Sized` `&mut R`, which impls `CryptoRng`.
-        let ct = x25519_base_blinded::<T, &mut R>(&mut &mut *rng, &e).unwrap_or([0u8; 32]);
-        let ss = x25519_blinded::<T, &mut R>(&mut &mut *rng, &e, &self.pk).unwrap_or([0u8; 32]);
+        // A too-narrow `T` can't surface through this infallible trait; it's
+        // debug-asserted and fails closed in release (unreachable at ≥256 bits).
+        let ct = x25519_base_blinded::<T, &mut R>(&mut &mut *rng, &e).unwrap_or_else(|_| {
+            debug_assert!(false, "X25519 KEM backend must be ≥256 bits wide");
+            [0u8; 32]
+        });
+        let ss = x25519_blinded::<T, &mut R>(&mut &mut *rng, &e, &self.pk).unwrap_or_else(|_| {
+            debug_assert!(false, "X25519 KEM backend must be ≥256 bits wide");
+            [0u8; 32]
+        });
         (Array::from(ct), Array::from(ss))
     }
 }
@@ -324,9 +355,7 @@ where
     fn try_generate_from_rng<R: TryCryptoRng + ?Sized>(rng: &mut R) -> Result<Self, R::Error> {
         let mut sk = Zeroizing::new([0u8; 32]);
         rng.try_fill_bytes(sk.as_mut_slice())?;
-        // Unblinded base mult for the public; fails closed on a too-narrow T
-        // (a misconfiguration a ≥256-bit backend never hits).
-        let pk = x25519_base::<T>(&sk).unwrap_or([0u8; 32]);
+        let pk = derive_public::<T>(&sk);
         Ok(Self {
             sk,
             ek: EncapsulationKey {
