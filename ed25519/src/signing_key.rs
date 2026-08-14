@@ -188,7 +188,7 @@ const ED_BLINDED_SCALAR_BYTES: usize = 36;
 ///   `Z`. Randomizes the output per call; a weak or constant `Z` degrades to a
 ///   deterministic, message-dependent nonce (distinct from the RFC 8032 nonce,
 ///   which omits `Z`) — never to nonce reuse, so a broken RNG can't leak the key.
-/// - **Scalar-blinded `r·G`.** `r' = r + r₂·ℓ` with a 64-bit `r₂` varies the
+/// - **Scalar-blinded `r·G`.** `r' = r + r₂·ℓ` with a 32-bit `r₂` varies the
 ///   ladder scalar per sign; `r'·G = r·G`, so the signature is unchanged.
 /// - **Projective re-randomization.** The ladder starts from a λ-scaled
 ///   identity, decorrelating intermediate coordinates.

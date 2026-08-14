@@ -216,8 +216,8 @@ where
 /// `lambda`: `(0, λ, λ, 0)` is the same affine neutral element `(0, 1)` in a
 /// randomized projective representation, so the affine result is identical to
 /// [`scalar_mult_ct`]. The λ factor propagates through every intermediate
-/// coordinate, decorrelating the projective values across executions to defeat
-/// single-trace side-channel analysis on the fixed-base ladder. `lambda` MUST
+/// coordinate, decorrelating the projective values across executions so a fixed
+/// intermediate can't be averaged across power traces (DPA). `lambda` MUST
 /// be a nonzero field element — a zero start collapses the accumulator to the
 /// all-zero (invalid) representation.
 pub(crate) fn scalar_mult_blinded_ct<'f, T>(

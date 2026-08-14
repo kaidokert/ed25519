@@ -445,8 +445,7 @@ where
 /// Hedged, side-channel-blinded Ed25519 signing. Produces a standard RFC 8032
 /// signature (any verifier accepts it), but the nonce is hedged with RNG output
 /// so the output is non-deterministic, and the `r·G` scalar multiply is scalar-
-/// and coordinate-blinded. See the crate-internal `sign_blinded` for the exact
-/// countermeasures; the blinding is best-effort against physical power/EM
+/// and coordinate-blinded. The blinding is best-effort against physical power/EM
 /// analysis and is not validated by leakage-measurement hardware. For plain
 /// deterministic RFC 8032 signing, use the [`signature::Signer`] impl.
 #[cfg(any(feature = "sha512-hmac-sha512", feature = "sha512-sha2"))]
