@@ -17,21 +17,21 @@ The implementation balances code size, stack usage and execution speed rather th
 
 | Target | Backend | .text (KiB) | Stack (bytes) |
 | ------ | ------- | ----------: | ------------: |
-| AVR ATmega2560 | u8×32 | 16.9 | 2856 |
-| Cortex-M0 | u8×32 | 10.9 | 2892 |
-| Cortex-M3 | u8×32 | 10.4 | 2820 |
-| Cortex-M0 | u32×16 | 11.1 | 5724 |
-| Cortex-M3 | u32×16 | 10.5 | 5612 |
-| RV32IMAC | u8×32 | 14.2 | 2656 |
-| RV32IMAC | u32×16 | 13.9 | 5516 |
+| AVR ATmega2560 | u8×32 | 17.7 | 2857 |
+| Cortex-M0 | u8×32 | 12.4 | 2908 |
+| Cortex-M3 | u8×32 | 11.8 | 2828 |
+| Cortex-M0 | u32×16 | 12.6 | 5724 |
+| Cortex-M3 | u32×16 | 11.9 | 5612 |
+| RV32IMAC | u8×32 | 15.4 | 2640 |
+| RV32IMAC | u32×16 | 15.1 | 5500 |
 
 **X25519 key exchange** (Cortex-M)
 
 | Target | Backend | .text (KiB) | Stack (bytes) |
 | ------ | ------- | ----------: | ------------: |
-| Cortex-M0 | u8×32 | 5.0 | 1636 |
-| Cortex-M3 | u8×32 | 4.9 | 1556 |
-| Cortex-M0 | u32×16 | 5.4 | 3324 |
-| Cortex-M3 | u32×16 | 5.1 | 3260 |
+| Cortex-M0 | u8×32 | 5.2 | 1636 |
+| Cortex-M3 | u8×32 | 5.1 | 1556 |
+| Cortex-M0 | u32×16 | 5.6 | 3284 |
+| Cortex-M3 | u32×16 | 5.2 | 3196 |
 
 Figures are the incremental cost of the operation itself, measured as operation-minus-baseline in the demo harnesses (from the merge-commit CI run) — the flash and stack attributable to the crypto, not the whole binary's footprint.
