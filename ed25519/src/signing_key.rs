@@ -8,9 +8,10 @@
 
 use crate::curve25519_field::{Curve25519FieldCt, CurveSetupError};
 use crate::strict_sign::{
-    base_point_ct, point_compress_ct, scalar_mult_ct, sha512, sha512_modq_ct,
+    base_point_ct, point_compress_ct, scalar_mult_blinded_ct, scalar_mult_ct, sha512,
+    sha512_modq_ct,
 };
-use crate::{Q_BYTES, SignBackend, scalar_field};
+use crate::{P_BYTES, Q_BYTES, SignBackend, scalar_field};
 use core::marker::PhantomData;
 use modmath::FieldCt;
 
@@ -22,6 +23,10 @@ use modmath::FieldCt;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SignError {
     FieldSetup(CurveSetupError),
+    /// The caller's RNG failed while drawing blinding entropy for
+    /// [`sign_blinded`]. Only the blinded path draws — deterministic
+    /// [`sign`] never returns this.
+    Rng,
 }
 
 impl From<CurveSetupError> for SignError {
@@ -166,6 +171,120 @@ where
     Ok(sig)
 }
 
+/// `r + r₂·ℓ` fits in 36 bytes: `r₂ < 2³²` and `ℓ < 2²⁵³`, so `r₂·ℓ < 2²⁸⁵` and
+/// `r + r₂·ℓ < 2²⁸⁶` — 36 bytes (288 bits) holds it. Fed to
+/// [`crate::blind_scalar`] with modulus `ℓ` ([`Q_BYTES`]).
+const ED_BLINDED_SCALAR_BYTES: usize = 36;
+
+/// Hedged, side-channel-blinded sign — the implementation behind
+/// [`SigningKey`]'s [`signature::RandomizedSigner`] impl, which is the public
+/// entry point. Builds the p- and q-fields per call; signing is rare enough
+/// that batch amortization isn't worth a second public surface.
+///
+/// Unlike the deterministic [`sign`], the output is non-deterministic (a hedged
+/// nonce) but still a standard RFC 8032 signature any verifier accepts.
+/// Countermeasures, all driven by `rng`:
+/// - **Hedged nonce.** `r = SHA-512(prefix ‖ Z ‖ M) mod ℓ` with a fresh 32-byte
+///   `Z`. Randomizes the output per call; a weak or constant `Z` degrades to a
+///   deterministic, message-dependent nonce (distinct from the RFC 8032 nonce,
+///   which omits `Z`) — never to nonce reuse, so a broken RNG can't leak the key.
+/// - **Scalar-blinded `r·G`.** `r' = r + r₂·ℓ` with a 32-bit `r₂` varies the
+///   ladder scalar per sign; `r'·G = r·G`, so the signature is unchanged.
+/// - **Projective re-randomization.** The ladder starts from a λ-scaled
+///   identity, decorrelating intermediate coordinates.
+/// - **Masked `k·a`.** The long-term scalar is additively split `a = a₁ + a₂
+///   (mod ℓ)` so no modular multiply takes the bare secret as an operand.
+///
+/// The scalar/coordinate blinding is best-effort hardening against power/EM
+/// differential analysis by a physical-access attacker. The constant-time
+/// property is machine-checked; the blinding's effectiveness is **not** validated
+/// by leakage (power-trace) measurement, which needs lab hardware. Deterministic
+/// [`sign`] offers none of this and is the plain-`Signer` path.
+///
+/// Returns [`SignError::Rng`] if `rng` fails.
+pub(crate) fn sign_blinded<T, R>(
+    rng: &mut R,
+    sk: &SigningKey<T>,
+    msg: &[u8],
+) -> Result<[u8; 64], SignError>
+where
+    T: SignBackend,
+    R: rand_core::TryCryptoRng + ?Sized,
+    for<'a> &'a T: const_num_traits::WrappingAdd<Output = T>
+        + const_num_traits::WrappingSub<Output = T>
+        + const_num_traits::ToBytes<Bytes = <T as const_num_traits::ToBytes>::Bytes>,
+    <T as const_num_traits::ToBytes>::Bytes: zeroize::Zeroize,
+{
+    let p_field = Curve25519FieldCt::<T>::curve25519()?;
+    let q_field = scalar_field::curve25519_ct::<T>()?;
+    let p_field = &p_field;
+    let q_field = &q_field;
+    let q = crate::from_le_bytes::<T>(&Q_BYTES);
+
+    // Hedged nonce.
+    let mut z = zeroize::Zeroizing::new([0u8; 32]);
+    rng.try_fill_bytes(&mut *z).map_err(|_| SignError::Rng)?;
+    let r = sha512_modq_ct::<T>(&[&*sk.prefix, &*z, msg], &q);
+
+    // R = r·G, scalar-blinded with a projectively randomized ladder start.
+    let r_bytes = crate::to_le_bytes_ct(&*r);
+    let r_bytes_slice: &[u8] = r_bytes.as_ref();
+    let mut r_le = zeroize::Zeroizing::new([0u8; 32]);
+    r_le.copy_from_slice(&r_bytes_slice[..32]);
+    let mut r2_bytes = [0u8; 4];
+    rng.try_fill_bytes(&mut r2_bytes)
+        .map_err(|_| SignError::Rng)?;
+    let r_blinded = crate::blind_scalar::<ED_BLINDED_SCALAR_BYTES>(
+        &r_le,
+        u32::from_le_bytes(r2_bytes),
+        &Q_BYTES,
+    );
+
+    // λ ∈ F_p \ {0}: mask the top bit, then CT-replace {0, p} (both reduce to 0
+    // and degenerate the start) with 1.
+    let mut lambda_bytes = zeroize::Zeroizing::new([0u8; 32]);
+    rng.try_fill_bytes(&mut *lambda_bytes)
+        .map_err(|_| SignError::Rng)?;
+    lambda_bytes[31] &= 0x7f;
+    let p_t = crate::from_le_bytes::<T>(&P_BYTES);
+    let mut lambda_t = zeroize::Zeroizing::new(crate::from_le_bytes::<T>(&*lambda_bytes));
+    let is_zero = subtle::ConstantTimeEq::ct_eq(&*lambda_t, &T::zero());
+    let is_p = subtle::ConstantTimeEq::ct_eq(&*lambda_t, &p_t);
+    *lambda_t = T::conditional_select(&*lambda_t, &T::one(), is_zero | is_p);
+    let lambda = p_field.reduce(&*lambda_t);
+
+    let g = base_point_ct(p_field);
+    let r_point = scalar_mult_blinded_ct(p_field, &g, &*r_blinded, &lambda);
+    let r_encoded = point_compress_ct(&r_point, p_field);
+
+    // k = SHA-512(R || A || M) mod q (public).
+    let k = sha512_modq_ct::<T>(&[&r_encoded, &sk.public, msg], &q);
+
+    // s = (r + k·a) mod q, with the k·a multiply additively masked.
+    let a_t = zeroize::Zeroizing::new(crate::from_le_bytes::<T>(&*sk.a_bytes));
+    let r_res = q_field.reduce(&*r);
+    let k_res = q_field.reduce(&*k);
+    let a_res = q_field.reduce(&*a_t);
+
+    let mut mask_bytes = zeroize::Zeroizing::new([0u8; 32]);
+    rng.try_fill_bytes(&mut *mask_bytes)
+        .map_err(|_| SignError::Rng)?;
+    mask_bytes[31] &= 0x7f;
+    let a1 = q_field.reduce(&crate::from_le_bytes::<T>(&*mask_bytes));
+    let a2 = q_field.sub(&a_res, &a1);
+    let ka = q_field.add(&q_field.mul(&k_res, &a1), &q_field.mul(&k_res, &a2));
+    let s_res = q_field.add(&r_res, &ka);
+    let s = q_field.into_raw(&s_res);
+
+    let s_bytes = crate::to_le_bytes_ct(&s);
+    let s_bytes_slice: &[u8] = s_bytes.as_ref();
+
+    let mut sig = [0u8; 64];
+    sig[..32].copy_from_slice(&r_encoded);
+    sig[32..64].copy_from_slice(&s_bytes_slice[..32]);
+    Ok(sig)
+}
+
 #[cfg(all(test, feature = "fixed-bigint"))]
 mod tests {
     use super::*;
@@ -221,6 +340,139 @@ mod tests {
         let sk = SigningKey::<T>::from_seed(&seed).expect("from_seed");
         assert_eq!(sk.public_key(), expected_public);
         assert_eq!(sign(&sk, msg).expect("sign"), expected_sig);
+    }
+
+    /// Non-Ct verify backend — signing is Ct, verify inputs are public.
+    type V = FixedUInt<u32, 16, const_num_traits::Nct>;
+
+    /// Seeded xorshift64 test RNG (nonzero state). Not a CSPRNG.
+    struct XorRng(u64);
+    impl XorRng {
+        fn seeded(s: u64) -> Self {
+            Self(s | 1)
+        }
+        fn step(&mut self) -> u64 {
+            let mut x = self.0;
+            x ^= x << 13;
+            x ^= x >> 7;
+            x ^= x << 17;
+            self.0 = x;
+            x
+        }
+    }
+    impl rand_core::TryRng for XorRng {
+        type Error = core::convert::Infallible;
+        fn try_next_u32(&mut self) -> Result<u32, Self::Error> {
+            Ok(self.step() as u32)
+        }
+        fn try_next_u64(&mut self) -> Result<u64, Self::Error> {
+            Ok(self.step())
+        }
+        fn try_fill_bytes(&mut self, dst: &mut [u8]) -> Result<(), Self::Error> {
+            for chunk in dst.chunks_mut(8) {
+                let b = self.step().to_le_bytes();
+                chunk.copy_from_slice(&b[..chunk.len()]);
+            }
+            Ok(())
+        }
+    }
+    impl rand_core::TryCryptoRng for XorRng {}
+
+    /// Hedged + blinded sign: verifies, randomizes per RNG, and differs from
+    /// the deterministic signature (the nonce is hedged).
+    #[test]
+    fn blinded_sign_verifies_hedged_and_valid() {
+        let seed = hex_to_array("c5aa8df43f9f837bedb7442f31dcb7b166d38535076f094b85ce3a2e0b4458f7");
+        let sk = SigningKey::<T>::from_seed(&seed).expect("from_seed");
+        let pk = sk.public_key();
+        let msg: &[u8] = &[0xaf, 0x82];
+
+        let a = sign_blinded(&mut XorRng::seeded(1), &sk, msg).expect("sign_blinded a");
+        let b = sign_blinded(&mut XorRng::seeded(2), &sk, msg).expect("sign_blinded b");
+        // Hedged: distinct RNG streams → distinct signatures.
+        assert_ne!(a, b);
+        // Both are valid RFC 8032 signatures.
+        assert!(crate::verify::<V>(pk, msg, a), "blinded sig a must verify");
+        assert!(crate::verify::<V>(pk, msg, b), "blinded sig b must verify");
+        // And neither matches the deterministic signature (hedged nonce).
+        let det = sign(&sk, msg).expect("sign");
+        assert_ne!(a, det);
+        // A blinded signature must not verify against a different message.
+        assert!(!crate::verify::<V>(pk, &[0x00], a));
+    }
+
+    /// A failing RNG surfaces as `SignError::Rng`, never a panic or a
+    /// silently-unblinded signature.
+    #[test]
+    fn blinded_sign_propagates_rng_failure() {
+        #[derive(Debug)]
+        struct FailErr;
+        impl core::fmt::Display for FailErr {
+            fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+                f.write_str("rng failed")
+            }
+        }
+        impl core::error::Error for FailErr {}
+
+        struct FailRng;
+        impl rand_core::TryRng for FailRng {
+            type Error = FailErr;
+            fn try_next_u32(&mut self) -> Result<u32, Self::Error> {
+                Err(FailErr)
+            }
+            fn try_next_u64(&mut self) -> Result<u64, Self::Error> {
+                Err(FailErr)
+            }
+            fn try_fill_bytes(&mut self, _: &mut [u8]) -> Result<(), Self::Error> {
+                Err(FailErr)
+            }
+        }
+        impl rand_core::TryCryptoRng for FailRng {}
+
+        let sk = SigningKey::<T>::from_seed(&[7u8; 32]).expect("from_seed");
+        assert_eq!(sign_blinded(&mut FailRng, &sk, b"m"), Err(SignError::Rng));
+    }
+
+    /// Max blinder `r₂ = u32::MAX` (all-ones RNG) drives the top of the 36-byte
+    /// `r + r₂·ℓ` carry chain — must not panic and must still verify.
+    #[test]
+    fn blinded_sign_max_blinder_verifies() {
+        struct OnesRng;
+        impl rand_core::TryRng for OnesRng {
+            type Error = core::convert::Infallible;
+            fn try_next_u32(&mut self) -> Result<u32, Self::Error> {
+                Ok(u32::MAX)
+            }
+            fn try_next_u64(&mut self) -> Result<u64, Self::Error> {
+                Ok(u64::MAX)
+            }
+            fn try_fill_bytes(&mut self, dst: &mut [u8]) -> Result<(), Self::Error> {
+                dst.fill(0xff);
+                Ok(())
+            }
+        }
+        impl rand_core::TryCryptoRng for OnesRng {}
+
+        let sk = SigningKey::<T>::from_seed(&[9u8; 32]).expect("from_seed");
+        let msg: &[u8] = b"max blinder";
+        let sig = sign_blinded(&mut OnesRng, &sk, msg).expect("sign_blinded");
+        assert!(crate::verify::<V>(sk.public_key(), msg, sig));
+    }
+
+    /// The blinded signature is carrier-independent: the same key + RNG stream
+    /// yields an identical signature on the u32×16 and u8×64 backends.
+    #[test]
+    fn blinded_sign_matches_across_carriers() {
+        type T8 = FixedUInt<u8, 64, const_num_traits::Ct>;
+        let seed = hex_to_array("c5aa8df43f9f837bedb7442f31dcb7b166d38535076f094b85ce3a2e0b4458f7");
+        let msg: &[u8] = &[0xaf, 0x82];
+
+        let sk32 = SigningKey::<T>::from_seed(&seed).expect("from_seed u32");
+        let sk8 = SigningKey::<T8>::from_seed(&seed).expect("from_seed u8");
+        let sig32 = sign_blinded(&mut XorRng::seeded(42), &sk32, msg).expect("sign u32");
+        let sig8 = sign_blinded(&mut XorRng::seeded(42), &sk8, msg).expect("sign u8");
+        assert_eq!(sig32, sig8, "blinded signature must be carrier-independent");
+        assert!(crate::verify::<V>(sk32.public_key(), msg, sig32));
     }
 
     fn hex_to_array(s: &str) -> [u8; 32] {
