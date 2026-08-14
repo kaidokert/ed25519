@@ -33,10 +33,47 @@ use ed25519_heapless::{SigningKey, sign, x25519, x25519_base};
 use fixed_bigint::FixedUInt;
 use krabi_caliper::ctgrind_fixture;
 use krabi_caliper::host::ctgrind::{taint_val, untaint_val};
+use signature::RandomizedSigner;
 
 type T32x8 = FixedUInt<u32, 8, Ct>;
 type T32x16 = FixedUInt<u32, 16, Ct>;
 type T8x32 = FixedUInt<u8, 32, Ct>;
+
+/// Deterministic public RNG for the blinded-sign fixture. The hedge nonce,
+/// scalar blinder, coordinate λ, and additive mask are public inputs — only the
+/// seed is secret — so a fixed-seed PRNG whose output is never tainted is the
+/// right CT model. Not a CSPRNG; it feeds a taint audit, not a real signature.
+struct XorRng(u64);
+impl XorRng {
+    fn seeded(s: u64) -> Self {
+        Self(s | 1)
+    }
+    fn step(&mut self) -> u64 {
+        let mut x = self.0;
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        self.0 = x;
+        x
+    }
+}
+impl rand_core::TryRng for XorRng {
+    type Error = core::convert::Infallible;
+    fn try_next_u32(&mut self) -> Result<u32, Self::Error> {
+        Ok(self.step() as u32)
+    }
+    fn try_next_u64(&mut self) -> Result<u64, Self::Error> {
+        Ok(self.step())
+    }
+    fn try_fill_bytes(&mut self, dst: &mut [u8]) -> Result<(), Self::Error> {
+        for chunk in dst.chunks_mut(8) {
+            let b = self.step().to_le_bytes();
+            chunk.copy_from_slice(&b[..chunk.len()]);
+        }
+        Ok(())
+    }
+}
+impl rand_core::TryCryptoRng for XorRng {}
 
 // ============================================================================
 // Positive fixtures — secret input tainted, output observed clean.
@@ -48,11 +85,11 @@ type T8x32 = FixedUInt<u8, 32, Ct>;
 // `x25519` at compile time, and the runtime never actually reads the
 // tainted memory — a false pass.
 //
-// The four positive fixtures are defined per carrier via the macro
+// The five positive fixtures are defined per carrier via the macro
 // below. Extending to another carrier is one line.
 
 macro_rules! positive_fixtures_for_carrier {
-    ($carrier:ty, $signing_key:ident, $sign_fx:ident, $x25519_fx:ident, $x25519_base_fx:ident) => {
+    ($carrier:ty, $signing_key:ident, $sign_fx:ident, $sign_blinded_fx:ident, $x25519_fx:ident, $x25519_base_fx:ident) => {
         ctgrind_fixture!($signing_key, {
             let seed = black_box([0u8; 32]);
             taint_val(&seed);
@@ -72,6 +109,23 @@ macro_rules! positive_fixtures_for_carrier {
             taint_val(&seed);
             if let Ok(sk) = SigningKey::<$carrier>::from_seed(&seed) {
                 if let Ok(sig) = sign(&sk, msg) {
+                    untaint_val(&sig);
+                    let _ = black_box(sig);
+                }
+            }
+        });
+
+        // Hedged, side-channel-blinded sign via RandomizedSigner. Same taint
+        // model as `sign` — only the seed is secret; the RNG's hedge/blinder/
+        // mask draws are public, so `rng` is never tainted. Gates that the
+        // added masking arithmetic (a = a₁ + a₂, blinded r·G) stays CT.
+        ctgrind_fixture!($sign_blinded_fx, {
+            let seed = black_box([0u8; 32]);
+            let msg: &[u8] = b"ct-ctgrind message";
+            let mut rng = XorRng::seeded(0xC71D_5EED);
+            taint_val(&seed);
+            if let Ok(sk) = SigningKey::<$carrier>::from_seed(&seed) {
+                if let Ok(sig) = sk.try_sign_with_rng(&mut rng, msg) {
                     untaint_val(&sig);
                     let _ = black_box(sig);
                 }
@@ -102,6 +156,7 @@ positive_fixtures_for_carrier!(
     T32x8,
     ct_fix__signing_key_from_seed__u32x8,
     ct_fix__sign__u32x8,
+    ct_fix__sign_blinded__u32x8,
     ct_fix__x25519__u32x8,
     ct_fix__x25519_base__u32x8
 );
@@ -110,6 +165,7 @@ positive_fixtures_for_carrier!(
     T32x16,
     ct_fix__signing_key_from_seed__u32x16,
     ct_fix__sign__u32x16,
+    ct_fix__sign_blinded__u32x16,
     ct_fix__x25519__u32x16,
     ct_fix__x25519_base__u32x16
 );
@@ -118,6 +174,7 @@ positive_fixtures_for_carrier!(
     T8x32,
     ct_fix__signing_key_from_seed__u8x32,
     ct_fix__sign__u8x32,
+    ct_fix__sign_blinded__u8x32,
     ct_fix__x25519__u8x32,
     ct_fix__x25519_base__u8x32
 );

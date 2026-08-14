@@ -391,3 +391,28 @@ where
         sign::<T>(self, msg).map_err(|_| signature::Error::new())
     }
 }
+
+/// Hedged, side-channel-blinded Ed25519 signing. Produces a standard RFC 8032
+/// signature (any verifier accepts it), but the nonce is hedged with RNG output
+/// so the output is non-deterministic, and the `r·G` scalar multiply is scalar-
+/// and coordinate-blinded. See the crate-internal `sign_blinded` for the exact
+/// countermeasures; the blinding is best-effort against physical power/EM
+/// analysis and is not validated by leakage-measurement hardware. For plain
+/// deterministic RFC 8032 signing, use the [`signature::Signer`] impl.
+#[cfg(any(feature = "sha512-hmac-sha512", feature = "sha512-sha2"))]
+impl<T> signature::RandomizedSigner<[u8; 64]> for SigningKey<T>
+where
+    T: SignBackend,
+    for<'a> &'a T: const_num_traits::WrappingAdd<Output = T>
+        + const_num_traits::WrappingSub<Output = T>
+        + const_num_traits::ToBytes<Bytes = <T as const_num_traits::ToBytes>::Bytes>,
+    <T as const_num_traits::ToBytes>::Bytes: zeroize::Zeroize,
+{
+    fn try_sign_with_rng<R: rand_core::TryCryptoRng + ?Sized>(
+        &self,
+        rng: &mut R,
+        msg: &[u8],
+    ) -> Result<[u8; 64], signature::Error> {
+        signing_key::sign_blinded::<T, R>(rng, self, msg).map_err(|_| signature::Error::new())
+    }
+}

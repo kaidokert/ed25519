@@ -18,5 +18,9 @@ path = "src/main.rs"
 ed25519_heapless = { path = "../../ed25519", default-features = false, features = ["sha512-hmac-sha512"] }
 fixed-bigint = { version = "0.6.0", default-features = false, features = ["use-unsafe", "zeroize", "cios"] }
 const-num-traits = { version = "0.2.1", default-features = false, features = ["ct"] }
+# For the blinded-sign fixture: a deterministic public TryCryptoRng and the
+# RandomizedSigner entry point (matches ed25519_heapless's own versions).
+rand_core = { version = "0.10", default-features = false }
+signature = { version = "3.0", default-features = false, features = ["rand_core"] }
 
 krabi-caliper = { version = "0.1", features = ["ctgrind"] }
