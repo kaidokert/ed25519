@@ -193,6 +193,56 @@ where
     zeroize::Zeroizing::new(<&T as const_num_traits::ToBytes>::to_le_bytes(x))
 }
 
+/// Additive scalar blinding: `out = scalar + blinder·modulus`, little-endian and
+/// unreduced. When `modulus` annihilates the target group (`modulus·G = 𝒪`),
+/// `out·G = scalar·G`, but `out` — wider and varying with `blinder` per call —
+/// makes a fixed-base ladder process a different bit pattern each execution,
+/// defeating DPA trace averaging on the secret scalar.
+///
+/// u64 schoolbook: `blinder < 2³²` times a byte of `modulus` is `≤ 2⁴⁰`, so no
+/// term overflows and AVR / Cortex-M0 stay off software 128-bit math. `N` must
+/// hold `scalar + blinder·modulus` (caller sizes it past `modulus.len() + 4`).
+///
+/// Shared by the x25519 (`8·ℓ·ℓ'`) and Ed25519-sign (`ℓ`) blinded paths.
+pub(crate) fn blind_scalar<const N: usize>(
+    scalar: &[u8; 32],
+    blinder: u32,
+    modulus: &[u8],
+) -> zeroize::Zeroizing<[u8; N]> {
+    let mut out = zeroize::Zeroizing::new([0u8; N]);
+    let blinder = blinder as u64;
+
+    // out = blinder · modulus
+    let mut carry: u64 = 0;
+    for (i, &m) in modulus.iter().enumerate() {
+        let prod = blinder * (m as u64) + carry;
+        out[i] = prod as u8;
+        carry = prod >> 8;
+    }
+    for byte in out.iter_mut().skip(modulus.len()) {
+        carry += *byte as u64;
+        *byte = carry as u8;
+        carry >>= 8;
+    }
+    debug_assert_eq!(carry, 0);
+
+    // out += scalar
+    let mut c: u16 = 0;
+    for (i, &sb) in scalar.iter().enumerate() {
+        let s = (out[i] as u16) + (sb as u16) + c;
+        out[i] = s as u8;
+        c = s >> 8;
+    }
+    for byte in out.iter_mut().skip(32) {
+        let s = (*byte as u16) + c;
+        *byte = s as u8;
+        c = s >> 8;
+    }
+    debug_assert_eq!(c, 0);
+
+    out
+}
+
 /// Aggregate bound bundle for the constant-time sign path: CT field
 /// arithmetic on Curve25519, byte (de)serialization, branchless
 /// selection, and `Zeroize` for secret-intermediate wiping.

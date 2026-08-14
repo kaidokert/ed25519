@@ -172,54 +172,9 @@ where
 }
 
 /// `r + r₂·ℓ` fits in 36 bytes: `r₂ < 2³²` and `ℓ < 2²⁵³`, so `r₂·ℓ < 2²⁸⁵` and
-/// `r + r₂·ℓ < 2²⁸⁶` — 36 bytes (288 bits) holds it.
+/// `r + r₂·ℓ < 2²⁸⁶` — 36 bytes (288 bits) holds it. Fed to
+/// [`crate::blind_scalar`] with modulus `ℓ` ([`Q_BYTES`]).
 const ED_BLINDED_SCALAR_BYTES: usize = 36;
-
-/// Compute `r' = r + r₂·ℓ` little-endian, where `ℓ` is the Ed25519 group order
-/// ([`Q_BYTES`]) and `r₂` is a 32-bit blinder. Since `ℓ·G = 𝒪`, `r'·G = r·G`,
-/// but `r'` — wider and varying with `r₂` each sign — makes the fixed-base
-/// ladder process a different bit pattern per execution, defeating DPA
-/// averaging. Schoolbook in `u64`: a 32-bit `r₂` times a byte of `ℓ` is ≤ 2⁴⁰,
-/// so no term overflows — a `u128` would only be needed for a 64-bit blinder,
-/// which we avoid to keep AVR/Cortex-M0 off software 128-bit math. Matches the
-/// x25519 blinded path's blinder width.
-fn compute_blinded_ed_scalar(
-    r_le: &[u8; 32],
-    r2: u32,
-) -> zeroize::Zeroizing<[u8; ED_BLINDED_SCALAR_BYTES]> {
-    let mut out = zeroize::Zeroizing::new([0u8; ED_BLINDED_SCALAR_BYTES]);
-    let r2 = r2 as u64;
-
-    // out = r₂ · ℓ
-    let mut carry: u64 = 0;
-    for i in 0..32 {
-        let prod = r2 * (Q_BYTES[i] as u64) + carry;
-        out[i] = prod as u8;
-        carry = prod >> 8;
-    }
-    for byte in out.iter_mut().skip(32) {
-        carry += *byte as u64;
-        *byte = carry as u8;
-        carry >>= 8;
-    }
-    debug_assert_eq!(carry, 0);
-
-    // out += r
-    let mut c: u16 = 0;
-    for (i, &rb) in r_le.iter().enumerate() {
-        let s = (out[i] as u16) + (rb as u16) + c;
-        out[i] = s as u8;
-        c = s >> 8;
-    }
-    for byte in out.iter_mut().skip(32) {
-        let s = (*byte as u16) + c;
-        *byte = s as u8;
-        c = s >> 8;
-    }
-    debug_assert_eq!(c, 0);
-
-    out
-}
 
 /// Hedged, side-channel-blinded sign — the implementation behind
 /// [`SigningKey`]'s [`signature::RandomizedSigner`] impl, which is the public
@@ -279,7 +234,11 @@ where
     let mut r2_bytes = [0u8; 4];
     rng.try_fill_bytes(&mut r2_bytes)
         .map_err(|_| SignError::Rng)?;
-    let r_blinded = compute_blinded_ed_scalar(&r_le, u32::from_le_bytes(r2_bytes));
+    let r_blinded = crate::blind_scalar::<ED_BLINDED_SCALAR_BYTES>(
+        &r_le,
+        u32::from_le_bytes(r2_bytes),
+        &Q_BYTES,
+    );
 
     // λ ∈ F_p \ {0}: mask the top bit, then CT-replace {0, p} (both reduce to 0
     // and degenerate the start) with 1.

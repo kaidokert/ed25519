@@ -43,8 +43,8 @@ pub const BLINDING_MODULUS_BYTES: [u8; 64] = crate::hx_le(
     "0ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffb64c66bee483cf65c231138c2de80a413a110920000d1b1d90bf4b83b29b3cec8",
 );
 
-/// `k + r·(8·ℓ·ℓ')` fits in 68 bytes for a 32-bit blinder `r`
-/// (worst case 540 bits).
+/// `k + r·(8·ℓ·ℓ')` fits in 68 bytes for a 32-bit blinder `r` (worst case 540
+/// bits). Fed to [`crate::blind_scalar`] with modulus [`BLINDING_MODULUS_BYTES`].
 const BLINDED_SCALAR_BYTES: usize = 68;
 
 const BLINDED_BIT_COUNT: usize = BLINDED_SCALAR_BYTES * 8;
@@ -56,44 +56,6 @@ pub const fn clamp(mut k: [u8; 32]) -> [u8; 32] {
     k[31] &= 127;
     k[31] |= 64;
     k
-}
-
-/// Compute `k' = k + r·(8·ℓ·ℓ')` little-endian. Schoolbook in
-/// `u8`/`u16`/`u64` to avoid dragging in a wider `FixedUInt`.
-fn compute_blinded_scalar(
-    k_clamped: &[u8; 32],
-    r: u32,
-) -> zeroize::Zeroizing<[u8; BLINDED_SCALAR_BYTES]> {
-    let mut out = zeroize::Zeroizing::new([0u8; BLINDED_SCALAR_BYTES]);
-    let r = r as u64;
-
-    let mut carry: u64 = 0;
-    for i in 0..64 {
-        let prod = r * (BLINDING_MODULUS_BYTES[i] as u64) + carry;
-        out[i] = prod as u8;
-        carry = prod >> 8;
-    }
-    for byte in out.iter_mut().skip(64) {
-        carry += *byte as u64;
-        *byte = carry as u8;
-        carry >>= 8;
-    }
-    debug_assert_eq!(carry, 0);
-
-    let mut c: u16 = 0;
-    for (i, &kb) in k_clamped.iter().enumerate() {
-        let s = (out[i] as u16) + (kb as u16) + c;
-        out[i] = s as u8;
-        c = s >> 8;
-    }
-    for byte in out.iter_mut().skip(32) {
-        let s = (*byte as u16) + c;
-        *byte = s as u8;
-        c = s >> 8;
-    }
-    debug_assert_eq!(c, 0);
-
-    out
 }
 
 /// Compute `k * G` where `G` is the X25519 base point (u = 9).
@@ -287,7 +249,8 @@ where
     let field = Curve25519FieldCt::curve25519()?;
 
     let k_clamped = zeroize::Zeroizing::new(clamp(*k));
-    let k_prime = compute_blinded_scalar(&k_clamped, r);
+    let k_prime =
+        crate::blind_scalar::<BLINDED_SCALAR_BYTES>(&k_clamped, r, &BLINDING_MODULUS_BYTES);
 
     let mut u_bytes = *u_in;
     u_bytes[31] &= 0x7f;
