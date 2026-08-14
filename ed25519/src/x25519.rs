@@ -248,13 +248,45 @@ where
     <T as const_num_traits::ToBytes>::Bytes: zeroize::Zeroize,
     R: rand_core::CryptoRng,
 {
+    let r = rng.next_u32();
+    let mut lambda_bytes = zeroize::Zeroizing::new([0u8; 32]);
+    rng.fill_bytes(&mut *lambda_bytes);
+    x25519_blinded_from_parts::<T>(k, u_in, r, &lambda_bytes)
+}
+
+/// [`x25519_blinded`] with the blinders supplied directly instead of drawn from
+/// an RNG. The KEM's RNG-free decapsulate stores `(r, lambda_bytes)` at key
+/// generation and spends them once here (a fixed blind is only sound single-use).
+/// `r` is the 32-bit scalar blind; `lambda_bytes` is the raw projective blind,
+/// with the top bit masked and `λ ∈ {0, p}` mapped to 1 internally.
+#[inline(never)]
+pub(crate) fn x25519_blinded_from_parts<T>(
+    k: &[u8; 32],
+    u_in: &[u8; 32],
+    r: u32,
+    lambda_bytes: &[u8; 32],
+) -> Result<[u8; 32], CurveSetupError>
+where
+    T: UnsignedModularInt
+        + Copy
+        + PartialEq
+        + modmath::WideMul
+        + modmath::CiosMontMulCt
+        + modmath::Parity
+        + const_num_traits::CtIsZero
+        + subtle::ConditionallySelectable
+        + subtle::ConstantTimeLess,
+    for<'a> &'a T: const_num_traits::WrappingAdd<Output = T>
+        + const_num_traits::WrappingSub<Output = T>
+        + const_num_traits::ToBytes<Bytes = <T as const_num_traits::ToBytes>::Bytes>,
+    <T as const_num_traits::ToBytes>::Bytes: zeroize::Zeroize,
+{
     // The factory rejects a backend too narrow to hold the 256-bit prime;
     // propagate that as the sole error (the `InvalidModulus` arm is
     // statically unreachable).
     let field = Curve25519FieldCt::curve25519()?;
 
     let k_clamped = zeroize::Zeroizing::new(clamp(*k));
-    let r = rng.next_u32();
     let k_prime = compute_blinded_scalar(&k_clamped, r);
 
     let mut u_bytes = *u_in;
@@ -268,8 +300,7 @@ where
     // through the ladder — defeats single-trace correlation. Replace
     // λ_t ∈ {0, p} with 1 in constant time, since both reduce to 0
     // and a zero λ degenerates the initial state to (0, 0, 0, 0).
-    let mut lambda_bytes = zeroize::Zeroizing::new([0u8; 32]);
-    rng.fill_bytes(&mut *lambda_bytes);
+    let mut lambda_bytes = zeroize::Zeroizing::new(*lambda_bytes);
     lambda_bytes[31] &= 0x7f;
     let p_t = crate::from_le_bytes::<T>(&P_BYTES);
     let mut lambda_t = zeroize::Zeroizing::new(crate::from_le_bytes::<T>(&*lambda_bytes));
