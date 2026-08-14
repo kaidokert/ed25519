@@ -210,6 +210,44 @@ where
     acc
 }
 
+/// [`scalar_mult_ct`] with a projectively randomized starting accumulator.
+///
+/// The accumulator begins as the identity scaled by a caller-supplied random
+/// `lambda`: `(0, λ, λ, 0)` is the same affine neutral element `(0, 1)` in a
+/// randomized projective representation, so the affine result is identical to
+/// [`scalar_mult_ct`]. The λ factor propagates through every intermediate
+/// coordinate, decorrelating the projective values across executions to defeat
+/// single-trace side-channel analysis on the fixed-base ladder. `lambda` MUST
+/// be a nonzero field element — a zero start collapses the accumulator to the
+/// all-zero (invalid) representation.
+pub(crate) fn scalar_mult_blinded_ct<'f, T>(
+    field: &'f Curve25519FieldCt<T>,
+    base: &EdPointCt<'f, T>,
+    scalar: &[u8],
+    lambda: &ResidueCt<'f, T>,
+) -> EdPointCt<'f, T>
+where
+    T: SignBackend,
+    for<'a> &'a T:
+        const_num_traits::WrappingAdd<Output = T> + const_num_traits::WrappingSub<Output = T>,
+{
+    let d_raw = crate::from_le_bytes::<T>(&D_BYTES);
+    let base_niels = to_niels_ct(base, d_raw, field);
+
+    // Identity (0, 1, 1, 0) in the projective representation scaled by λ.
+    let mut acc: EdPointCt<'f, T> = (field.zero(), lambda.clone(), lambda.clone(), field.zero());
+
+    let bit_count = scalar.len() * 8;
+    for t in (0..bit_count).rev() {
+        acc = point_double_ct(&acc, field);
+        let bit = (scalar[t >> 3] >> (t & 7)) & 1;
+        let mut sum = point_add_niels_ct(&acc, &base_niels, field);
+        point_cswap_ct(Choice::from(bit), &mut acc, &mut sum);
+    }
+
+    acc
+}
+
 // =========================================================================
 // Point compression
 // =========================================================================
