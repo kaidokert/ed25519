@@ -174,8 +174,9 @@ where
 ///   for a fresh 32-bit `r`. Defeats multi-trace DPA aggregation
 ///   against a long-lived secret scalar.
 /// * **Projective coordinate re-randomization** — scales the starting
-///   ladder state by a random nonzero `λ ∈ F_p`. Defeats single-trace
-///   correlation analysis between ladder iterations.
+///   ladder state by a random nonzero `λ ∈ F_p`. A fresh λ per call makes the
+///   intermediate coordinates differ each execution, so they can't be averaged
+///   across power traces (DPA).
 ///
 /// Output equals [`x25519`] for every accepted u-coordinate, curve or
 /// twist — see [`BLINDING_MODULUS_BYTES`].
@@ -259,10 +260,10 @@ where
     let a24 = field.reduce(&crate::from_le_bytes::<T>(&A24_BYTES));
 
     // Projective re-randomization: scale the starting state by a random
-    // nonzero λ ∈ F_p. Same geometric points, different bit patterns
-    // through the ladder — defeats single-trace correlation. Replace
-    // λ_t ∈ {0, p} with 1 in constant time, since both reduce to 0
-    // and a zero λ degenerates the initial state to (0, 0, 0, 0).
+    // nonzero λ ∈ F_p. Same geometric points, different bit patterns each
+    // execution — defeats DPA trace averaging. Replace λ_t ∈ {0, p} with 1 in
+    // constant time, since both reduce to 0 and a zero λ degenerates the
+    // initial state to (0, 0, 0, 0).
     let mut lambda_bytes = zeroize::Zeroizing::new(*lambda_bytes);
     lambda_bytes[31] &= 0x7f;
     let p_t = crate::from_le_bytes::<T>(&P_BYTES);
