@@ -9,9 +9,9 @@
 
 This is a fork of the `ed25519` crate, ported to microcontrollers. It is generic over the bignum backend: bring your own by implementing `UnsignedModularInt`, or use [fixed-bigint](https://crates.io/crates/fixed-bigint) (the reference backend, fixed-width or runtime-length). Tested on 8-bit AVR, Cortex-M and RISC-V.
 
-The implementation balances code size, stack usage and execution speed rather than optimizing purely for speed. Alongside signature verification (e.g., bootloaders), it provides Ed25519 signing and X25519 key exchange, with optional blinding. These touch secret material, but the field arithmetic is not yet audited as constant-time — see the crate's *Constant-time scope* docs. Callers own the RNG and secure key storage.
+The implementation balances code size, stack usage and execution speed rather than optimizing purely for speed. Alongside signature verification (e.g., bootloaders), it provides Ed25519 signing, X25519 key exchange (with optional blinding), and a blinded X25519 KEM (`kem::Kem`). These touch secret material, but the field arithmetic is not yet audited as constant-time — see the crate's *Constant-time scope* docs. Callers own the RNG and secure key storage.
 
-#### Resource usage (v0.5.0)
+#### Resource usage (v0.5.1)
 
 **Ed25519 signature verification**
 
