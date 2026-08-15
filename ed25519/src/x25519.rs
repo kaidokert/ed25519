@@ -352,7 +352,11 @@ where
     let mut swap: u8 = 0;
 
     for t in (0..bit_count).rev() {
-        let k_t = (scalar[t >> 3] >> (t & 7)) & 1;
+        // `t >> 3` is the public loop counter, always < scalar.len() for a
+        // correctly sized scalar; `.get(..).unwrap_or(0)` keeps the bounds
+        // check from linking a panic on the wider blinded scalar (index is
+        // public, so this is CT-neutral).
+        let k_t = (scalar.get(t >> 3).copied().unwrap_or(0) >> (t & 7)) & 1;
         swap ^= k_t;
         let choice = Choice::from(swap);
         ResidueCt::cswap(choice, &mut x2, &mut x3);

@@ -28,6 +28,10 @@ neg-controls = []
 ed25519_heapless = { path = "../../ed25519", default-features = false, features = ["sha512-hmac-sha512"] }
 fixed-bigint = { version = "0.6.0", default-features = false, features = ["use-unsafe", "zeroize", "cios"] }
 const-num-traits = { version = "0.2.1", default-features = false, features = ["ct"] }
+# For the blinded-path fixtures: a deterministic RNG and the RandomizedSigner
+# entry point (matches ed25519_heapless's own versions).
+rand_core = { version = "0.10", default-features = false }
+signature = { version = "3.0", default-features = false, features = ["rand_core"] }
 
 # Workspace `[profile.release]` (lto=fat, codegen-units=1, opt-level=z,
 # panic=abort) is what makes DCE worth measuring; do not override here.
