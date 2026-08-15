@@ -129,10 +129,15 @@ fn forged_low_order_ct_does_not_burn_latch() {
     assert_eq!(dk.try_decapsulate(&ct).unwrap(), k);
 }
 
-// The one-shot latch is a `Cell` (for no-atomic MCU targets), so the key is
-// Send but not Sync — fine for a one-shot ephemeral key never shared by ref.
+// The default `Unblinded` key holds no interior-mutable state, so it is both
+// Send and Sync (usable behind a shared `Arc`). The `Blinded` one-shot latch is a
+// `Cell` (for no-atomic MCU targets), living only in that personality's `State`,
+// so a `Blinded` key is Send but not Sync — fine for an ephemeral key never
+// shared by ref. Pinning Sync on the default guards against the latch leaking back.
 #[test]
-fn decapsulation_key_is_send() {
+fn decapsulation_key_send_sync() {
     fn assert_send<S: Send>() {}
-    assert_send::<DecapsulationKey<T>>();
+    fn assert_send_sync<S: Send + Sync>() {}
+    assert_send_sync::<DecapsulationKey<T>>();
+    assert_send::<DecapsulationKey<T, Blinded>>();
 }

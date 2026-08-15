@@ -55,26 +55,98 @@ mod sealed {
     pub trait Sealed {}
 }
 
+/// Per-key blinder storage, carried by [`Blinding::State`]. [`Unblinded`] uses the
+/// zero-sized `()` (so the key stays `Sync` with no blinder state); [`Blinded`]
+/// uses [`Blinders`]. The accessors are only ever reached under `BLIND`, so `()`'s
+/// are inert placeholders stripped at monomorphization.
+#[doc(hidden)]
+pub trait BlindState: Sized {
+    /// Draw the blinders from the generation RNG (a no-op for `()`).
+    fn generate<R: TryCryptoRng + ?Sized>(rng: &mut R) -> Result<Self, R::Error>;
+    /// 32-bit scalar blinder `r`.
+    fn scalar_blind(&self) -> u32;
+    /// Projective blinder `λ`.
+    fn coord_blind(&self) -> [u8; 32];
+    /// Claim the one-shot latch; `true` if already spent (`()` never spends).
+    fn claim(&self) -> bool;
+}
+
+impl BlindState for () {
+    fn generate<R: TryCryptoRng + ?Sized>(_: &mut R) -> Result<Self, R::Error> {
+        Ok(())
+    }
+    fn scalar_blind(&self) -> u32 {
+        0
+    }
+    fn coord_blind(&self) -> [u8; 32] {
+        [0u8; 32]
+    }
+    fn claim(&self) -> bool {
+        false
+    }
+}
+
+/// Fixed DPA blinders + one-shot latch for a [`Blinded`] decapsulation key. The
+/// `Cell` (not `AtomicBool`, which the no-atomic MCU targets thumbv6m/AVR/riscv32imc
+/// lack) makes a `Blinded` key `!Sync` — fine for a one-shot ephemeral key. An
+/// `Unblinded` key carries none of this and stays `Sync`.
+#[doc(hidden)]
+pub struct Blinders {
+    scalar_blind: Zeroizing<[u8; 4]>,
+    coord_blind: Zeroizing<[u8; 32]>,
+    spent: Cell<bool>,
+}
+
+impl BlindState for Blinders {
+    fn generate<R: TryCryptoRng + ?Sized>(rng: &mut R) -> Result<Self, R::Error> {
+        // A weak blinder only weakens masking, never correctness, so no rejection.
+        let mut scalar_blind = Zeroizing::new([0u8; 4]);
+        let mut coord_blind = Zeroizing::new([0u8; 32]);
+        rng.try_fill_bytes(scalar_blind.as_mut_slice())?;
+        rng.try_fill_bytes(coord_blind.as_mut_slice())?;
+        Ok(Self {
+            scalar_blind,
+            coord_blind,
+            spent: Cell::new(false),
+        })
+    }
+    fn scalar_blind(&self) -> u32 {
+        u32::from_le_bytes(*self.scalar_blind)
+    }
+    fn coord_blind(&self) -> [u8; 32] {
+        *self.coord_blind
+    }
+    fn claim(&self) -> bool {
+        self.spent.replace(true)
+    }
+}
+
 /// Blinding personality of the X25519 KEM — a sealed type-level tag selecting the
 /// [`Unblinded`] or [`Blinded`] engine. Gated at [`BLIND`](Blinding::BLIND), a
-/// compile-time const, so the unused path is stripped at monomorphization.
+/// compile-time const, so the unused path is stripped at monomorphization; the
+/// blinder storage lives in [`State`](Blinding::State), so `Unblinded` carries none.
 pub trait Blinding: sealed::Sealed + 'static {
     /// Whether this personality blinds the ladder and makes the key single-use.
     const BLIND: bool;
+    /// Per-key blinder storage — `()` for `Unblinded`, [`Blinders`] for `Blinded`.
+    #[doc(hidden)]
+    type State: BlindState;
 }
 
-/// Unblinded personality (default): plain ladder, reusable decapsulation key.
+/// Unblinded personality (default): plain ladder, reusable `Sync` decapsulation key.
 pub enum Unblinded {}
-/// Blinded personality: DPA-hardened ladder, single-use decapsulation key.
+/// Blinded personality: DPA-hardened ladder, single-use (`!Sync`) decapsulation key.
 pub enum Blinded {}
 
 impl sealed::Sealed for Unblinded {}
 impl sealed::Sealed for Blinded {}
 impl Blinding for Unblinded {
     const BLIND: bool = false;
+    type State = ();
 }
 impl Blinding for Blinded {
     const BLIND: bool = true;
+    type State = Blinders;
 }
 
 /// Fixed, non-secret scalar used to validate a decoded encapsulation key. Any
@@ -238,27 +310,21 @@ impl<T, B> PartialEq for EncapsulationKey<T, B> {
 }
 impl<T, B> Eq for EncapsulationKey<T, B> {}
 
-/// X25519 secret key with its public — the decapsulation key. `sk` and the
-/// blinders are wiped on drop via [`Zeroizing`].
+/// X25519 secret key with its public — the decapsulation key. `sk` (and the
+/// blinders, for `Blinded`) are wiped on drop via [`Zeroizing`].
 ///
-/// For `B = `[`Blinded`] it is **one-shot**: it carries fixed DPA blinders
-/// (`scalar_blind` r, `coord_blind` λ) drawn at generation and spent by the first
-/// [`TryDecapsulate::try_decapsulate`] (a fixed blind is only sound single-use). For
-/// `B = `[`Unblinded`] the blinder fields are inert and the key is reusable — the
-/// blinded code path is stripped by `B::BLIND`.
-pub struct DecapsulationKey<T, B = Unblinded> {
+/// For `B = `[`Blinded`] it is **one-shot**: [`state`](Blinders) holds fixed DPA
+/// blinders drawn at generation and spent by the first
+/// [`TryDecapsulate::try_decapsulate`] (a fixed blind is only sound single-use);
+/// the `Cell` latch makes it `!Sync`. For `B = `[`Unblinded`] the state is `()`, so
+/// the key carries no blinder storage and stays reusable and `Sync`.
+pub struct DecapsulationKey<T, B: Blinding = Unblinded> {
     sk: Zeroizing<[u8; 32]>,
     ek: EncapsulationKey<T, B>,
-    scalar_blind: Zeroizing<[u8; 4]>,
-    coord_blind: Zeroizing<[u8; 32]>,
-    /// One-shot latch (`Blinded` only). A `Cell`, not an `AtomicBool`: the
-    /// no-atomic MCU targets (thumbv6m, AVR, riscv32imc) lack atomic RMW. The key
-    /// is thus `!Sync`, immaterial for a one-shot ephemeral key never shared across
-    /// threads (it stays `Send`).
-    spent: Cell<bool>,
+    state: B::State,
 }
 
-impl<T, B> fmt::Debug for DecapsulationKey<T, B> {
+impl<T, B: Blinding> fmt::Debug for DecapsulationKey<T, B> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("DecapsulationKey").finish_non_exhaustive()
     }
@@ -283,7 +349,7 @@ impl<T, B> KeySizeUser for EncapsulationKey<T, B> {
     type KeySize = U32;
 }
 
-impl<T, B> KeySizeUser for DecapsulationKey<T, B> {
+impl<T, B: Blinding> KeySizeUser for DecapsulationKey<T, B> {
     type KeySize = U32;
 }
 
@@ -396,11 +462,15 @@ where
             }
             // Claim the key before the ladder: a second decapsulate refuses rather
             // than rerun under the same (r, λ) and let power traces be averaged.
-            if self.spent.replace(true) {
+            if self.state.claim() {
                 return Err(DecapsulateError::Spent);
             }
-            let r = u32::from_le_bytes(*self.scalar_blind);
-            x25519_blinded_from_parts::<T>(&self.sk, &ct_bytes, r, &self.coord_blind)?
+            x25519_blinded_from_parts::<T>(
+                &self.sk,
+                &ct_bytes,
+                self.state.scalar_blind(),
+                &self.state.coord_blind(),
+            )?
         } else {
             // Reusable plain decapsulate.
             x25519::<T>(&self.sk, &ct_bytes)?
@@ -427,23 +497,15 @@ where
         let mut sk = Zeroizing::new([0u8; 32]);
         rng.try_fill_bytes(sk.as_mut_slice())?;
         let pk = derive_public::<T>(&sk);
-        let mut scalar_blind = Zeroizing::new([0u8; 4]);
-        let mut coord_blind = Zeroizing::new([0u8; 32]);
-        if B::BLIND {
-            // DPA blinders spent once at decapsulate, drawn from the same generation
-            // RNG. A weak blinder only weakens masking, never correctness.
-            rng.try_fill_bytes(scalar_blind.as_mut_slice())?;
-            rng.try_fill_bytes(coord_blind.as_mut_slice())?;
-        }
+        // `()` draws nothing; `Blinders` draws the scalar + projective blinder.
+        let state = <B::State as BlindState>::generate(rng)?;
         Ok(Self {
             sk,
             ek: EncapsulationKey {
                 pk,
                 _tb: PhantomData,
             },
-            scalar_blind,
-            coord_blind,
-            spent: Cell::new(false),
+            state,
         })
     }
 }
@@ -464,11 +526,7 @@ mod tests {
         out
     }
 
-    fn key_from_sk<B: Blinding>(
-        sk_bytes: [u8; 32],
-        scalar_blind: [u8; 4],
-        coord_blind: [u8; 32],
-    ) -> DecapsulationKey<T, B> {
+    fn key_from_sk<B: Blinding>(sk_bytes: [u8; 32], state: B::State) -> DecapsulationKey<T, B> {
         let sk = Zeroizing::new(sk_bytes);
         let pk = derive_public::<T>(&sk);
         DecapsulationKey {
@@ -477,9 +535,7 @@ mod tests {
                 pk,
                 _tb: PhantomData,
             },
-            scalar_blind: Zeroizing::new(scalar_blind),
-            coord_blind: Zeroizing::new(coord_blind),
-            spent: Cell::new(false),
+            state,
         }
     }
 
@@ -490,7 +546,7 @@ mod tests {
         let u = hex32("e6db6867583030db3594c1a424b15f7c726624ec26b3353b10a903a6d0ab1c4c");
         let expected = hex32("c3da55379de9c6908e94ea4df28d084f32eccf03491c71f754b4075577a28552");
 
-        let dk = key_from_sk::<Unblinded>(scalar, [0u8; 4], [0u8; 32]);
+        let dk = key_from_sk::<Unblinded>(scalar, ());
         let ct: Ciphertext<X25519Kem<T>> = u.into();
         let ss = dk.try_decapsulate(&ct).expect("decapsulate");
         assert_eq!(ss.as_slice(), expected.as_slice());
@@ -501,7 +557,14 @@ mod tests {
     fn blinded_decapsulate_matches_unblinded() {
         let sk = hex32("77076d0a7318a57d3c16c17251b26645df4c2f87ebc0992ab177fba51db92c2a");
         let u = hex32("e6db6867583030db3594c1a424b15f7c726624ec26b3353b10a903a6d0ab1c4c");
-        let dk = key_from_sk::<Blinded>(sk, [0x11, 0x22, 0x33, 0x44], [0x9au8; 32]);
+        let dk = key_from_sk::<Blinded>(
+            sk,
+            Blinders {
+                scalar_blind: Zeroizing::new([0x11, 0x22, 0x33, 0x44]),
+                coord_blind: Zeroizing::new([0x9au8; 32]),
+                spent: Cell::new(false),
+            },
+        );
         let ct: Ciphertext<X25519Kem<T, Blinded>> = u.into();
         let blinded = dk.try_decapsulate(&ct).expect("decapsulate");
         let unblinded = x25519::<T>(&sk, &u).unwrap();
