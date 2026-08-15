@@ -21,8 +21,11 @@
 use core::hint::black_box;
 
 use const_num_traits::{Ct, Nct};
-use ed25519_heapless::{SigningKey, sign, verify, x25519, x25519_base};
+use ed25519_heapless::{
+    SigningKey, sign, verify, x25519, x25519_base, x25519_base_blinded, x25519_blinded,
+};
 use fixed_bigint::FixedUInt;
+use signature::RandomizedSigner;
 
 #[cfg(feature = "neg-controls")]
 mod neg_controls;
@@ -32,6 +35,43 @@ type TCt = FixedUInt<u32, 8, Ct>;
 // Nct carrier for `verify` — the verify path takes only public
 // inputs and is bounded on `T: modmath::NonCt`.
 type TNct = FixedUInt<u32, 8, Nct>;
+
+/// Deterministic RNG for the blinded fixtures. Its output isn't secret here —
+/// the audit only measures panic reachability, not entropy — so a fixed-seed
+/// PRNG is fine. `TryRng<Error = Infallible>` + `TryCryptoRng` satisfies both
+/// `x25519_blinded`'s `CryptoRng` bound (via rand_core's blanket impl) and
+/// `RandomizedSigner`'s `TryCryptoRng`.
+struct XorRng(u64);
+impl XorRng {
+    fn seeded(s: u64) -> Self {
+        Self(s | 1)
+    }
+    fn step(&mut self) -> u64 {
+        let mut x = self.0;
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        self.0 = x;
+        x
+    }
+}
+impl rand_core::TryRng for XorRng {
+    type Error = core::convert::Infallible;
+    fn try_next_u32(&mut self) -> Result<u32, Self::Error> {
+        Ok(self.step() as u32)
+    }
+    fn try_next_u64(&mut self) -> Result<u64, Self::Error> {
+        Ok(self.step())
+    }
+    fn try_fill_bytes(&mut self, dst: &mut [u8]) -> Result<(), Self::Error> {
+        for chunk in dst.chunks_mut(8) {
+            let b = self.step().to_le_bytes();
+            chunk.copy_from_slice(&b[..chunk.len()]);
+        }
+        Ok(())
+    }
+}
+impl rand_core::TryCryptoRng for XorRng {}
 
 /// Derive a signing key from a 32-byte seed. `Result::is_ok()`
 /// observed as a byte — no unwrap.
@@ -130,6 +170,68 @@ pub extern "C" fn panic_audit__x25519_base(k: *const [u8; 32], out: *mut [u8; 32
     let k = unsafe { *k };
     let r = x25519_base::<TCt>(black_box(&k)).unwrap_or([0u8; 32]);
     unsafe { *out = black_box(r) }
+}
+
+/// X25519 with per-call blinding (scalar + projective). Blinder/mask draws
+/// come from the internal deterministic RNG.
+#[unsafe(no_mangle)]
+pub extern "C" fn panic_audit__x25519_blinded(
+    k: *const [u8; 32],
+    u_in: *const [u8; 32],
+    out: *mut [u8; 32],
+) {
+    if k.is_null() || u_in.is_null() || out.is_null() {
+        return;
+    }
+    let k = unsafe { *k };
+    let u_in = unsafe { *u_in };
+    let mut rng = XorRng::seeded(0xA1);
+    let r =
+        x25519_blinded::<TCt, _>(&mut rng, black_box(&k), black_box(&u_in)).unwrap_or([0u8; 32]);
+    unsafe { *out = black_box(r) }
+}
+
+/// X25519 base-point blinded (blinded ephemeral / public-key derivation).
+#[unsafe(no_mangle)]
+pub extern "C" fn panic_audit__x25519_base_blinded(k: *const [u8; 32], out: *mut [u8; 32]) {
+    if k.is_null() || out.is_null() {
+        return;
+    }
+    let k = unsafe { *k };
+    let mut rng = XorRng::seeded(0xB2);
+    let r = x25519_base_blinded::<TCt, _>(&mut rng, black_box(&k)).unwrap_or([0u8; 32]);
+    unsafe { *out = black_box(r) }
+}
+
+/// Hedged, side-channel-blinded sign via `RandomizedSigner`. Exercises the
+/// blinded scalar / masking arithmetic the deterministic `sign` fixture can't.
+#[unsafe(no_mangle)]
+pub extern "C" fn panic_audit__sign_blinded(
+    seed: *const [u8; 32],
+    msg: *const u8,
+    msg_len: usize,
+    out_sig: *mut [u8; 64],
+) -> u8 {
+    if seed.is_null() || out_sig.is_null() {
+        return 0;
+    }
+    let seed = unsafe { *seed };
+    let msg: &[u8] = if msg.is_null() {
+        &[]
+    } else {
+        unsafe { core::slice::from_raw_parts(black_box(msg), black_box(msg_len)) }
+    };
+    let Ok(sk) = SigningKey::<TCt>::from_seed(black_box(&seed)) else {
+        return 0;
+    };
+    let mut rng = XorRng::seeded(0xC3);
+    let sig = sk.try_sign_with_rng(&mut rng, msg);
+    if let Ok(s) = sig {
+        unsafe { *out_sig = black_box(s) }
+        1
+    } else {
+        0
+    }
 }
 
 #[cfg(feature = "panic-handler")]
