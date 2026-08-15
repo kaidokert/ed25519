@@ -11,7 +11,7 @@ This is a fork of the `ed25519` crate, ported to microcontrollers. It is generic
 
 The implementation balances code size, stack usage and execution speed rather than optimizing purely for speed. Alongside signature verification (e.g., bootloaders), it provides Ed25519 signing, X25519 key exchange (with optional blinding), and a blinded X25519 KEM (`kem::Kem`). These touch secret material, but the field arithmetic is not yet audited as constant-time — see the crate's *Constant-time scope* docs. Callers own the RNG and secure key storage.
 
-#### Resource usage (v0.5.1)
+#### Resource usage (v0.5.2)
 
 **Ed25519 signature verification**
 
