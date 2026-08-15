@@ -5,6 +5,12 @@
 //! whole-symbol exemption would hide a newly introduced secret branch. The
 //! shared driver also requires exactly one match for each selector, failing
 //! closed if fat LTO or symbol drift makes the structural claim unobservable.
+//!
+//! `montgomery_ladder` also carries one public-index bounds check on its
+//! scalar-byte fetch: the blinded path's 68-byte scalar defeats the elision the
+//! 32-byte unblinded call gets, and the index (`t >> 3`) is the public loop
+//! counter, not a secret. It lowers to a branch on RISC-V / AArch64 / x86-64 but
+//! folds branchless on Thumb — hence the per-ISA count divergence below.
 
 use krabi_caliper::host::ct_asm::{CalibratedSymbolsTarget as TargetSpec, SymbolCalibration};
 use krabi_caliper::host::isa as mnemonics;
@@ -13,6 +19,8 @@ const THUMB_CALIBRATIONS: &[SymbolCalibration] = &[
     SymbolCalibration {
         display_name: "x25519::montgomery_ladder",
         selector: "montgomery_ladder",
+        // Loop control only; the scalar-byte bounds check folds branchless on
+        // Thumb (predicated), so no extra branch here (see module doc).
         expected_branches: 1,
     },
     SymbolCalibration {
@@ -26,9 +34,9 @@ const RISCV_CALIBRATIONS: &[SymbolCalibration] = &[
     SymbolCalibration {
         display_name: "x25519::montgomery_ladder",
         selector: "montgomery_ladder",
-        // The shared instruction parser recognizes both RISC-V loop-control
-        // branches; the previous tab-based parser missed one of them.
-        expected_branches: 2,
+        // Two RISC-V loop-control branches, plus one public-index bounds check
+        // (`bgeu`) on the scalar-byte fetch — no cmov on this ISA to fold it.
+        expected_branches: 3,
     },
     SymbolCalibration {
         display_name: "strict_sign::scalar_mult_ct",
@@ -41,7 +49,9 @@ const AARCH64_CALIBRATIONS: &[SymbolCalibration] = &[
     SymbolCalibration {
         display_name: "x25519::montgomery_ladder",
         selector: "montgomery_ladder",
-        expected_branches: 1,
+        // Loop control, plus one public-index bounds check (`b.hs`) on the
+        // scalar-byte fetch for the wide blinded scalar (see module doc).
+        expected_branches: 2,
     },
     SymbolCalibration {
         display_name: "strict_sign::scalar_mult_ct",
@@ -54,7 +64,9 @@ const X86_64_CALIBRATIONS: &[SymbolCalibration] = &[
     SymbolCalibration {
         display_name: "x25519::montgomery_ladder",
         selector: "montgomery_ladder",
-        expected_branches: 1,
+        // Loop control, plus one public-index bounds check (`jae`) on the
+        // scalar-byte fetch for the wide blinded scalar (see module doc).
+        expected_branches: 2,
     },
     SymbolCalibration {
         display_name: "strict_sign::scalar_mult_ct",
