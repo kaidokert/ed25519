@@ -4,6 +4,8 @@
 #[cfg(not(feature = "baseline"))]
 use fixed_bigint::FixedUInt;
 use riscv_demo::{MESSAGE, PUBLIC_KEY, SIGNATURE};
+#[cfg(not(feature = "baseline"))]
+use signature::Verifier;
 
 #[riscv_rt::entry]
 fn main() -> ! {
@@ -15,7 +17,9 @@ fn main() -> ! {
             }
             #[cfg(not(feature = "baseline"))]
             {
-                ed25519_heapless::verify::<FixedUInt<u8, 32>>(PUBLIC_KEY, MESSAGE, SIGNATURE)
+                ed25519_heapless::VerifyingKey::<FixedUInt<u8, 32>>::from_bytes(PUBLIC_KEY)
+                    .verify(MESSAGE, &SIGNATURE)
+                    .is_ok()
             }
         },
         "u8",

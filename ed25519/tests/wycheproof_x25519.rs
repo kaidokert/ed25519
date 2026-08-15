@@ -12,7 +12,7 @@
 #![cfg(feature = "fixed-bigint")]
 
 use const_num_traits::Ct;
-use ed25519_heapless::x25519;
+use ed25519_heapless::hazmat::x25519;
 use fixed_bigint::FixedUInt;
 
 type T = FixedUInt<u32, 16, Ct>;

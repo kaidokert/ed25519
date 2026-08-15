@@ -1,3 +1,6 @@
+use ed25519_heapless::VerifyingKey;
+use signature::Verifier;
+
 fn main_inner<T>()
 where
     T: ed25519_heapless::UnsignedModularInt
@@ -28,7 +31,9 @@ where
     ];
     let d_str = "Hello world!\n";
     let data = d_str.as_bytes();
-    let verification = ed25519_heapless::verify::<T>(pk, data, signature);
+    let verification = VerifyingKey::<T>::from_bytes(pk)
+        .verify(data, &signature)
+        .is_ok();
 
     if verification {
         println!("ACCEPT");

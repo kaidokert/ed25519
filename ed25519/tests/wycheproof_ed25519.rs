@@ -22,8 +22,9 @@
 ))]
 
 use const_num_traits::Nct;
-use ed25519_heapless::verify;
+use ed25519_heapless::VerifyingKey;
 use fixed_bigint::FixedUInt;
+use signature::Verifier;
 use wycheproof::TestResult;
 
 type T = FixedUInt<u32, 16, Nct>;
@@ -80,7 +81,9 @@ fn wycheproof_ed25519() {
                 }
             };
 
-            let ok = verify::<T>(public_key, msg, sig);
+            let ok = VerifyingKey::<T>::from_bytes(public_key)
+                .verify(msg, &sig)
+                .is_ok();
             ran += 1;
 
             let outcome_matches = match tc.result {

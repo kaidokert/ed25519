@@ -26,3 +26,4 @@ stm32f4xx-hal = { version = "0.22", features = ["stm32f407"] }
 ed25519_heapless = { path = "../../ed25519", default-features = false, features = ["fixed-bigint", "fixed-bigint-u8", "sha512-hmac-sha512"] }
 krabi-caliper = { version = "0.1", features = ["cortex-m-dwt", "paired", "rtt"] }
 fixed-bigint = { version = "0.6.0", default-features = false, features = ["use-unsafe", "zeroize", "cios"] }
+signature = { version = "3.0", default-features = false }

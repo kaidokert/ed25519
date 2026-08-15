@@ -5,6 +5,9 @@
 
 #![cfg(feature = "fixed-bigint")]
 
+use ed25519_heapless::VerifyingKey;
+use signature::Verifier;
+
 type T = fixed_bigint::FixedUInt<u32, 16>;
 
 fn hex_to_bytes(hex: &str) -> Vec<u8> {
@@ -42,7 +45,7 @@ fn rfc8032_test1_empty_message() {
         "e5564300c360ac729086e2cc806e828a84877f1eb8e5d974d873e065224901555fb8821590a33bacc61e39701cf9b46bd25bf5f0595bbe24655141438e7a100b",
     );
     assert!(
-        ed25519_heapless::verify::<T>(pk, msg, sig),
+        VerifyingKey::<T>::from_bytes(pk).verify(msg, &sig).is_ok(),
         "RFC 8032 TEST 1: empty message should ACCEPT"
     );
 }
@@ -55,7 +58,7 @@ fn rfc8032_test2_one_byte() {
         "92a009a9f0d4cab8720e820b5f642540a2b27b5416503f8fb3762223ebdb69da085ac1e43e15996e458f3613d0f11d8c387b2eaeb4302aeeb00d291612bb0c00",
     );
     assert!(
-        ed25519_heapless::verify::<T>(pk, msg, sig),
+        VerifyingKey::<T>::from_bytes(pk).verify(msg, &sig).is_ok(),
         "RFC 8032 TEST 2: 1-byte message should ACCEPT"
     );
 }
@@ -68,7 +71,7 @@ fn rfc8032_test3_two_bytes() {
         "6291d657deec24024827e69c3abe01a30ce548a284743a445e3680d7db5ac3ac18ff9b538d16f290ae67f760984dc6594a7c15e9716ed28dc027beceea1ec40a",
     );
     assert!(
-        ed25519_heapless::verify::<T>(pk, msg, sig),
+        VerifyingKey::<T>::from_bytes(pk).verify(msg, &sig).is_ok(),
         "RFC 8032 TEST 3: 2-byte message should ACCEPT"
     );
 }
@@ -114,7 +117,7 @@ fn rfc8032_test4_1023_bytes() {
         "0aab4c900501b3e24d7cdf4663326a3a87df5e4843b2cbdb67cbf6e460fec350aa5371b1508f9f4528ecea23c436d94b5e8fcd4f681e30a6ac00a9704a188a03",
     );
     assert!(
-        ed25519_heapless::verify::<T>(pk, msg, sig),
+        VerifyingKey::<T>::from_bytes(pk).verify(msg, &sig).is_ok(),
         "RFC 8032 TEST 4: 1023-byte message should ACCEPT"
     );
 }
@@ -129,7 +132,7 @@ fn rfc8032_test5_sha_abc() {
         "dc2a4459e7369633a52b1bf277839a00201009a3efbf3ecb69bea2186c26b58909351fc9ac90b3ecfdfbc7c66431e0303dca179c138ac17ad9bef1177331a704",
     );
     assert!(
-        ed25519_heapless::verify::<T>(pk, msg, sig),
+        VerifyingKey::<T>::from_bytes(pk).verify(msg, &sig).is_ok(),
         "RFC 8032 TEST 5: SHA(abc) message should ACCEPT"
     );
 }
@@ -148,7 +151,9 @@ fn negative_wrong_message() {
     let sig = hex_to_array_64(VALID_SIG);
     // Valid signature is for empty message; try with non-empty
     assert!(
-        !ed25519_heapless::verify::<T>(pk, b"wrong", sig),
+        VerifyingKey::<T>::from_bytes(pk)
+            .verify(b"wrong", &sig)
+            .is_err(),
         "Wrong message should REJECT"
     );
 }
@@ -159,7 +164,7 @@ fn negative_flipped_sig_bit() {
     let mut sig = hex_to_array_64(VALID_SIG);
     sig[0] ^= 0x01;
     assert!(
-        !ed25519_heapless::verify::<T>(pk, b"", sig),
+        VerifyingKey::<T>::from_bytes(pk).verify(b"", &sig).is_err(),
         "Flipped signature bit should REJECT"
     );
 }
@@ -170,7 +175,7 @@ fn negative_flipped_pk_bit() {
     pk[0] ^= 0x01;
     let sig = hex_to_array_64(VALID_SIG);
     assert!(
-        !ed25519_heapless::verify::<T>(pk, b"", sig),
+        VerifyingKey::<T>::from_bytes(pk).verify(b"", &sig).is_err(),
         "Flipped public key bit should REJECT"
     );
 }
@@ -180,7 +185,7 @@ fn negative_all_zeros_signature() {
     let pk = hex_to_array_32(VALID_PK);
     let sig = [0u8; 64];
     assert!(
-        !ed25519_heapless::verify::<T>(pk, b"", sig),
+        VerifyingKey::<T>::from_bytes(pk).verify(b"", &sig).is_err(),
         "All-zeros signature should REJECT"
     );
 }
@@ -190,7 +195,7 @@ fn negative_all_zeros_pubkey() {
     let pk = [0u8; 32];
     let sig = hex_to_array_64(VALID_SIG);
     assert!(
-        !ed25519_heapless::verify::<T>(pk, b"", sig),
+        VerifyingKey::<T>::from_bytes(pk).verify(b"", &sig).is_err(),
         "All-zeros public key should REJECT"
     );
 }
@@ -201,7 +206,7 @@ fn negative_swapped_pk_sig_halves() {
     let pk = hex_to_array_32("3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c");
     let sig = hex_to_array_64(VALID_SIG);
     assert!(
-        !ed25519_heapless::verify::<T>(pk, b"", sig),
+        VerifyingKey::<T>::from_bytes(pk).verify(b"", &sig).is_err(),
         "Wrong public key should REJECT"
     );
 }
@@ -575,7 +580,7 @@ fn wycheproof_valid_signatures() {
         let msg = hex_to_bytes(v.msg);
         let sig = hex_to_array_64(v.sig);
         assert!(
-            ed25519_heapless::verify::<T>(pk, &msg, sig),
+            VerifyingKey::<T>::from_bytes(pk).verify(&msg, &sig).is_ok(),
             "Wycheproof tcId {}: {} — expected VALID",
             v.tc_id,
             v.comment
@@ -592,7 +597,7 @@ fn wycheproof_invalid_signatures() {
             let msg = hex_to_bytes(v.msg);
             let sig = hex_to_array_64(v.sig);
             assert!(
-                ed25519_heapless::verify::<T>(pk, &msg, sig),
+                VerifyingKey::<T>::from_bytes(pk).verify(&msg, &sig).is_ok(),
                 "Wycheproof tcId {}: {} — expected VALID",
                 v.tc_id,
                 v.comment
@@ -609,7 +614,9 @@ fn wycheproof_invalid_signatures() {
         let msg = hex_to_bytes(v.msg);
         let sig = hex_to_array_64(v.sig);
         assert!(
-            !ed25519_heapless::verify::<T>(pk, &msg, sig),
+            VerifyingKey::<T>::from_bytes(pk)
+                .verify(&msg, &sig)
+                .is_err(),
             "Wycheproof tcId {}: {} — expected INVALID",
             v.tc_id,
             v.comment

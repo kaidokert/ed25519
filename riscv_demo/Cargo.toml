@@ -20,6 +20,7 @@ ed25519_heapless = { path = "../ed25519", default-features = false, features = [
 ] }
 fixed-bigint = { version = "0.6.0", default-features = false, features = ["use-unsafe", "zeroize", "cios"] }
 const-num-traits = { version = "0.2.1", default-features = false, features = ["ct"] }
+signature = { version = "3.0", default-features = false }
 
 [profile.release]
 codegen-units = 1
