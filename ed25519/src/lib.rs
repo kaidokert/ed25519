@@ -199,9 +199,12 @@ where
 /// makes a fixed-base ladder process a different bit pattern each execution,
 /// defeating DPA trace averaging on the secret scalar.
 ///
-/// u64 schoolbook: `blinder < 2³²` times a byte of `modulus` is `≤ 2⁴⁰`, so no
-/// term overflows and AVR / Cortex-M0 stay off software 128-bit math. `N` must
-/// hold `scalar + blinder·modulus` (caller sizes it past `modulus.len() + 4`).
+/// 32-bit-limb schoolbook via [`const_num_traits::CarryingMul`], which widens
+/// through `u64` (no software 128-bit math on AVR / Cortex-M0). The scalar add
+/// is folded into the multiply-accumulate: `blinder·m + carry + s ≤ (2³²−1)² +
+/// 2·(2³²−1) < 2⁶⁴`, so `(lo, hi)` are one limb each and `hi` is the running
+/// carry. Word-aligned: `modulus` is a whole number of `u32` limbs and `N` a
+/// multiple of 4 holding `scalar + blinder·modulus` (one limb past it).
 ///
 /// Shared by the x25519 (`8·ℓ·ℓ'`) and Ed25519-sign (`ℓ`) blinded paths.
 pub(crate) fn blind_scalar<const N: usize>(
@@ -209,36 +212,25 @@ pub(crate) fn blind_scalar<const N: usize>(
     blinder: u32,
     modulus: &[u8],
 ) -> zeroize::Zeroizing<[u8; N]> {
-    let mut out = zeroize::Zeroizing::new([0u8; N]);
-    let blinder = blinder as u64;
-
-    // out = blinder · modulus
-    let mut carry: u64 = 0;
-    for (i, &m) in modulus.iter().enumerate() {
-        let prod = blinder * (m as u64) + carry;
-        out[i] = prod as u8;
-        carry = prod >> 8;
+    // Fail-closed limb read; the chunk is always 4 bytes (`chunks_exact`).
+    fn read_le_u32(c: &[u8]) -> u32 {
+        <[u8; 4]>::try_from(c).map(u32::from_le_bytes).unwrap_or(0)
     }
-    for byte in out.iter_mut().skip(modulus.len()) {
-        carry += *byte as u64;
-        *byte = carry as u8;
-        carry >>= 8;
+    debug_assert_eq!(N % 4, 0);
+    debug_assert_eq!(modulus.len() % 4, 0);
+
+    let mut out = zeroize::Zeroizing::new([0u8; N]);
+    let mut mod_limbs = modulus.chunks_exact(4);
+    let mut scalar_limbs = scalar.chunks_exact(4);
+    let mut carry: u32 = 0;
+    for out_limb in out.chunks_exact_mut(4) {
+        let m = mod_limbs.next().map(read_le_u32).unwrap_or(0);
+        let s = scalar_limbs.next().map(read_le_u32).unwrap_or(0);
+        let (lo, hi) = const_num_traits::CarryingMul::carrying_mul_add(blinder, m, carry, s);
+        out_limb.copy_from_slice(&lo.to_le_bytes());
+        carry = hi;
     }
     debug_assert_eq!(carry, 0);
-
-    // out += scalar
-    let mut c: u16 = 0;
-    for (i, &sb) in scalar.iter().enumerate() {
-        let s = (out[i] as u16) + (sb as u16) + c;
-        out[i] = s as u8;
-        c = s >> 8;
-    }
-    for byte in out.iter_mut().skip(32) {
-        let s = (*byte as u16) + c;
-        *byte = s as u8;
-        c = s >> 8;
-    }
-    debug_assert_eq!(c, 0);
 
     out
 }
