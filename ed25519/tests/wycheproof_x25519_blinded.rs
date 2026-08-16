@@ -5,7 +5,7 @@
 #![cfg(feature = "fixed-bigint")]
 
 use const_num_traits::Ct;
-use ed25519_heapless::{x25519, x25519_blinded};
+use ed25519_heapless::hazmat::{x25519, x25519_blinded};
 use fixed_bigint::FixedUInt;
 use rand_chacha::ChaCha20Rng;
 use rand_chacha::rand_core::SeedableRng;

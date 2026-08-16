@@ -8,6 +8,8 @@ use avr_demo::{MESSAGE, PUBLIC_KEY, SIGNATURE};
 use fixed_bigint::FixedUInt;
 use krabi_caliper::avr::FootprintConfig;
 use krabi_caliper::report::{Field, UfmtReporter};
+#[cfg(not(feature = "baseline"))]
+use signature::Verifier;
 
 #[arduino_hal::entry]
 fn main() -> ! {
@@ -30,7 +32,9 @@ fn main() -> ! {
                 }
                 #[cfg(not(feature = "baseline"))]
                 {
-                    ed25519_heapless::verify::<FixedUInt<u8, 32>>(PUBLIC_KEY, MESSAGE, SIGNATURE)
+                    ed25519_heapless::VerifyingKey::<FixedUInt<u8, 32>>::from_bytes(PUBLIC_KEY)
+                        .verify(MESSAGE, &SIGNATURE)
+                        .is_ok()
                 }
             },
         )

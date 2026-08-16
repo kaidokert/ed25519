@@ -1,11 +1,20 @@
 //! Curve25519 primitives for embedded targets, generic over bigint backends.
 //!
-//! Provides two operations on top of a shared field machinery:
+//! Provides two operations on top of a shared field machinery, exposed through
+//! standard RustCrypto traits:
 //!
-//! - **Ed25519 signature verification** (`verify`, `VerifyingKey`) — twisted
-//!   Edwards form, SHA-512 challenge, NAF double-scalar multiplication.
-//! - **X25519 ECDH key exchange** (`x25519`, `x25519_base`) — Montgomery form,
-//!   x-only ladder, RFC 7748.
+//! - **Ed25519 signing / verification** — [`SigningKey`] via `signature::Signer`
+//!   (deterministic) and `RandomizedSigner` (hedged + blinded); [`VerifyingKey`]
+//!   via `signature::Verifier`. Twisted Edwards form, SHA-512 challenge, NAF
+//!   double-scalar multiplication.
+//! - **X25519 key agreement** — the KEM [`x25519_kem::X25519Kem`] (`kem::Kem`),
+//!   with an [`Unblinded`](x25519_kem::Unblinded) default and a
+//!   [`Blinded`](x25519_kem::Blinded) personality. Montgomery x-only ladder,
+//!   RFC 7748.
+//!
+//! Raw scalar-mult primitives (`x25519`, `x25519_blinded`, …) and the
+//! amortized-field `sign`/`verify` live in [`hazmat`] — reach there only for
+//! static-static DH or custom protocols. There is no top-level free-function API.
 //!
 //! Both curves live in F_p where p = 2^255 - 19, so they share the same
 //! `UnsignedModularInt` trait, `MontgomeryCtx`, and lazy-reduction helpers.
@@ -13,12 +22,14 @@
 //! # Usage
 //!
 //! ```ignore
-//! use ed25519_heapless::{verify, x25519};
+//! use ed25519_heapless::VerifyingKey;
+//! use signature::Verifier;
 //! use fixed_bigint::FixedUInt;
 //!
 //! type T = FixedUInt<u32, 16>;
-//! let valid  = verify::<T>(public_key, message, signature);
-//! let shared = x25519::<T>(my_secret, peer_public);
+//! let valid = VerifyingKey::<T>::from_bytes(public_key)
+//!     .verify(message, &signature)
+//!     .is_ok();
 //! ```
 //!
 //! # Features
@@ -55,7 +66,11 @@ pub(crate) mod strict;
 pub(crate) mod strict_sign;
 
 #[cfg(any(feature = "sha512-hmac-sha512", feature = "sha512-sha2"))]
-pub use signing_key::{SignError, SigningKey, sign, sign_with_fields};
+pub use signing_key::{SignError, SigningKey};
+// `sign` stays crate-internal (backs the `Signer` impl); `sign_with_fields` moves
+// to `hazmat`. The top-level free `sign` is gone — use the `Signer` trait.
+#[cfg(any(feature = "sha512-hmac-sha512", feature = "sha512-sha2"))]
+use signing_key::sign;
 pub(crate) mod x25519;
 pub mod x25519_kem;
 
@@ -323,27 +338,27 @@ pub const G_T_BYTES: [u8; 32] =
 pub const MODP_SQRT_M1_BYTES: [u8; 32] =
     hx_le("2b8324804fc1df0b2b4d00993dfbd7a72f431806ad2fe478c4ee1b274a0ea0b0");
 
-/// Verify an Ed25519 signature.
-///
-/// Returns `true` if the signature is valid for the given public key and message.
-///
-/// # Arguments
-/// - `public` — 32-byte Ed25519 public key
-/// - `msg` — message bytes (arbitrary length)
-/// - `signature` — 64-byte Ed25519 signature
+// `verify` stays crate-internal (backs the `Verifier` impl below); the top-level
+// free `verify` is gone — use the `Verifier` trait. `verify_with_field` moves to
+// `hazmat`.
 #[cfg(any(feature = "sha512-hmac-sha512", feature = "sha512-sha2"))]
-pub use strict::{verify, verify_with_field};
+use strict::verify;
 
-/// Compute the X25519 shared secret `k * u` (RFC 7748 §5).
-///
-/// Both `k` and `u_in` are 32-byte little-endian encodings. The scalar `k`
-/// is clamped per RFC 7748 and the high bit of `u_in[31]` is masked off
-/// before the ladder runs, so callers do not need to pre-process either
-/// input.
-pub use x25519::{
-    A24_BYTES, BASE_U_BYTES, BLINDING_MODULUS_BYTES, clamp, x25519, x25519_base,
-    x25519_base_blinded, x25519_blinded,
-};
+/// X25519 constants (RFC 7748). The scalar-mult primitives live in [`hazmat`].
+pub use x25519::{A24_BYTES, BASE_U_BYTES, BLINDING_MODULUS_BYTES};
+
+/// Low-level primitives with no safe trait wrapper — the RustCrypto `hazmat`
+/// convention (cf. `signature::hazmat`). Prefer the KEM ([`x25519_kem`]) and the
+/// `signature` traits; reach here only for the raw scalar-mult (static-static DH,
+/// custom protocols) or the amortized-field sign/verify.
+pub mod hazmat {
+    pub use crate::x25519::{clamp, x25519, x25519_base, x25519_base_blinded, x25519_blinded};
+
+    #[cfg(any(feature = "sha512-hmac-sha512", feature = "sha512-sha2"))]
+    pub use crate::signing_key::sign_with_fields;
+    #[cfg(any(feature = "sha512-hmac-sha512", feature = "sha512-sha2"))]
+    pub use crate::strict::verify_with_field;
+}
 
 /// Verifying key wrapper that implements `signature` crate traits.
 pub struct VerifyingKey<T> {

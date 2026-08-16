@@ -4,11 +4,13 @@
 use const_num_traits::Ct;
 use core::hint::black_box;
 use cortex_m_rt::entry;
-use ed25519_heapless::{SigningKey, sign, x25519, x25519_base};
+use ed25519_heapless::SigningKey;
+use ed25519_heapless::hazmat::{x25519, x25519_base};
 use fixed_bigint::FixedUInt;
 use krabi_caliper::cortex_m::DwtMeasurementPlatform;
 use krabi_caliper::report::Field;
 use krabi_caliper::suite::{PairedSuite, PairedSuiteConfig, PairedSuiteFields};
+use signature::Signer;
 use stm32f4xx_hal::pac;
 use stm32f4xx_hal::prelude::*;
 
@@ -88,7 +90,10 @@ fn fixture_sign(seed: &[u8; 32]) -> bool {
     let Ok(key) = SigningKey::<Carrier>::from_seed(black_box(seed)) else {
         return false;
     };
-    match sign(black_box(&key), black_box(b"CYCCNT fixture message")) {
+    match Signer::try_sign(
+        black_box(&key),
+        black_box(b"CYCCNT fixture message").as_slice(),
+    ) {
         Ok(signature) => {
             let _ = black_box(signature);
             true

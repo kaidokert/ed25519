@@ -5,7 +5,8 @@
 
 #![cfg(any(feature = "sha512-hmac-sha512", feature = "sha512-sha2"))]
 
-use ed25519_heapless::{curve25519_schoolbook, verify_with_field};
+use ed25519_heapless::curve25519_schoolbook;
+use ed25519_heapless::hazmat::verify_with_field;
 use num_bigint::FixedWidthBigUint;
 
 fn hex32(s: &str) -> [u8; 32] {

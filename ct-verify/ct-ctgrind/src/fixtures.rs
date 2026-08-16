@@ -29,11 +29,12 @@
 
 use const_num_traits::Ct;
 use core::hint::black_box;
-use ed25519_heapless::{SigningKey, sign, x25519, x25519_base};
+use ed25519_heapless::SigningKey;
+use ed25519_heapless::hazmat::{x25519, x25519_base};
 use fixed_bigint::FixedUInt;
 use krabi_caliper::ctgrind_fixture;
 use krabi_caliper::host::ctgrind::{taint_val, untaint_val};
-use signature::RandomizedSigner;
+use signature::{RandomizedSigner, Signer};
 
 type T32x8 = FixedUInt<u32, 8, Ct>;
 type T32x16 = FixedUInt<u32, 16, Ct>;
@@ -108,7 +109,7 @@ macro_rules! positive_fixtures_for_carrier {
             let msg: &[u8] = b"ct-ctgrind message";
             taint_val(&seed);
             if let Ok(sk) = SigningKey::<$carrier>::from_seed(&seed) {
-                if let Ok(sig) = sign(&sk, msg) {
+                if let Ok(sig) = Signer::try_sign(&sk, msg) {
                     untaint_val(&sig);
                     let _ = black_box(sig);
                 }

@@ -4,10 +4,10 @@
 
 #![cfg(feature = "fixed-bigint")]
 
+use ed25519_heapless::hazmat::{x25519, x25519_blinded};
 use ed25519_heapless::x25519_kem::{
-    DecapsulateError, DecapsulationKey, EncapsulationKey, X25519Kem,
+    Blinded, DecapsulateError, DecapsulationKey, EncapsulationKey, X25519Kem,
 };
-use ed25519_heapless::{x25519, x25519_blinded};
 use kem::{Ciphertext, Decapsulator, Encapsulate, Generate, TryDecapsulate, TryKeyInit};
 use rand_chacha::ChaCha20Rng;
 use rand_core::SeedableRng;
@@ -102,7 +102,7 @@ fn try_key_init_rejects_low_order_and_accepts_valid() {
 #[test]
 fn decapsulate_is_single_use() {
     let mut r = rng(6);
-    let dk = DecapsulationKey::<T>::generate_from_rng(&mut r);
+    let dk = DecapsulationKey::<T, Blinded>::generate_from_rng(&mut r);
     let ek = dk.encapsulation_key().clone();
     let (ct, k) = ek.encapsulate_with_rng(&mut r);
 
@@ -114,11 +114,11 @@ fn decapsulate_is_single_use() {
 #[test]
 fn forged_low_order_ct_does_not_burn_latch() {
     let mut r = rng(7);
-    let dk = DecapsulationKey::<T>::generate_from_rng(&mut r);
+    let dk = DecapsulationKey::<T, Blinded>::generate_from_rng(&mut r);
     let ek = dk.encapsulation_key().clone();
 
     // A forged low-order ct is rejected before the one-shot is claimed...
-    let low: Ciphertext<X25519Kem<T>> = [0u8; 32].into();
+    let low: Ciphertext<X25519Kem<T, Blinded>> = [0u8; 32].into();
     assert_eq!(
         dk.try_decapsulate(&low),
         Err(DecapsulateError::LowOrderPoint)
@@ -129,10 +129,15 @@ fn forged_low_order_ct_does_not_burn_latch() {
     assert_eq!(dk.try_decapsulate(&ct).unwrap(), k);
 }
 
-// The one-shot latch is a `Cell` (for no-atomic MCU targets), so the key is
-// Send but not Sync — fine for a one-shot ephemeral key never shared by ref.
+// The default `Unblinded` key holds no interior-mutable state, so it is both
+// Send and Sync (usable behind a shared `Arc`). The `Blinded` one-shot latch is a
+// `Cell` (for no-atomic MCU targets), living only in that personality's `State`,
+// so a `Blinded` key is Send but not Sync — fine for an ephemeral key never
+// shared by ref. Pinning Sync on the default guards against the latch leaking back.
 #[test]
-fn decapsulation_key_is_send() {
+fn decapsulation_key_send_sync() {
     fn assert_send<S: Send>() {}
-    assert_send::<DecapsulationKey<T>>();
+    fn assert_send_sync<S: Send + Sync>() {}
+    assert_send_sync::<DecapsulationKey<T>>();
+    assert_send::<DecapsulationKey<T, Blinded>>();
 }

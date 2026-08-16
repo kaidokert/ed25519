@@ -21,11 +21,10 @@
 use core::hint::black_box;
 
 use const_num_traits::{Ct, Nct};
-use ed25519_heapless::{
-    SigningKey, sign, verify, x25519, x25519_base, x25519_base_blinded, x25519_blinded,
-};
+use ed25519_heapless::hazmat::{x25519, x25519_base, x25519_base_blinded, x25519_blinded};
+use ed25519_heapless::{SigningKey, VerifyingKey};
 use fixed_bigint::FixedUInt;
-use signature::RandomizedSigner;
+use signature::{RandomizedSigner, Signer, Verifier};
 
 #[cfg(feature = "neg-controls")]
 mod neg_controls;
@@ -114,7 +113,7 @@ pub extern "C" fn panic_audit__sign_from_seed(
     let Ok(sk) = SigningKey::<TCt>::from_seed(black_box(&seed)) else {
         return 0;
     };
-    let sig = sign(black_box(&sk), msg);
+    let sig = Signer::try_sign(black_box(&sk), msg);
     if let Ok(s) = sig {
         unsafe { *out_sig = black_box(s) }
         1
@@ -141,7 +140,9 @@ pub extern "C" fn panic_audit__verify(
     } else {
         unsafe { core::slice::from_raw_parts(black_box(msg), black_box(msg_len)) }
     };
-    let ok = verify::<TNct>(black_box(public), msg, black_box(signature));
+    let ok = VerifyingKey::<TNct>::from_bytes(black_box(public))
+        .verify(msg, &black_box(signature))
+        .is_ok();
     black_box(ok as u8)
 }
 

@@ -22,12 +22,14 @@
 use const_num_traits::{
     CarryingMul, Ct, FromByteSlice, Nct, One, OverflowingAdd, ToBytes, WrappingSub, Zero,
 };
+use ed25519_heapless::hazmat::x25519_base;
 use ed25519_heapless::{
     Curve25519Field, Curve25519FieldCt, D_BYTES, G_Y_BYTES, Q_BYTES, SigningKey,
-    UnsignedModularInt, sign, verify, x25519_base,
+    UnsignedModularInt, VerifyingKey,
 };
 use fixed_bigint::{FixedUInt, HeaplessBigInt};
 use modmath::{CiosMontMul, CiosMontMulCt};
+use signature::{Signer, Verifier};
 
 // ---------------------------------------------------------------------------
 // Carrier bound bundles.
@@ -645,7 +647,7 @@ fn verify_accepts_valid_signature() {
     let sk = SigningKey::<HeaplessBigInt<u32, 8, Ct>>::from_seed(&seed).expect("from_seed");
     let pk = sk.public_key();
     let msg = b"krabitls certificate_verify";
-    let sig = sign(&sk, msg).expect("sign");
+    let sig = Signer::sign(&sk, msg);
 
     fn inner<T: NctCarrier>(pk: &[u8; 32], msg: &[u8], sig: &[u8; 64], label: &str)
     where
@@ -654,7 +656,7 @@ fn verify_accepts_valid_signature() {
             + WrappingSub<Output = T>,
     {
         assert!(
-            verify::<T>(*pk, msg, *sig),
+            VerifyingKey::<T>::from_bytes(*pk).verify(msg, sig).is_ok(),
             "verify rejected a valid signature on {label}"
         );
     }
@@ -670,7 +672,7 @@ fn verify_accepts_valid_signature() {
 // deployment: one `…, Ct` monomorphization signs AND verifies.
 #[test]
 fn verify_ct_field_matches_nct() {
-    use ed25519_heapless::{Curve25519FieldCt, verify_with_field};
+    use ed25519_heapless::{Curve25519FieldCt, hazmat::verify_with_field};
 
     type C = HeaplessBigInt<u32, 16, Ct>;
 
@@ -678,7 +680,7 @@ fn verify_ct_field_matches_nct() {
     let sk = SigningKey::<C>::from_seed(&seed).expect("from_seed");
     let pk = sk.public_key();
     let msg = b"single-carrier verify";
-    let good = sign(&sk, msg).expect("sign");
+    let good = Signer::sign(&sk, msg);
     // A tampered signature the valid path must reject.
     let mut bad = good;
     bad[0] ^= 0x01;
@@ -696,6 +698,14 @@ fn verify_ct_field_matches_nct() {
         "Ct-field verify accepted a tampered signature"
     );
     // Same verdict as the default Nct path on the matching carrier.
-    assert!(verify::<HeaplessBigInt<u32, 16, Nct>>(pk, msg, good));
-    assert!(!verify::<HeaplessBigInt<u32, 16, Nct>>(pk, msg, bad));
+    assert!(
+        VerifyingKey::<HeaplessBigInt<u32, 16, Nct>>::from_bytes(pk)
+            .verify(msg, &good)
+            .is_ok()
+    );
+    assert!(
+        VerifyingKey::<HeaplessBigInt<u32, 16, Nct>>::from_bytes(pk)
+            .verify(msg, &bad)
+            .is_err()
+    );
 }
