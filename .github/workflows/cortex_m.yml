@@ -3,7 +3,7 @@ name: Cortex-M
 on:
   push:
     branches:
-      - heapless
+      - main
       - 'feature/**'
   pull_request:
   workflow_dispatch:

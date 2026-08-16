@@ -3,7 +3,7 @@ name: Rust
 on:
   push:
     branches:
-      - heapless
+      - main
       - 'feature/**'
   pull_request:
   workflow_dispatch:
