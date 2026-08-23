@@ -39,6 +39,8 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
 pub(crate) mod curve25519_field;
+#[cfg(feature = "accelerator")]
+pub mod accelerator;
 // `strict` (Ed25519 verify) depends on the SHA-512 challenge hash; gate it
 // behind the SHA-512 backend features so x25519-only consumers (which don't
 // need any SHA-512) can build with `default-features = false` + only an

@@ -3,3 +3,6 @@ resolver = "2"
 
 members = [ "ed25519" ]
 exclude = [ "avr_demo", "cortex_m_demo", "riscv_demo", "ct-verify" ]
+
+[patch.crates-io]
+modmath = { git = "https://github.com/kaidokert/modmath-rs.git", tag = "v0.7.0-alpha.1" }
