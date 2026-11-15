@@ -5,6 +5,11 @@ secret-touching surface. Nested workspace with its own pinned release
 profile so the harness inspects deployment-shaped code without
 leaking the pin into the main crate's own `--release` builds.
 
+Cargo ignores a dependency's `[profile]`, so deployments choose their
+own opt-level. The profile pins `"z"`; every gate also runs at `"s"`
+by overriding `CARGO_PROFILE_RELEASE_OPT_LEVEL`. Other levels are not
+calibrated, and `ladder-branches` refuses them.
+
 Four members, each catching what the others can't:
 
 - **`panic-free-audit`** — cross-target staticlib. Wraps
@@ -43,8 +48,9 @@ Four members, each catching what the others can't:
 - **`ladder-branches`** — narrow calibrated per-ISA branch-count
   check on the two CT scalar-mul ladders (`montgomery_ladder` in
   x25519, `scalar_mult_ct` in strict_sign). Neither is literally
-  branch-free — both contain a public-bounded loop-control branch —
-  so the right calibration is a counted per-ISA allowance, not a
+  branch-free — both contain public-bounded loop control, and the
+  ladder a public-index bounds check — so the right calibration is
+  an exact per-ISA, per-opt-level count, not a
   whole-symbol skip that would vacuously pass a regression adding a
   secret branch. Fails closed if a ladder symbol isn't present in
   the archive (fat LTO can inline it away, at which point the
@@ -53,9 +59,10 @@ Four members, each catching what the others can't:
   secret-independent under runtime taint; this check proves the
   emitted structure stays what we calibrated. Calibrated across four
   ISA families — Thumb, RISC-V, AArch64, and x86_64 — so the two
-  64-bit host lowerings are gated alongside the embedded ones (the
-  per-bit selection lowers to `csel`/`cmov`, leaving only the public
-  loop-control branch on every ISA).
+  64-bit host lowerings are gated alongside the embedded ones. The
+  per-bit selection is branchless on every ISA; the counts differ
+  only in which public loop and bounds branches survive, documented
+  in `ladder-branches/src/target.rs`.
 
 - **`cyccnt-hardware`** — paired-secret timing regression gate for the
   J-Trace STM32F407VG. It runs key derivation, signing, X25519, and
@@ -141,6 +148,9 @@ cargo build --release -p ladder-branches
 ./target/release/ladder-branches aarch64-unknown-none
 ./target/release/ladder-branches x86_64-unknown-none
 
+# Any of the above at opt-level "s"
+CARGO_PROFILE_RELEASE_OPT_LEVEL=s ./target/release/ladder-branches thumbv7em-none-eabi
+
 # ctgrind runtime taint (Linux only; install `valgrind` first)
 cargo build --release -p ct-ctgrind
 cargo krabi-caliper ctgrind target/release/ct-ctgrind
@@ -150,5 +160,7 @@ cargo run --release --target thumbv7em-none-eabihf \
     -p cyccnt-hardware --features carrier-u32x8
 ```
 
-CI runs all three in `.github/workflows/ct-verify.yml` on every
-push and pull request.
+CI runs the panic audit, ladder calibration and ctgrind in
+`.github/workflows/ct-verify.yml`, and the CYCCNT gate in
+`.github/workflows/hw-ct.yml`, at both `"s"` and `"z"` on every push,
+pull request and (ct-verify) weekly.
