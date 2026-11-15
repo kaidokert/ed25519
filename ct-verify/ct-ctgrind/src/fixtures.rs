@@ -76,6 +76,12 @@ impl rand_core::TryRng for XorRng {
 }
 impl rand_core::TryCryptoRng for XorRng {}
 
+/// Marks `value` secret and returns a reference the optimizer cannot see through.
+fn tainted<T>(value: &T) -> &T {
+    taint_val(value);
+    black_box(value)
+}
+
 // ============================================================================
 // Positive fixtures — secret input tainted, output observed clean.
 // ============================================================================
@@ -86,6 +92,10 @@ impl rand_core::TryCryptoRng for XorRng {}
 // `x25519` at compile time, and the runtime never actually reads the
 // tainted memory — a false pass.
 //
+// The secret is then read back through `tainted`'s opaque reference:
+// `taint_val` only borrows it shared, so without that the optimizer may
+// feed the callee a copy taken before the taint mark.
+//
 // The five positive fixtures are defined per carrier via the macro
 // below. Extending to another carrier is one line.
 
@@ -93,8 +103,8 @@ macro_rules! positive_fixtures_for_carrier {
     ($carrier:ty, $signing_key:ident, $sign_fx:ident, $sign_blinded_fx:ident, $x25519_fx:ident, $x25519_base_fx:ident) => {
         ctgrind_fixture!($signing_key, {
             let seed = black_box([0u8; 32]);
-            taint_val(&seed);
-            if let Ok(sk) = SigningKey::<$carrier>::from_seed(&seed) {
+            let seed = tainted(&seed);
+            if let Ok(sk) = SigningKey::<$carrier>::from_seed(seed) {
                 let pk = sk.public_key();
                 // The public key is public — untaint before observing
                 // so a stray propagated V-bit doesn't false-flag.
@@ -107,8 +117,8 @@ macro_rules! positive_fixtures_for_carrier {
             let seed = black_box([0u8; 32]);
             // Fixed public message — length + contents are public.
             let msg: &[u8] = b"ct-ctgrind message";
-            taint_val(&seed);
-            if let Ok(sk) = SigningKey::<$carrier>::from_seed(&seed) {
+            let seed = tainted(&seed);
+            if let Ok(sk) = SigningKey::<$carrier>::from_seed(seed) {
                 if let Ok(sig) = Signer::try_sign(&sk, msg) {
                     untaint_val(&sig);
                     let _ = black_box(sig);
@@ -124,8 +134,8 @@ macro_rules! positive_fixtures_for_carrier {
             let seed = black_box([0u8; 32]);
             let msg: &[u8] = b"ct-ctgrind message";
             let mut rng = XorRng::seeded(0xC71D_5EED);
-            taint_val(&seed);
-            if let Ok(sk) = SigningKey::<$carrier>::from_seed(&seed) {
+            let seed = tainted(&seed);
+            if let Ok(sk) = SigningKey::<$carrier>::from_seed(seed) {
                 if let Ok(sig) = sk.try_sign_with_rng(&mut rng, msg) {
                     untaint_val(&sig);
                     let _ = black_box(sig);
@@ -137,16 +147,16 @@ macro_rules! positive_fixtures_for_carrier {
             let k = black_box([0u8; 32]);
             // u_in is the counterparty coordinate — public per RFC 7748.
             let u_in = black_box([0u8; 32]);
-            taint_val(&k);
-            let out = x25519::<$carrier>(&k, &u_in).unwrap_or([0u8; 32]);
+            let k = tainted(&k);
+            let out = x25519::<$carrier>(k, &u_in).unwrap_or([0u8; 32]);
             untaint_val(&out);
             let _ = black_box(out);
         });
 
         ctgrind_fixture!($x25519_base_fx, {
             let k = black_box([0u8; 32]);
-            taint_val(&k);
-            let out = x25519_base::<$carrier>(&k).unwrap_or([0u8; 32]);
+            let k = tainted(&k);
+            let out = x25519_base::<$carrier>(k).unwrap_or([0u8; 32]);
             untaint_val(&out);
             let _ = black_box(out);
         });
