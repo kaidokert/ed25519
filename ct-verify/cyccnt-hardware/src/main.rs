@@ -13,6 +13,7 @@ use krabi_caliper::suite::{PairedSuite, PairedSuiteConfig, PairedSuiteFields};
 use signature::Signer;
 use stm32f4xx_hal::pac;
 use stm32f4xx_hal::prelude::*;
+use stm32f4xx_hal::rcc::Config;
 
 const TRIALS: usize = 4;
 const BATCHES: usize = 1;
@@ -142,7 +143,7 @@ fn main() -> ! {
     // spread past the gate. PLL is HSI-sourced: reported time is ±1%, the
     // cycle-count verdict exact.
     let dp = pac::Peripherals::take().unwrap();
-    let _clocks = dp.RCC.constrain().cfgr.sysclk(30.MHz()).freeze();
+    let _rcc = dp.RCC.freeze(Config::hsi().sysclk(30.MHz()));
     let mut platform = DwtMeasurementPlatform::enable(
         &mut peripherals.DCB,
         &mut peripherals.DWT,

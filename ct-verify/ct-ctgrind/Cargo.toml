@@ -2,7 +2,7 @@
 name = "ct-ctgrind"
 version = "0.0.0"
 edition = "2024"
-rust-version = "1.86"
+rust-version = "1.88"
 publish = false
 description = "Valgrind taint-based CT verifier for ed25519_heapless's sign / x25519 surface."
 
@@ -16,11 +16,11 @@ path = "src/main.rs"
 # extern "C" surface. Skipping panic-free-audit here keeps that crate
 # staticlib-only, which is what its DCE audit depends on.
 ed25519_heapless = { path = "../../ed25519", default-features = false, features = ["sha512-hmac-sha512"] }
-fixed-bigint = { version = "0.6.0", default-features = false, features = ["use-unsafe", "zeroize", "cios"] }
+fixed-bigint = { version = "0.6.2", default-features = false, features = ["use-unsafe", "zeroize", "cios"] }
 const-num-traits = { version = "0.2.1", default-features = false, features = ["ct"] }
 # For the blinded-sign fixture: a deterministic public TryCryptoRng and the
 # RandomizedSigner entry point (matches ed25519_heapless's own versions).
 rand_core = { version = "0.10", default-features = false }
 signature = { version = "3.0", default-features = false, features = ["rand_core"] }
 
-krabi-caliper = { version = "0.1", features = ["ctgrind"] }
+krabi-caliper = { version = "0.2.2", features = ["ctgrind"] }
