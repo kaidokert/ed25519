@@ -82,7 +82,7 @@ pub const TARGETS: &[TargetSpec] = &[
     TargetSpec {
         triple: "thumbv7em-none-eabi",
         priority: 1,
-        toolchain: "1.86.0",
+        toolchain: "1.88.0",
         forbidden: mnemonics::THUMB_FORBIDDEN,
         allowed_cmov: mnemonics::THUMB_ALLOWED,
         calibrations: THUMB_CALIBRATIONS,
@@ -91,7 +91,7 @@ pub const TARGETS: &[TargetSpec] = &[
     TargetSpec {
         triple: "thumbv7m-none-eabi",
         priority: 1,
-        toolchain: "1.86.0",
+        toolchain: "1.88.0",
         forbidden: mnemonics::THUMB_FORBIDDEN,
         allowed_cmov: mnemonics::THUMB_ALLOWED,
         calibrations: THUMB_CALIBRATIONS,
@@ -100,7 +100,7 @@ pub const TARGETS: &[TargetSpec] = &[
     TargetSpec {
         triple: "thumbv6m-none-eabi",
         priority: 2,
-        toolchain: "1.86.0",
+        toolchain: "1.88.0",
         forbidden: mnemonics::THUMB_FORBIDDEN,
         allowed_cmov: mnemonics::THUMB_ALLOWED,
         calibrations: THUMB_CALIBRATIONS,
@@ -109,7 +109,7 @@ pub const TARGETS: &[TargetSpec] = &[
     TargetSpec {
         triple: "riscv32imc-unknown-none-elf",
         priority: 3,
-        toolchain: "1.86.0",
+        toolchain: "1.88.0",
         forbidden: mnemonics::RISCV_FORBIDDEN,
         allowed_cmov: &[],
         calibrations: RISCV_CALIBRATIONS,
@@ -118,7 +118,7 @@ pub const TARGETS: &[TargetSpec] = &[
     TargetSpec {
         triple: "riscv32imac-unknown-none-elf",
         priority: 3,
-        toolchain: "1.86.0",
+        toolchain: "1.88.0",
         forbidden: mnemonics::RISCV_FORBIDDEN,
         allowed_cmov: &[],
         calibrations: RISCV_CALIBRATIONS,
@@ -127,7 +127,7 @@ pub const TARGETS: &[TargetSpec] = &[
     TargetSpec {
         triple: "aarch64-unknown-none",
         priority: 4,
-        toolchain: "1.86.0",
+        toolchain: "1.88.0",
         forbidden: mnemonics::AARCH64_FORBIDDEN,
         allowed_cmov: mnemonics::AARCH64_ALLOWED,
         calibrations: AARCH64_CALIBRATIONS,
@@ -136,7 +136,7 @@ pub const TARGETS: &[TargetSpec] = &[
     TargetSpec {
         triple: "x86_64-unknown-none",
         priority: 4,
-        toolchain: "1.86.0",
+        toolchain: "1.88.0",
         forbidden: mnemonics::X86_64_FORBIDDEN,
         allowed_cmov: mnemonics::X86_64_ALLOWED,
         calibrations: X86_64_CALIBRATIONS,

@@ -14,16 +14,16 @@ jtrace-f407 = ["cortex-m/critical-section-single-core", "krabi-caliper/cortex-m-
 [dependencies]
 cortex-m = "0.7"
 cortex-m-rt = "0.7"
-krabi-caliper = { version = "0.1.0", features = ["stack", "cortex-m", "semihosting"] }
-cortex-m-semihosting = "0.5"
-panic-semihosting = { version = "0.6", features = ["exit"] }
+krabi-caliper = { version = "0.2.2", features = ["stack", "cortex-m", "semihosting"] }
+cortex-m-semihosting = "0.6"
+panic-semihosting = { version = "0.7", features = ["exit"] }
 
 ed25519_heapless = { path = "../ed25519", default-features = false, features = [
     "fixed-bigint",
     "fixed-bigint-u8",
     "sha512-hmac-sha512",
 ] }
-fixed-bigint = { version = "0.6.0", default-features = false, features = ["use-unsafe", "zeroize", "cios"] }
+fixed-bigint = { version = "0.6.2", default-features = false, features = ["use-unsafe", "zeroize", "cios"] }
 const-num-traits = { version = "0.2.1", default-features = false, features = ["ct"] }
 signature = { version = "3.0", default-features = false }
 
