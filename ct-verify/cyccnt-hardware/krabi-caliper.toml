@@ -7,53 +7,30 @@ transport = "rtt"
 probe = "${KRABI_PROBE}"
 clock-frequency-hz = 30000000
 executable = "probe-rs"
-# Flash, reset, then attach for RTT. Holding the target in reset to attach
-# intermittently timed out on a job's first session; RSA and krabiecdsa use
-# this layout on the same rig.
 args = [
-  "attach",
+  "run",
   "--chip", "STM32F407VGTx",
   "--protocol", "swd",
   "--probe", "${KRABI_PROBE}",
+  # Attach with the target held in reset so each chunk starts from a clean core
+  # state; attaching to still-running firmware from the previous chunk can fail
+  # to clear its breakpoints on the later attaches of the sequence.
+  "--connect-under-reset",
   "--non-interactive",
+  "--disable-progressbars",
   "--no-location",
   "{artifact}",
 ]
 completion-marker = "EM_SUMMARY"
 completion-action = "interrupt"
+failure-marker = "PANIC:"
 timeout-seconds = 300
-idle-timeout-seconds = 120
 target-dir = "target"
 artifact-extension = ""
-
-# Brief settle between chunks — consecutive probe sessions are flaky without it.
-[[profiles.jtrace-f407.prepare]]
-executable = "sleep"
-args = ["5"]
-
-[[profiles.jtrace-f407.prepare]]
-executable = "probe-rs"
-args = [
-  "download",
-  "--chip", "STM32F407VGTx",
-  "--protocol", "swd",
-  "--probe", "${KRABI_PROBE}",
-  "--non-interactive",
-  "--disable-progressbars",
-  "{artifact}",
+# Brief settle between chunks — consecutive probe attaches are flaky without it.
+prepare = [
+  { executable = "sleep", args = ["5"] },
 ]
-timeout-seconds = 120
-
-[[profiles.jtrace-f407.prepare]]
-executable = "probe-rs"
-args = [
-  "reset",
-  "--chip", "STM32F407VGTx",
-  "--protocol", "swd",
-  "--probe", "${KRABI_PROBE}",
-  "--non-interactive",
-]
-timeout-seconds = 30
 
 [[case-sets.ed25519-cyccnt]]
 name = "u32x8"

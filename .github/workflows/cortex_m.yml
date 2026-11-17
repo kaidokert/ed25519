@@ -27,7 +27,7 @@ jobs:
       run: sudo apt-get update && sudo apt-get install -y qemu-system-arm
 
     - name: Install krabi-caliper host tooling
-      run: cargo install krabi-caliper --git https://github.com/kaidokert/krabi-caliper-rs --tag v0.4.0-alpha.2 --locked --features cli,campaign
+      run: cargo install krabi-caliper --git https://github.com/kaidokert/krabi-caliper-rs --tag v0.4.0-alpha.3 --locked --features cli,campaign
 
     - uses: actions/cache@v4
       with:

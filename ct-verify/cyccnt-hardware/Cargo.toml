@@ -24,6 +24,6 @@ cortex-m = { version = "0.7", features = ["critical-section-single-core"] }
 cortex-m-rt = "0.7"
 stm32f4xx-hal = { version = "0.23", features = ["stm32f407"] }
 ed25519_heapless = { path = "../../ed25519", default-features = false, features = ["fixed-bigint", "fixed-bigint-u8", "sha512-hmac-sha512"] }
-krabi-caliper = { git = "https://github.com/kaidokert/krabi-caliper-rs", tag = "v0.4.0-alpha.2", features = ["cortex-m-dwt", "paired", "rtt"] }
+krabi-caliper = { git = "https://github.com/kaidokert/krabi-caliper-rs", tag = "v0.4.0-alpha.3", features = ["cortex-m-dwt", "paired", "rtt"] }
 fixed-bigint = { version = "0.6.2", default-features = false, features = ["use-unsafe", "zeroize", "cios"] }
 signature = { version = "3.0", default-features = false }

@@ -13,7 +13,7 @@ baseline = []
 
 [dependencies]
 avr-device = { version = "0.7", features = ["atmega2560", "rt"] }
-krabi-caliper = { git = "https://github.com/kaidokert/krabi-caliper-rs", tag = "v0.4.0-alpha.2", features = ["stack", "avr-atmega2560", "ufmt"] }
+krabi-caliper = { git = "https://github.com/kaidokert/krabi-caliper-rs", tag = "v0.4.0-alpha.3", features = ["stack", "avr-atmega2560", "ufmt"] }
 ed25519_heapless = { path = "../ed25519", default-features = false, features = ["fixed-bigint", "fixed-bigint-u8", "sha512-hmac-sha512"] }
 fixed-bigint = { version = "0.6.2", default-features = false, features = ["use-unsafe", "zeroize", "cios"] }
 const-num-traits = { version = "0.2.1", default-features = false, features = ["ct"] }
