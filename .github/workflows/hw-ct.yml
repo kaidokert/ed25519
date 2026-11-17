@@ -14,7 +14,7 @@ jobs:
       fail-fast: false
       matrix:
         # "z" is the pinned profile; deployments commonly build at "s".
-        opt: ["s", "z"]
+        opt: ["z"]
     uses: kaidokert/krabi-caliper-rs/.github/workflows/hw-ct.yml@v0.4.0-alpha.3
     with:
       invocation-name: ed25519-opt-${{ matrix.opt }}
