@@ -27,8 +27,11 @@ failure-marker = "PANIC:"
 timeout-seconds = 300
 target-dir = "target"
 artifact-extension = ""
-# Brief settle between chunks — consecutive probe attaches are flaky without it.
+# The first connect under reset in a job times out and later ones succeed, so
+# each session starts with a throwaway connect whose failure is ignored, then a
+# brief settle — consecutive probe attaches are flaky without it.
 prepare = [
+  { executable = "sh", args = ["-c", "probe-rs reset --chip STM32F407VGTx --protocol swd --probe \"$KRABI_PROBE\" --connect-under-reset --non-interactive || true"], timeout-seconds = 30 },
   { executable = "sleep", args = ["5"] },
 ]
 
