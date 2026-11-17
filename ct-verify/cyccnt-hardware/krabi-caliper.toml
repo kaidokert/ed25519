@@ -22,6 +22,7 @@ args = [
 completion-marker = "EM_SUMMARY"
 completion-action = "interrupt"
 timeout-seconds = 300
+idle-timeout-seconds = 120
 target-dir = "target"
 artifact-extension = ""
 
@@ -76,6 +77,7 @@ expected-suite = "ed25519-cyccnt"
 
 [campaigns.ed25519-ct-jtrace-f407]
 profile = "jtrace-f407"
+time-budget-seconds = 2400
 case-set = "ed25519-cyccnt"
 # Expand the three carrier cases across the fixture axis so each
 # (carrier, fixture) pair — 12 in all — measures in its own probe-rs session.

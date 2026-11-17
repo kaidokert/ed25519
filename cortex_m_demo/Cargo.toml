@@ -14,7 +14,7 @@ jtrace-f407 = ["cortex-m/critical-section-single-core", "krabi-caliper/cortex-m-
 [dependencies]
 cortex-m = "0.7"
 cortex-m-rt = "0.7"
-krabi-caliper = { version = "0.2.2", features = ["stack", "cortex-m", "semihosting"] }
+krabi-caliper = { git = "https://github.com/kaidokert/krabi-caliper-rs", tag = "v0.4.0-alpha.2", features = ["stack", "cortex-m", "semihosting"] }
 cortex-m-semihosting = "0.6"
 panic-semihosting = { version = "0.7", features = ["exit"] }
 

@@ -11,4 +11,4 @@ name = "ladder-branches"
 path = "src/main.rs"
 
 [dependencies]
-krabi-caliper = { version = "0.2.2", features = ["host"] }
+krabi-caliper = { git = "https://github.com/kaidokert/krabi-caliper-rs", tag = "v0.4.0-alpha.2", features = ["host"] }

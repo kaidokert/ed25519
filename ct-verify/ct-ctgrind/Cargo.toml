@@ -23,4 +23,4 @@ const-num-traits = { version = "0.2.1", default-features = false, features = ["c
 rand_core = { version = "0.10", default-features = false }
 signature = { version = "3.0", default-features = false, features = ["rand_core"] }
 
-krabi-caliper = { version = "0.2.2", features = ["ctgrind"] }
+krabi-caliper = { git = "https://github.com/kaidokert/krabi-caliper-rs", tag = "v0.4.0-alpha.2", features = ["ctgrind"] }
