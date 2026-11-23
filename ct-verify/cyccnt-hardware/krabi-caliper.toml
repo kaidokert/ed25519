@@ -7,52 +7,24 @@ transport = "rtt"
 probe = "${KRABI_PROBE}"
 clock-frequency-hz = 30000000
 executable = "probe-rs"
-# Flash, reset, then attach for RTT. Holding the target in reset to attach
-# intermittently timed out on a job's first session; RSA and krabiecdsa use
-# this layout on the same rig.
+# Plain `run`: a separate `probe-rs reset` session clears DEMCR.TRCENA on
+# teardown while the firmware boots, which stops CYCCNT.
 args = [
-  "attach",
-  "--chip", "STM32F407VGTx",
-  "--protocol", "swd",
-  "--probe", "${KRABI_PROBE}",
-  "--non-interactive",
-  "--no-location",
-  "{artifact}",
-]
-completion-marker = "EM_SUMMARY"
-completion-action = "interrupt"
-timeout-seconds = 300
-target-dir = "target"
-artifact-extension = ""
-
-# Brief settle between chunks — consecutive probe sessions are flaky without it.
-[[profiles.jtrace-f407.prepare]]
-executable = "sleep"
-args = ["5"]
-
-[[profiles.jtrace-f407.prepare]]
-executable = "probe-rs"
-args = [
-  "download",
+  "run",
   "--chip", "STM32F407VGTx",
   "--protocol", "swd",
   "--probe", "${KRABI_PROBE}",
   "--non-interactive",
   "--disable-progressbars",
+  "--no-location",
   "{artifact}",
 ]
-timeout-seconds = 120
-
-[[profiles.jtrace-f407.prepare]]
-executable = "probe-rs"
-args = [
-  "reset",
-  "--chip", "STM32F407VGTx",
-  "--protocol", "swd",
-  "--probe", "${KRABI_PROBE}",
-  "--non-interactive",
-]
-timeout-seconds = 30
+completion-marker = "EM_SUMMARY"
+completion-action = "interrupt"
+failure-marker = "PANIC:"
+timeout-seconds = 300
+target-dir = "target"
+artifact-extension = ""
 
 [[case-sets.ed25519-cyccnt]]
 name = "u32x8"
@@ -76,6 +48,7 @@ expected-suite = "ed25519-cyccnt"
 
 [campaigns.ed25519-ct-jtrace-f407]
 profile = "jtrace-f407"
+continue-on-failure = false
 case-set = "ed25519-cyccnt"
 # Expand the three carrier cases across the fixture axis so each
 # (carrier, fixture) pair — 12 in all — measures in its own probe-rs session.
