@@ -9,8 +9,16 @@
 //! `montgomery_ladder` also carries one public-index bounds check on its
 //! scalar-byte fetch: the blinded path's 68-byte scalar defeats the elision the
 //! 32-byte unblinded call gets, and the index (`t >> 3`) is the public loop
-//! counter, not a secret. It lowers to a branch on RISC-V / AArch64 / x86-64 but
-//! folds branchless on Thumb — hence the per-ISA count divergence below.
+//! counter, not a secret. At `z` it lowers to a branch on RISC-V / AArch64 /
+//! x86-64 and thumbv6m (no IT blocks) but folds predicated on Thumb-2 — hence
+//! the per-ISA count divergence below.
+//!
+//! Cargo ignores a dependency's `[profile]`, so deployments pick their own
+//! opt-level; the gate runs at both `z` (the workspace profile) and `s`, chosen
+//! by `CARGO_PROFILE_RELEASE_OPT_LEVEL`. At `s` LLVM rotates the bit loops (the
+//! zero-trip guard disappears), the Thumb-2 bounds check stops folding, and
+//! `scalar_mult_ct` gains a 32-iteration loop packing a constant into limbs.
+//! Each symbol lands on two public control branches on every target.
 
 use krabi_caliper::host::ct_asm::{CalibratedSymbolsTarget as TargetSpec, SymbolCalibration};
 use krabi_caliper::host::isa as mnemonics;
@@ -75,9 +83,58 @@ const X86_64_CALIBRATIONS: &[SymbolCalibration] = &[
     },
 ];
 
-/// Every target supported by the previous standalone driver, plus the two 64-bit
-/// host ISAs. CI exercises one representative lowering per ISA family; the
-/// sibling triples remain available for local calibration checks.
+// thumbv6m has no IT blocks, so the bounds check stays a branch next to the
+// zero-trip guard; long loop branches lower to `b<cc> +2; b far` trampolines.
+const THUMBV6M_CALIBRATIONS: &[SymbolCalibration] = &[
+    SymbolCalibration {
+        display_name: "x25519::montgomery_ladder",
+        selector: "montgomery_ladder",
+        expected_branches: 2,
+    },
+    SymbolCalibration {
+        display_name: "strict_sign::scalar_mult_ct",
+        selector: "scalar_mult_ct",
+        expected_branches: 1,
+    },
+];
+
+// opt-level "s", every target: the ladder keeps its bit-loop back edge and the
+// scalar-byte bounds check; `scalar_mult_ct` keeps its bit-loop back edge and
+// the constant-bound (`i < 32`) limb-packing loop.
+const S_CALIBRATIONS: &[SymbolCalibration] = &[
+    SymbolCalibration {
+        display_name: "x25519::montgomery_ladder",
+        selector: "montgomery_ladder",
+        expected_branches: 2,
+    },
+    SymbolCalibration {
+        display_name: "strict_sign::scalar_mult_ct",
+        selector: "scalar_mult_ct",
+        expected_branches: 2,
+    },
+];
+
+/// Targets calibrated for `opt_level`, or `None` for an uncalibrated level.
+pub fn for_opt_level(opt_level: &str) -> Option<Vec<TargetSpec>> {
+    match opt_level {
+        "z" => Some(TARGETS.to_vec()),
+        "s" => Some(
+            TARGETS
+                .iter()
+                .map(|&t| TargetSpec {
+                    calibrations: S_CALIBRATIONS,
+                    ..t
+                })
+                .collect(),
+        ),
+        _ => None,
+    }
+}
+
+/// Calibrations at opt-level `z`. Every target supported by the previous
+/// standalone driver, plus the two 64-bit host ISAs. CI exercises one
+/// representative lowering per ISA family; the sibling triples remain available
+/// for local calibration checks.
 pub const TARGETS: &[TargetSpec] = &[
     TargetSpec {
         triple: "thumbv7em-none-eabi",
@@ -103,7 +160,7 @@ pub const TARGETS: &[TargetSpec] = &[
         toolchain: "1.88.0",
         forbidden: mnemonics::THUMB_FORBIDDEN,
         allowed_cmov: mnemonics::THUMB_ALLOWED,
-        calibrations: THUMB_CALIBRATIONS,
+        calibrations: THUMBV6M_CALIBRATIONS,
         extra_cargo_args: &[],
     },
     TargetSpec {

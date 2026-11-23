@@ -7,15 +7,19 @@ on:
       - 'feature/**'
   pull_request:
   workflow_dispatch:
+  schedule:
+    - cron: "41 5 * * 1"
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
   panic-free-audit:
+    name: panic-audit + ladder (${{ matrix.target }}, opt ${{ matrix.opt }})
     runs-on: ubuntu-latest
     env:
       RUSTUP_TOOLCHAIN: 1.88.0
+      CARGO_PROFILE_RELEASE_OPT_LEVEL: ${{ matrix.opt }}
     permissions:
       contents: read
     strategy:
@@ -24,6 +28,8 @@ jobs:
         target:
           - thumbv7em-none-eabi
           - riscv32imc-unknown-none-elf
+        # "z" is the pinned profile; deployments commonly build at "s".
+        opt: ["s", "z"]
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.88
@@ -44,7 +50,7 @@ jobs:
             --expect-negative panic_audit__neg__bounds_check \
             --expect-negative panic_audit__neg__unwrap \
             --expect-negative panic_audit__neg__expect \
-            --json target/panic-audit/${{ matrix.target }}.json
+            --json target/panic-audit/${{ matrix.target }}-opt-${{ matrix.opt }}.json
       - name: Build ladder-branches
         working-directory: ct-verify
         run: cargo build --release -p ladder-branches
@@ -63,9 +69,11 @@ jobs:
   # there. The ladder driver cross-builds both targets from any host and
   # disassembles the archive, so one x86_64 runner covers both.
   ladder-host-arches:
+    name: ladder (${{ matrix.target }}, opt ${{ matrix.opt }})
     runs-on: ubuntu-latest
     env:
       RUSTUP_TOOLCHAIN: 1.88.0
+      CARGO_PROFILE_RELEASE_OPT_LEVEL: ${{ matrix.opt }}
     permissions:
       contents: read
     strategy:
@@ -74,6 +82,7 @@ jobs:
         target:
           - aarch64-unknown-none
           - x86_64-unknown-none
+        opt: ["s", "z"]
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.88
@@ -88,16 +97,21 @@ jobs:
         run: target/release/ladder-branches ${{ matrix.target }}
 
   ct-ctgrind:
+    name: ctgrind (${{ matrix.arch }}, opt ${{ matrix.opt }})
+    env:
+      CARGO_PROFILE_RELEASE_OPT_LEVEL: ${{ matrix.opt }}
     permissions:
       contents: read
     strategy:
       fail-fast: false
       matrix:
+        arch: [x86_64, aarch64]
+        opt: ["s", "z"]
         include:
-          - runner: ubuntu-latest
-            arch: x86_64
-          - runner: ubuntu-24.04-arm
-            arch: aarch64
+          - arch: x86_64
+            runner: ubuntu-latest
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
