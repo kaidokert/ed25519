@@ -37,7 +37,7 @@ jobs:
           targets: ${{ matrix.target }}
           components: llvm-tools-preview
       - name: Install krabi-caliper
-        run: cargo install krabi-caliper --version 0.2.2 --features cli,campaign
+        run: cargo install krabi-caliper --version 0.4.0 --locked --features cli,campaign
       - name: Panic-free audit (${{ matrix.target }})
         run: |
           cargo krabi-caliper panic-audit \

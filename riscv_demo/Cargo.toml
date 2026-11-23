@@ -11,7 +11,7 @@ baseline = []
 
 [dependencies]
 riscv-rt = "0.18"
-krabi-caliper = { version = "0.2.2", features = ["stack", "risc-v", "uart"] }
+krabi-caliper = { version = "0.4.0", features = ["stack", "risc-v", "uart"] }
 
 ed25519_heapless = { path = "../ed25519", default-features = false, features = [
     "fixed-bigint",
